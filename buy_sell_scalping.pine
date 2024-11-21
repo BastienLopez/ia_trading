@@ -1,5 +1,5 @@
 //@version=5
-strategy("Advanced Scalping Strategy (4H / 1D)", overlay=true)
+strategy("Advanced Scalping Strategy with Improvements", overlay=true)
 
 // Inputs
 ema_fast_length = input.int(9, title="EMA Fast Length")
@@ -13,7 +13,8 @@ atr_length = input.int(14, title="ATR Length")
 atr_mult = input.float(1.5, title="ATR Multiplier")
 supertrend_length = input.int(10, title="Supertrend Length")
 supertrend_factor = input.float(3.0, title="Supertrend Factor")
-volume_threshold = input.float(1.0, title="Volume Multiplier for Confirmation", step=0.1)
+trail_activation = input.float(1.5, title="Trailing Stop Activation (%)", step=0.1)
+trail_distance = input.float(1.0, title="Trailing Stop Distance (%)", step=0.1)
 
 // Indicators
 ema_fast = ta.ema(close, ema_fast_length)
@@ -21,36 +22,37 @@ ema_slow = ta.ema(close, ema_slow_length)
 rsi = ta.rsi(close, rsi_length)
 [bb_upper, bb_lower, _] = ta.bb(close, bollinger_length, bollinger_mult)
 atr = ta.atr(atr_length)
-avg_volume = ta.sma(volume, 20)
 
-// Supertrend Calculation
+// Supertrend
 [supertrend_upper, supertrend_lower] = ta.supertrend(supertrend_length, supertrend_factor)
 supertrend_direction = ta.supertrenddir(supertrend_length, supertrend_factor)
 
-// RSI Divergence Detection
-rsi_high_divergence = ta.pivot(rsi, 3, 3) and high > ta.highest(high, 5) and rsi < ta.highest(rsi, 5)
-rsi_low_divergence = ta.pivot(rsi, 3, 3) and low < ta.lowest(low, 5) and rsi > ta.lowest(rsi, 5)
+// Trailing Stops
+var float trailing_stop = na
+if (strategy.position_size > 0)
+    trailing_stop := na(trailing_stop) ? close * (1 - trail_distance / 100) : max(trailing_stop, close * (1 - trail_distance / 100))
+    if close <= trailing_stop
+        strategy.close("Buy", comment="Trailing Stop Triggered")
 
-// Buy Condition
-buy_condition = ta.crossover(ema_fast, ema_slow) and close < bb_lower and rsi < rsi_oversold and supertrend_direction == 1 and volume > avg_volume * volume_threshold
+if (strategy.position_size < 0)
+    trailing_stop := na(trailing_stop) ? close * (1 + trail_distance / 100) : min(trailing_stop, close * (1 + trail_distance / 100))
+    if close >= trailing_stop
+        strategy.close("Sell", comment="Trailing Stop Triggered")
 
-// Sell Condition
-sell_condition = ta.crossunder(ema_fast, ema_slow) and close > bb_upper and rsi > rsi_overbought and supertrend_direction == -1 and volume > avg_volume * volume_threshold
+// Pivot Support/Resistance
+pivot_high = ta.pivothigh(high, 10, 10)
+pivot_low = ta.pivotlow(low, 10, 10)
+plot(pivot_high, color=color.red, linewidth=1, style=plot.style_circles, title="Resistance")
+plot(pivot_low, color=color.green, linewidth=1, style=plot.style_circles, title="Support")
 
-// Entry and Exit Logic
-if buy_condition
-    strategy.entry("Buy", strategy.long)
-    strategy.exit("Sell Stop/Limit", "Buy", stop=close - atr * atr_mult, limit=close + atr * atr_mult)
-
-if sell_condition
-    strategy.entry("Sell", strategy.short)
-    strategy.exit("Buy Stop/Limit", "Sell", stop=close + atr * atr_mult, limit=close - atr * atr_mult)
+// MACD Divergences
+[macdLine, signalLine, _] = ta.macd(close, 12, 26, 9)
+bullish_divergence = ta.pivotlow(low, 5, 5) and low < ta.lowest(low, 10) and macdLine > ta.lowest(macdLine, 10)
+bearish_divergence = ta.pivothigh(high, 5, 5) and high > ta.highest(high, 10) and macdLine < ta.highest(macdLine, 10)
+plotshape(series=bullish_divergence, title="Bullish Divergence", location=location.belowbar, color=color.green, style=shape.labelup, text="BullDiv")
+plotshape(series=bearish_divergence, title="Bearish Divergence", location=location.abovebar, color=color.red, style=shape.labeldown, text="BearDiv")
 
 // Plot Signals
-plotshape(series=buy_condition, title="Buy Signal", location=location.belowbar, color=color.green, style=shape.labelup, text="BUY")
-plotshape(series=sell_condition, title="Sell Signal", location=location.abovebar, color=color.red, style=shape.labeldown, text="SELL")
-
-// Plot Indicators
 plot(ema_fast, color=color.blue, title="EMA Fast")
 plot(ema_slow, color=color.red, title="EMA Slow")
 plot(bb_upper, color=color.green, title="Bollinger Upper Band", style=plot.style_line)
@@ -59,3 +61,13 @@ hline(rsi_overbought, "RSI Overbought", color=color.red, linestyle=hline.style_d
 hline(rsi_oversold, "RSI Oversold", color=color.green, linestyle=hline.style_dotted)
 plot(supertrend_upper, color=color.green, title="Supertrend Upper", linewidth=1, style=plot.style_stepline)
 plot(supertrend_lower, color=color.red, title="Supertrend Lower", linewidth=1, style=plot.style_stepline)
+
+// Buy/Sell Conditions
+buy_condition = ta.crossover(ema_fast, ema_slow) and close < bb_lower and rsi < rsi_oversold and supertrend_direction == 1
+sell_condition = ta.crossunder(ema_fast, ema_slow) and close > bb_upper and rsi > rsi_overbought and supertrend_direction == -1
+
+if buy_condition
+    strategy.entry("Buy", strategy.long)
+
+if sell_condition
+    strategy.entry("Sell", strategy.short)
