@@ -1,0 +1,61 @@
+//@version=5
+strategy("Advanced Scalping Strategy (4H / 1D)", overlay=true)
+
+// Inputs
+ema_fast_length = input.int(9, title="EMA Fast Length")
+ema_slow_length = input.int(21, title="EMA Slow Length")
+rsi_length = input.int(14, title="RSI Length")
+rsi_overbought = input.int(70, title="RSI Overbought Level")
+rsi_oversold = input.int(30, title="RSI Oversold Level")
+bollinger_length = input.int(20, title="Bollinger Bands Length")
+bollinger_mult = input.float(2.0, title="Bollinger Bands Multiplier")
+atr_length = input.int(14, title="ATR Length")
+atr_mult = input.float(1.5, title="ATR Multiplier")
+supertrend_length = input.int(10, title="Supertrend Length")
+supertrend_factor = input.float(3.0, title="Supertrend Factor")
+volume_threshold = input.float(1.0, title="Volume Multiplier for Confirmation", step=0.1)
+
+// Indicators
+ema_fast = ta.ema(close, ema_fast_length)
+ema_slow = ta.ema(close, ema_slow_length)
+rsi = ta.rsi(close, rsi_length)
+[bb_upper, bb_lower, _] = ta.bb(close, bollinger_length, bollinger_mult)
+atr = ta.atr(atr_length)
+avg_volume = ta.sma(volume, 20)
+
+// Supertrend Calculation
+[supertrend_upper, supertrend_lower] = ta.supertrend(supertrend_length, supertrend_factor)
+supertrend_direction = ta.supertrenddir(supertrend_length, supertrend_factor)
+
+// RSI Divergence Detection
+rsi_high_divergence = ta.pivot(rsi, 3, 3) and high > ta.highest(high, 5) and rsi < ta.highest(rsi, 5)
+rsi_low_divergence = ta.pivot(rsi, 3, 3) and low < ta.lowest(low, 5) and rsi > ta.lowest(rsi, 5)
+
+// Buy Condition
+buy_condition = ta.crossover(ema_fast, ema_slow) and close < bb_lower and rsi < rsi_oversold and supertrend_direction == 1 and volume > avg_volume * volume_threshold
+
+// Sell Condition
+sell_condition = ta.crossunder(ema_fast, ema_slow) and close > bb_upper and rsi > rsi_overbought and supertrend_direction == -1 and volume > avg_volume * volume_threshold
+
+// Entry and Exit Logic
+if buy_condition
+    strategy.entry("Buy", strategy.long)
+    strategy.exit("Sell Stop/Limit", "Buy", stop=close - atr * atr_mult, limit=close + atr * atr_mult)
+
+if sell_condition
+    strategy.entry("Sell", strategy.short)
+    strategy.exit("Buy Stop/Limit", "Sell", stop=close + atr * atr_mult, limit=close - atr * atr_mult)
+
+// Plot Signals
+plotshape(series=buy_condition, title="Buy Signal", location=location.belowbar, color=color.green, style=shape.labelup, text="BUY")
+plotshape(series=sell_condition, title="Sell Signal", location=location.abovebar, color=color.red, style=shape.labeldown, text="SELL")
+
+// Plot Indicators
+plot(ema_fast, color=color.blue, title="EMA Fast")
+plot(ema_slow, color=color.red, title="EMA Slow")
+plot(bb_upper, color=color.green, title="Bollinger Upper Band", style=plot.style_line)
+plot(bb_lower, color=color.red, title="Bollinger Lower Band", style=plot.style_line)
+hline(rsi_overbought, "RSI Overbought", color=color.red, linestyle=hline.style_dotted)
+hline(rsi_oversold, "RSI Oversold", color=color.green, linestyle=hline.style_dotted)
+plot(supertrend_upper, color=color.green, title="Supertrend Upper", linewidth=1, style=plot.style_stepline)
+plot(supertrend_lower, color=color.red, title="Supertrend Lower", linewidth=1, style=plot.style_stepline)
