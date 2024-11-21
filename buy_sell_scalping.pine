@@ -12,7 +12,7 @@ bollinger_mult = input.float(2.0, title="Bollinger Bands Multiplier")
 atr_length = input.int(14, title="ATR Length")
 atr_mult = input.float(1.5, title="ATR Multiplier")
 supertrend_length = input.int(10, title="Supertrend Length")
-supertrend_factor = input.float(3.0, title="Supertrend Factor")
+supertrend_factor = input.int(3, title="Supertrend Factor")  // Converti en entier
 trail_activation = input.float(1.5, title="Trailing Stop Activation (%)", step=0.1)
 trail_distance = input.float(1.0, title="Trailing Stop Distance (%)", step=0.1)
 
@@ -24,18 +24,18 @@ rsi = ta.rsi(close, rsi_length)
 atr = ta.atr(atr_length)
 
 // Supertrend
-[supertrend_upper, supertrend_lower] = ta.supertrend(supertrend_length, supertrend_factor)
-supertrend_direction = ta.supertrenddir(supertrend_length, supertrend_factor)
+[supertrend_upper, supertrend_lower] = ta.supertrend(supertrend_factor, supertrend_length)
+supertrend_direction = close > supertrend_upper ? 1 : (close < supertrend_lower ? -1 : 0)  // Détection manuelle de la tendance
 
 // Trailing Stops
 var float trailing_stop = na
 if (strategy.position_size > 0)
-    trailing_stop := na(trailing_stop) ? close * (1 - trail_distance / 100) : max(trailing_stop, close * (1 - trail_distance / 100))
+    trailing_stop := na(trailing_stop) ? close * (1 - trail_distance / 100) : math.max(trailing_stop, close * (1 - trail_distance / 100))
     if close <= trailing_stop
         strategy.close("Buy", comment="Trailing Stop Triggered")
 
 if (strategy.position_size < 0)
-    trailing_stop := na(trailing_stop) ? close * (1 + trail_distance / 100) : min(trailing_stop, close * (1 + trail_distance / 100))
+    trailing_stop := na(trailing_stop) ? close * (1 + trail_distance / 100) : math.min(trailing_stop, close * (1 + trail_distance / 100))
     if close >= trailing_stop
         strategy.close("Sell", comment="Trailing Stop Triggered")
 
@@ -47,8 +47,8 @@ plot(pivot_low, color=color.green, linewidth=1, style=plot.style_circles, title=
 
 // MACD Divergences
 [macdLine, signalLine, _] = ta.macd(close, 12, 26, 9)
-bullish_divergence = ta.pivotlow(low, 5, 5) and low < ta.lowest(low, 10) and macdLine > ta.lowest(macdLine, 10)
-bearish_divergence = ta.pivothigh(high, 5, 5) and high > ta.highest(high, 10) and macdLine < ta.highest(macdLine, 10)
+bullish_divergence = ta.pivotlow(low, 5, 5) and ta.valuewhen(ta.pivotlow(low, 5, 5), low, 0) < ta.lowest(low, 10) and macdLine > ta.lowest(macdLine, 10)
+bearish_divergence = ta.pivothigh(high, 5, 5) and ta.valuewhen(ta.pivothigh(high, 5, 5), high, 0) > ta.highest(high, 10) and macdLine < ta.highest(macdLine, 10)
 plotshape(series=bullish_divergence, title="Bullish Divergence", location=location.belowbar, color=color.green, style=shape.labelup, text="BullDiv")
 plotshape(series=bearish_divergence, title="Bearish Divergence", location=location.abovebar, color=color.red, style=shape.labeldown, text="BearDiv")
 

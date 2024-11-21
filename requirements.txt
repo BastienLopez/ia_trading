@@ -1,0 +1,7 @@
+discord.py
+flask
+requests
+pandas
+numpy
+beautifulsoup4
+python-dotenv
