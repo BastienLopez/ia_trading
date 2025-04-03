@@ -8,6 +8,7 @@ import requests
 from flask import Flask, render_template, request, jsonify, redirect, url_for
 from datetime import datetime, timedelta
 import random
+import math
 
 # Configuration du logging
 logging.basicConfig(
@@ -32,6 +33,62 @@ logger.info("Application Flask initialisée")
 # Configuration
 API_URL = os.environ.get('API_URL', 'http://localhost:8000')
 logger.info(f"Configuration API_URL: {API_URL}")
+
+# Chemin vers le fichier de données
+DATA_FILE = os.path.join(os.path.dirname(__file__), 'data', 'transactions.json')
+
+def load_data():
+    if os.path.exists(DATA_FILE):
+        with open(DATA_FILE, 'r') as f:
+            data = json.load(f)
+            # S'assurer que la structure des données est correcte
+            if "transactions" not in data:
+                data["transactions"] = []
+            if "portfolio" not in data:
+                data["portfolio"] = {"current_value": 0, "starting_value": 0, "assets": []}
+            return data
+    return {"transactions": [], "portfolio": {"current_value": 0, "starting_value": 0, "assets": []}}
+
+def save_data(data):
+    with open(DATA_FILE, 'w') as f:
+        json.dump(data, f, indent=4)
+
+def update_portfolio():
+    data = load_data()
+    portfolio = {"current_value": 0, "starting_value": 0, "assets": {}}
+    
+    # Si pas de transactions, retourner un portefeuille vide
+    if not data["transactions"]:
+        data["portfolio"] = portfolio
+        save_data(data)
+        return portfolio
+    
+    # Calculer le portefeuille à partir des transactions
+    for transaction in data["transactions"]:
+        symbol = transaction["symbol"]
+        if symbol not in portfolio["assets"]:
+            portfolio["assets"][symbol] = {"amount": 0, "value_usd": 0}
+        
+        if transaction["action"] == "ACHETER":
+            portfolio["assets"][symbol]["amount"] += transaction["amount"]
+            portfolio["assets"][symbol]["value_usd"] += transaction["value"]
+        else:
+            portfolio["assets"][symbol]["amount"] -= transaction["amount"]
+            portfolio["assets"][symbol]["value_usd"] -= transaction["value"]
+    
+    # Calculer la valeur totale actuelle
+    portfolio["current_value"] = sum(asset["value_usd"] for asset in portfolio["assets"].values())
+    
+    # La valeur de départ est la valeur actuelle
+    portfolio["starting_value"] = portfolio["current_value"]
+    
+    # Convertir le dictionnaire en liste
+    portfolio["assets"] = [{"symbol": k, **v} for k, v in portfolio["assets"].items()]
+    
+    # Mettre à jour les données
+    data["portfolio"] = portfolio
+    save_data(data)
+    return portfolio
 
 # Fonction d'aide pour simuler les réponses de l'API
 def simulate_api_response(endpoint, params=None):
@@ -319,65 +376,57 @@ def api_backtest():
 
 @app.route('/api/market_data', methods=['GET'])
 def api_market_data():
-    """Récupérer les données de marché actuelles"""
-    symbol = request.args.get('symbol', 'BTC/USDT')
-    timeframe = request.args.get('timeframe', '1h')
-    
-    logger.info(f"Demande de données de marché: {symbol}, {timeframe}")
     try:
-        # Pour la démonstration, on utilise des données fictives
-        logger.debug("Génération de données fictives pour la démo")
-        mock_data = {
-            "prices": [
-                {"date": (datetime.now() - timedelta(hours=i)).isoformat(), 
-                 "price": 20000 + (i * 100) + ((i % 3) * 200)} 
-                for i in range(48, 0, -1)
-            ],
-            "indicators": {
-                "rsi": 65.2,
-                "macd": 0.8,
-                "signal": 0.2
-            },
-            "last_recommendation": {
-                "action": "ACHETER",
-                "confidence": 0.87,
-                "timestamp": datetime.now().isoformat()
-            }
+        timeframe = request.args.get('timeframe', '1h')
+        
+        # Données de prix simulées
+        now = datetime.now()
+        prices = []
+        for i in range(100):
+            date = now - timedelta(hours=i)
+            price = 50000 + random.uniform(-1000, 1000)
+            prices.append({
+                "date": date.isoformat(),
+                "price": price
+            })
+        
+        # Indicateurs techniques simulés
+        indicators = {
+            "rsi": random.uniform(30, 70),
+            "macd": random.uniform(-100, 100),
+            "ema9": prices[-1]["price"] * random.uniform(0.99, 1.01),
+            "ema21": prices[-1]["price"] * random.uniform(0.99, 1.01)
         }
-        logger.debug(f"Nombre d'entrées de prix générées: {len(mock_data['prices'])}")
-        return jsonify(mock_data)
+        
+        # Recommandation simulée
+        last_recommendation = {
+            "action": random.choice(["ACHETER", "VENDRE", "NEUTRE"]),
+            "confidence": random.uniform(0.5, 0.9)
+        }
+        
+        return jsonify({
+            "prices": prices,
+            "indicators": indicators,
+            "last_recommendation": last_recommendation
+        })
     except Exception as e:
-        logger.error(f"Erreur lors de la récupération des données de marché: {str(e)}", exc_info=True)
-        return jsonify({"error": True, "message": str(e)}), 500
+        logger.error(f"Erreur lors de la récupération des données de marché: {str(e)}")
+        return jsonify({"error": "Erreur lors de la récupération des données de marché"}), 500
 
 @app.route('/api/portfolio', methods=['GET'])
 def api_portfolio():
-    """Récupérer les données du portefeuille"""
-    logger.info("Demande de données du portefeuille")
     try:
-        # Pour la démonstration, on utilise des données fictives
-        logger.debug("Génération de données fictives de portefeuille")
-        mock_data = {
-            "current_value": 12500.75,
-            "starting_value": 10000.00,
-            "profit_pct": 25.01,
-            "assets": [
-                {"symbol": "BTC", "amount": 0.25, "value_usd": 7500.25},
-                {"symbol": "ETH", "amount": 2.5, "value_usd": 3000.50},
-                {"symbol": "USDT", "amount": 2000.00, "value_usd": 2000.00}
-            ],
-            "trade_history": [
-                {"timestamp": (datetime.now() - timedelta(days=20)).isoformat(), "action": "ACHETER", "symbol": "BTC", "price": 19500, "amount": 0.15, "value": 2925.00},
-                {"timestamp": (datetime.now() - timedelta(days=15)).isoformat(), "action": "ACHETER", "symbol": "ETH", "price": 1050, "amount": 2.0, "value": 2100.00},
-                {"timestamp": (datetime.now() - timedelta(days=7)).isoformat(), "action": "ACHETER", "symbol": "BTC", "price": 21500, "amount": 0.1, "value": 2150.00},
-                {"timestamp": (datetime.now() - timedelta(days=3)).isoformat(), "action": "ACHETER", "symbol": "ETH", "price": 1200, "amount": 0.5, "value": 600.00}
-            ]
+        data = load_data()
+        portfolio = update_portfolio()
+        response_data = {
+            "transactions": data["transactions"],
+            "portfolio": portfolio
         }
-        logger.debug(f"Données de portefeuille générées avec {len(mock_data['assets'])} actifs")
-        return jsonify(mock_data)
+        logger.info(f"Réponse API portfolio: {json.dumps(response_data, indent=2)}")
+        return jsonify(response_data)
     except Exception as e:
-        logger.error(f"Erreur lors de la récupération des données du portefeuille: {str(e)}", exc_info=True)
-        return jsonify({"error": True, "message": str(e)}), 500
+        logger.error(f"Erreur lors de la récupération du portefeuille: {str(e)}")
+        return jsonify({"error": "Erreur lors de la récupération du portefeuille"}), 500
 
 @app.route('/api/performance', methods=['GET'])
 def api_performance():
@@ -442,6 +491,82 @@ def api_performance():
         logger.error(f"Erreur lors de la récupération des métriques de performance: {str(e)}", exc_info=True)
         return jsonify({"error": True, "message": str(e)}), 500
 
+@app.route('/api/transactions', methods=['GET', 'POST', 'PUT', 'DELETE'])
+def handle_transactions():
+    try:
+        data = load_data()
+        
+        if request.method == 'GET':
+            logger.info(f"Récupération des transactions: {json.dumps(data['transactions'], indent=2)}")
+            return jsonify(data["transactions"])
+            
+        elif request.method == 'POST':
+            transaction = request.json
+            logger.info(f"Nouvelle transaction reçue: {json.dumps(transaction, indent=2)}")
+            
+            # Valider les données
+            required_fields = ['symbol', 'action', 'amount', 'price']
+            if not all(field in transaction for field in required_fields):
+                logger.error(f"Données manquantes dans la transaction: {transaction}")
+                return jsonify({"error": "Données manquantes"}), 400
+            
+            # Ajouter la transaction
+            transaction["timestamp"] = datetime.now().timestamp()
+            transaction["value"] = transaction["amount"] * transaction["price"]
+            transaction["date"] = transaction.get("date", datetime.now().isoformat())
+            
+            data["transactions"].append(transaction)
+            save_data(data)
+            update_portfolio()
+            
+            logger.info(f"Transaction ajoutée avec succès. Nouvelles données: {json.dumps(data, indent=2)}")
+            return jsonify({"success": True})
+            
+        elif request.method == 'PUT':
+            updated_transaction = request.json
+            logger.info(f"Transaction à mettre à jour: {json.dumps(updated_transaction, indent=2)}")
+            
+            # Valider les données
+            required_fields = ['symbol', 'action', 'amount', 'price', 'timestamp']
+            if not all(field in updated_transaction for field in required_fields):
+                logger.error(f"Données manquantes dans la transaction à mettre à jour: {updated_transaction}")
+                return jsonify({"error": "Données manquantes"}), 400
+            
+            # Mettre à jour la transaction
+            for i, transaction in enumerate(data["transactions"]):
+                if transaction["timestamp"] == updated_transaction["timestamp"]:
+                    updated_transaction["value"] = updated_transaction["amount"] * updated_transaction["price"]
+                    data["transactions"][i] = updated_transaction
+                    break
+            
+            save_data(data)
+            update_portfolio()
+            
+            logger.info(f"Transaction mise à jour avec succès. Nouvelles données: {json.dumps(data, indent=2)}")
+            return jsonify({"success": True})
+            
+        elif request.method == 'DELETE':
+            transaction_id = request.json.get("id")
+            if transaction_id is None:
+                logger.error("ID de transaction manquant")
+                return jsonify({"error": "ID de transaction manquant"}), 400
+            
+            data["transactions"] = [t for t in data["transactions"] if t["timestamp"] != transaction_id]
+            save_data(data)
+            update_portfolio()
+            
+            logger.info(f"Transaction supprimée avec succès. Nouvelles données: {json.dumps(data, indent=2)}")
+            return jsonify({"success": True})
+            
+    except Exception as e:
+        logger.error(f"Erreur lors de la gestion des transactions: {str(e)}")
+        return jsonify({"error": "Erreur lors de la gestion des transactions"}), 500
+
+@app.route('/api/portfolio')
+def get_portfolio():
+    data = load_data()
+    return jsonify(data["portfolio"])
+
 @app.errorhandler(404)
 def page_not_found(e):
     """Gestionnaire pour les erreurs 404"""
@@ -453,6 +578,47 @@ def internal_server_error(e):
     """Gestionnaire pour les erreurs 500"""
     logger.error(f"Erreur serveur: {str(e)}")
     return render_template('500.html'), 500
+
+def get_real_crypto_prices():
+    """Récupère les prix réels des cryptomonnaies via CoinGecko"""
+    try:
+        # Liste des cryptomonnaies à suivre
+        coins = ['bitcoin', 'ethereum', 'solana', 'cardano', 'binancecoin']
+        
+        # Récupérer les prix via l'API CoinGecko
+        url = f"https://api.coingecko.com/api/v3/simple/price?ids={','.join(coins)}&vs_currencies=usd&include_24hr_change=true"
+        response = requests.get(url)
+        
+        if response.status_code == 200:
+            data = response.json()
+            return {
+                'BTC/USDT': {
+                    'price': data['bitcoin']['usd'],
+                    'change_24h': data['bitcoin']['usd_24h_change']
+                },
+                'ETH/USDT': {
+                    'price': data['ethereum']['usd'],
+                    'change_24h': data['ethereum']['usd_24h_change']
+                },
+                'SOL/USDT': {
+                    'price': data['solana']['usd'],
+                    'change_24h': data['solana']['usd_24h_change']
+                },
+                'ADA/USDT': {
+                    'price': data['cardano']['usd'],
+                    'change_24h': data['cardano']['usd_24h_change']
+                },
+                'BNB/USDT': {
+                    'price': data['binancecoin']['usd'],
+                    'change_24h': data['binancecoin']['usd_24h_change']
+                }
+            }
+        else:
+            logger.error(f"Erreur API CoinGecko: {response.status_code}")
+            return None
+    except Exception as e:
+        logger.error(f"Erreur lors de la récupération des prix: {str(e)}")
+        return None
 
 if __name__ == "__main__":
     logger.info("Démarrage du serveur web Flask")

@@ -1,0 +1,8 @@
+{
+    "transactions": [],
+    "portfolio": {
+        "current_value": 0,
+        "starting_value": 0,
+        "assets": []
+    }
+} 

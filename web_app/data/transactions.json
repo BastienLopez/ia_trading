@@ -1,0 +1,61 @@
+{
+    "transactions": [
+        {
+            "symbol": "BTC",
+            "action": "ACHETER",
+            "amount": 2,
+            "price": 19000,
+            "date": "2025-04-03T12:33",
+            "value": 38000,
+            "timestamp": "2025-04-03T14:33:37.803023"
+        },
+        {
+            "symbol": "DOT",
+            "action": "ACHETER",
+            "amount": 2,
+            "price": 10,
+            "date": "2025-04-03T12:34",
+            "value": 20,
+            "timestamp": "2025-04-03T14:34:43.837414"
+        },
+        {
+            "symbol": "BTC",
+            "action": "ACHETER",
+            "amount": 2,
+            "price": 10000,
+            "date": "2025-04-03T12:41",
+            "value": 20000,
+            "timestamp": "2025-04-03T14:41:43.163641"
+        },
+        {
+            "symbol": "LINK",
+            "action": "ACHETER",
+            "amount": 1,
+            "price": 10,
+            "date": "2025-04-03T12:46",
+            "value": 10,
+            "timestamp": "2025-04-03T14:46:07.039049"
+        }
+    ],
+    "portfolio": {
+        "current_value": 58030,
+        "starting_value": 58030,
+        "assets": [
+            {
+                "symbol": "BTC",
+                "amount": 4,
+                "value_usd": 58000
+            },
+            {
+                "symbol": "DOT",
+                "amount": 2,
+                "value_usd": 20
+            },
+            {
+                "symbol": "LINK",
+                "amount": 1,
+                "value_usd": 10
+            }
+        ]
+    }
+}

@@ -130,7 +130,9 @@
                         </div>
                     </div>
                 </div>
-                <canvas id="performance-comparison-chart" height="200"></canvas>
+                <div class="chart-container" style="position: relative; height:200px; width:100%">
+                    <canvas id="performance-comparison-chart"></canvas>
+                </div>
             </div>
         </div>
     </div>
@@ -219,6 +221,84 @@
     </div>
 </div>
 
+<!-- Ajouter cette section avant la section "Historique des transactions" -->
+<div class="row mb-4">
+    <div class="col-md-12">
+        <div class="card shadow-sm">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0">Nouvelle transaction</h5>
+            </div>
+            <div class="card-body">
+                <form id="transaction-form">
+                    <div class="row">
+                        <div class="col-md-2">
+                            <div class="mb-3">
+                                <label for="symbol" class="form-label">Actif</label>
+                                <select class="form-select" id="symbol" required>
+                                    <option value="">Sélectionner un actif</option>
+                                    <option value="BTC">Bitcoin (BTC)</option>
+                                    <option value="ETH">Ethereum (ETH)</option>
+                                    <option value="BNB">Binance Coin (BNB)</option>
+                                    <option value="SOL">Solana (SOL)</option>
+                                    <option value="XRP">Ripple (XRP)</option>
+                                    <option value="ADA">Cardano (ADA)</option>
+                                    <option value="AVAX">Avalanche (AVAX)</option>
+                                    <option value="DOT">Polkadot (DOT)</option>
+                                    <option value="MATIC">Polygon (MATIC)</option>
+                                    <option value="LINK">Chainlink (LINK)</option>
+                                    <option value="UNI">Uniswap (UNI)</option>
+                                    <option value="AAVE">Aave (AAVE)</option>
+                                    <option value="ATOM">Cosmos (ATOM)</option>
+                                    <option value="DOGE">Dogecoin (DOGE)</option>
+                                    <option value="SHIB">Shiba Inu (SHIB)</option>
+                                    <option value="USDT">Tether (USDT)</option>
+                                    <option value="USDC">USD Coin (USDC)</option>
+                                    <option value="DAI">Dai (DAI)</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-2">
+                            <div class="mb-3">
+                                <label for="action" class="form-label">Action</label>
+                                <select class="form-select" id="action" required>
+                                    <option value="ACHETER">Acheter</option>
+                                    <option value="VENDRE">Vendre</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-2">
+                            <div class="mb-3">
+                                <label for="amount" class="form-label">Quantité</label>
+                                <input type="number" class="form-control" id="amount" step="0.00000001" required>
+                            </div>
+                        </div>
+                        <div class="col-md-2">
+                            <div class="mb-3">
+                                <label for="price" class="form-label">Prix ($)</label>
+                                <input type="number" class="form-control" id="price" step="0.01" required>
+                            </div>
+                        </div>
+                        <div class="col-md-2">
+                            <div class="mb-3">
+                                <label for="date" class="form-label">Date (optionnel)</label>
+                                <input type="datetime-local" class="form-control" id="date">
+                                <small class="text-muted">Si non renseignée, la date actuelle sera utilisée</small>
+                            </div>
+                        </div>
+                        <div class="col-md-2">
+                            <div class="mb-3">
+                                <label class="form-label">&nbsp;</label>
+                                <button type="submit" class="btn btn-primary w-100" id="submit-btn">Ajouter</button>
+                                <input type="hidden" id="edit-id" value="">
+                            </div>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Historique des transactions -->
 <div class="row">
     <div class="col-md-12">
@@ -289,9 +369,17 @@ document.addEventListener('DOMContentLoaded', function() {
             .then(data => {
                 portfolioData = data;
                 updatePortfolioData();
+                // Mettre à jour l'historique des transactions
+                if (data.transactions && data.transactions.length > 0) {
+                    updateTradeHistory(data.transactions);
+                } else {
+                    document.getElementById('trade-history').innerHTML = '<p class="text-center">Aucune transaction</p>';
+                }
             })
             .catch(error => {
                 console.error('Erreur lors du chargement des données du portefeuille:', error);
+                assetsTable.innerHTML = '<tr><td colspan="3" class="text-center">Erreur lors du chargement des données</td></tr>';
+                document.getElementById('trade-history').innerHTML = '<p class="text-center text-danger">Erreur lors du chargement des transactions</p>';
             });
     }
     
@@ -352,40 +440,103 @@ document.addEventListener('DOMContentLoaded', function() {
         updatePriceChart();
     }
     
+    // Fonction pour récupérer les prix actuels des cryptomonnaies
+    async function getCurrentPrices() {
+        try {
+            const response = await fetch('/api/market_data?timeframe=1h');
+            const data = await response.json();
+            return data.prices[data.prices.length - 1].price; // Prix actuel du BTC
+        } catch (error) {
+            console.error('Erreur lors de la récupération des prix:', error);
+            return null;
+        }
+    }
+    
     // Mettre à jour les données du portefeuille
-    function updatePortfolioData() {
-        if (!portfolioData) return;
+    async function updatePortfolioData() {
+        if (!portfolioData) {
+            // Si pas de données, afficher un message vide
+            portfolioValue.textContent = '$0.00';
+            portfolioChange.innerHTML = `
+                <span class="badge bg-secondary">0.00%</span>
+                <small class="text-muted ms-2">depuis le début</small>
+            `;
+            assetsTable.innerHTML = '<tr><td colspan="3" class="text-center">Aucun actif dans le portefeuille</td></tr>';
+            return;
+        }
+
+        // Récupérer le prix actuel du BTC
+        const btcPrice = await getCurrentPrices();
+        if (!btcPrice) {
+            console.error('Impossible de récupérer le prix actuel');
+            return;
+        }
+
+        // Calculer la valeur actuelle totale du portefeuille
+        let totalCurrentValue = 0;
+        let totalStartingValue = 0;
+        const assets = {};
+
+        // Traiter les transactions pour calculer les quantités et valeurs
+        if (portfolioData.transactions && portfolioData.transactions.length > 0) {
+            portfolioData.transactions.forEach(transaction => {
+                const symbol = transaction.symbol;
+                if (!assets[symbol]) {
+                    assets[symbol] = {
+                        amount: 0,
+                        value_usd: 0
+                    };
+                }
+                
+                if (transaction.action === 'ACHETER') {
+                    assets[symbol].amount += transaction.amount;
+                    assets[symbol].value_usd += transaction.value;
+                } else {
+                    assets[symbol].amount -= transaction.amount;
+                    assets[symbol].value_usd -= transaction.value;
+                }
+            });
+        }
+
+        // Mettre à jour le tableau des actifs
+        assetsTable.innerHTML = '';
+        const validAssets = Object.entries(assets).filter(([_, asset]) => asset.amount > 0);
         
-        // Mettre à jour la valeur du portefeuille
-        portfolioValue.textContent = `$${portfolioData.current_value.toLocaleString('fr-FR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
-        
+        if (validAssets.length > 0) {
+            validAssets.forEach(([symbol, asset]) => {
+                // Calculer la valeur actuelle de l'actif
+                const currentValue = asset.amount * btcPrice;
+                totalCurrentValue += currentValue;
+                totalStartingValue += asset.value_usd;
+
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td><strong>${symbol}</strong></td>
+                    <td class="text-end">${asset.amount.toLocaleString('fr-FR', {minimumFractionDigits: symbol === 'USDT' ? 2 : 8, maximumFractionDigits: symbol === 'USDT' ? 2 : 8})}</td>
+                    <td class="text-end">$${currentValue.toLocaleString('fr-FR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+                `;
+                assetsTable.appendChild(row);
+            });
+        } else {
+            assetsTable.innerHTML = '<tr><td colspan="3" class="text-center">Aucun actif dans le portefeuille</td></tr>';
+        }
+
+        // Mettre à jour la valeur totale du portefeuille
+        portfolioValue.textContent = `$${totalCurrentValue.toLocaleString('fr-FR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+
         // Calculer le % de profit
-        const profitPercent = ((portfolioData.current_value - portfolioData.starting_value) / portfolioData.starting_value) * 100;
-        
+        const profitPercent = totalStartingValue > 0 ? 
+            ((totalCurrentValue - totalStartingValue) / totalStartingValue) * 100 : 0;
+
         portfolioChange.innerHTML = `
             <span class="badge ${profitPercent >= 0 ? 'bg-success' : 'bg-danger'}">
                 ${profitPercent >= 0 ? '+' : ''}${profitPercent.toFixed(2)}%
             </span>
             <small class="text-muted ms-2">depuis le début</small>
         `;
-        
-        // Mettre à jour le tableau des actifs
-        assetsTable.innerHTML = '';
-        portfolioData.assets.forEach(asset => {
-            const row = document.createElement('tr');
-            row.innerHTML = `
-                <td><strong>${asset.symbol}</strong></td>
-                <td class="text-end">${asset.amount.toLocaleString('fr-FR', {minimumFractionDigits: asset.symbol === 'USDT' ? 2 : 8, maximumFractionDigits: asset.symbol === 'USDT' ? 2 : 8})}</td>
-                <td class="text-end">$${asset.value_usd.toLocaleString('fr-FR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
-            `;
-            assetsTable.appendChild(row);
-        });
-        
+
         // Mettre à jour le graphique du portefeuille
         updatePortfolioChart();
-        
-        // Mettre à jour l'historique des transactions
-        updateTradeHistory();
     }
     
     // Mettre à jour les données de performance
@@ -409,60 +560,70 @@ document.addEventListener('DOMContentLoaded', function() {
         // Données pour le graphique
         const labels = marketData.prices.map(p => {
             const date = new Date(p.date);
-            return date.toLocaleTimeString('fr-FR', {hour: '2-digit', minute: '2-digit'});
+            if (currentTimeframe === '1d') {
+                return date.toLocaleDateString('fr-FR', {day: '2-digit', month: '2-digit'});
+            } else {
+                return date.toLocaleTimeString('fr-FR', {hour: '2-digit', minute: '2-digit'});
+            }
         });
         
         const prices = marketData.prices.map(p => p.price);
         
-        // Si le graphique existe déjà, le mettre à jour
+        // Si le graphique existe déjà, le détruire
         if (priceChart) {
-            priceChart.data.labels = labels;
-            priceChart.data.datasets[0].data = prices;
-            priceChart.update();
-        } else {
-            // Sinon, créer un nouveau graphique
-            priceChart = new Chart(ctx, {
-                type: 'line',
-                data: {
-                    labels: labels,
-                    datasets: [{
-                        label: 'Prix (USD)',
-                        data: prices,
-                        borderColor: 'rgba(54, 162, 235, 1)',
-                        backgroundColor: 'rgba(54, 162, 235, 0.1)',
-                        borderWidth: 2,
-                        tension: 0.1,
-                        fill: true
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: {
-                            display: false
-                        },
-                        tooltip: {
-                            mode: 'index',
-                            intersect: false,
-                        }
+            priceChart.destroy();
+        }
+        
+        // Créer un nouveau graphique
+        priceChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Prix',
+                    data: prices,
+                    borderColor: 'rgba(54, 162, 235, 1)',
+                    backgroundColor: 'rgba(54, 162, 235, 0.1)',
+                    borderWidth: 2,
+                    fill: true,
+                    tension: 0.1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: false
                     },
-                    scales: {
-                        x: {
-                            grid: {
-                                display: false
-                            }
-                        },
-                        y: {
-                            position: 'right',
-                            grid: {
-                                color: 'rgba(200, 200, 200, 0.2)'
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                return `$${context.raw.toLocaleString('fr-FR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
                             }
                         }
                     }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: false,
+                        grid: {
+                            color: 'rgba(255, 255, 255, 0.1)'
+                        },
+                        ticks: {
+                            callback: function(value) {
+                                return `$${value.toLocaleString('fr-FR', {minimumFractionDigits: 0, maximumFractionDigits: 0})}`;
+                            }
+                        }
+                    },
+                    x: {
+                        grid: {
+                            display: false
+                        }
+                    }
                 }
-            });
-        }
+            }
+        });
     }
     
     // Mettre à jour le graphique du portefeuille
@@ -471,9 +632,43 @@ document.addEventListener('DOMContentLoaded', function() {
         
         const ctx = document.getElementById('portfolio-chart').getContext('2d');
         
+        // Calculer les actifs à partir des transactions
+        const assets = {};
+        if (portfolioData.transactions && portfolioData.transactions.length > 0) {
+            portfolioData.transactions.forEach(transaction => {
+                const symbol = transaction.symbol;
+                if (!assets[symbol]) {
+                    assets[symbol] = 0;
+                }
+                if (transaction.action === 'ACHETER') {
+                    assets[symbol] += transaction.amount;
+                } else {
+                    assets[symbol] -= transaction.amount;
+                }
+            });
+        }
+        
+        // Filtrer les actifs avec une quantité positive
+        const validAssets = Object.entries(assets)
+            .filter(([_, amount]) => amount > 0)
+            .map(([symbol, amount]) => ({
+                symbol,
+                amount,
+                value_usd: amount * (marketData ? marketData.prices[marketData.prices.length - 1].price : 0)
+            }));
+        
+        if (validAssets.length === 0) {
+            // Si aucun actif valide, détruire le graphique s'il existe
+            if (portfolioChart) {
+                portfolioChart.destroy();
+                portfolioChart = null;
+            }
+            return;
+        }
+        
         // Données pour le graphique
-        const labels = portfolioData.assets.map(a => a.symbol);
-        const data = portfolioData.assets.map(a => a.value_usd);
+        const labels = validAssets.map(a => a.symbol);
+        const data = validAssets.map(a => a.value_usd);
         const colors = [
             'rgba(54, 162, 235, 0.8)',
             'rgba(255, 99, 132, 0.8)',
@@ -486,6 +681,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (portfolioChart) {
             portfolioChart.data.labels = labels;
             portfolioChart.data.datasets[0].data = data;
+            portfolioChart.data.datasets[0].backgroundColor = colors.slice(0, labels.length);
             portfolioChart.update();
         } else {
             // Sinon, créer un nouveau graphique
@@ -553,9 +749,21 @@ document.addEventListener('DOMContentLoaded', function() {
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
+                    layout: {
+                        padding: {
+                            top: 10,
+                            right: 10,
+                            bottom: 10,
+                            left: 10
+                        }
+                    },
                     plugins: {
                         legend: {
                             position: 'top',
+                            labels: {
+                                boxWidth: 12,
+                                padding: 10
+                            }
                         },
                         tooltip: {
                             callbacks: {
@@ -572,10 +780,24 @@ document.addEventListener('DOMContentLoaded', function() {
                     },
                     scales: {
                         y: {
+                            beginAtZero: true,
+                            grid: {
+                                display: true,
+                                color: 'rgba(255, 255, 255, 0.1)'
+                            },
                             ticks: {
                                 callback: function(value) {
                                     return value + '%';
-                                }
+                                },
+                                padding: 5
+                            }
+                        },
+                        x: {
+                            grid: {
+                                display: false
+                            },
+                            ticks: {
+                                padding: 5
                             }
                         }
                     }
@@ -585,21 +807,22 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     // Mettre à jour l'historique des transactions
-    function updateTradeHistory() {
-        if (!portfolioData || !portfolioData.trade_history) return;
-        
+    function updateTradeHistory(transactions) {
+        const tradeHistory = document.getElementById('trade-history');
         tradeHistory.innerHTML = '';
         
-        if (portfolioData.trade_history.length === 0) {
-            tradeHistory.innerHTML = '<p class="text-center">Aucune transaction récente</p>';
+        if (!transactions || transactions.length === 0) {
+            tradeHistory.innerHTML = '<p class="text-center">Aucune transaction</p>';
             return;
         }
         
-        portfolioData.trade_history.forEach(trade => {
-            const date = new Date(trade.timestamp);
+        // Trier les transactions par date (les plus récentes en premier)
+        transactions.sort((a, b) => new Date(b.date) - new Date(a.date));
+        
+        transactions.forEach(trade => {
+            const date = new Date(trade.date);
             const formattedDate = date.toLocaleDateString('fr-FR') + ' ' + date.toLocaleTimeString('fr-FR');
             
-            // Déterminer la classe CSS en fonction de l'action
             const tradeClass = trade.action === 'ACHETER' ? 'trade-buy' : 'trade-sell';
             
             const tradeItem = document.createElement('div');
@@ -607,7 +830,15 @@ document.addEventListener('DOMContentLoaded', function() {
             tradeItem.innerHTML = `
                 <div class="d-flex justify-content-between">
                     <h6>${trade.action} ${trade.symbol}</h6>
-                    <small class="text-muted">${formattedDate}</small>
+                    <div>
+                        <small class="text-muted">${formattedDate}</small>
+                        <button class="btn btn-sm btn-primary ms-2" onclick="editTransaction(${JSON.stringify(trade)})">
+                            <i class="fas fa-edit"></i>
+                        </button>
+                        <button class="btn btn-sm btn-danger ms-2" onclick="deleteTransaction('${trade.timestamp}')">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
                 </div>
                 <div class="d-flex justify-content-between">
                     <div>Quantité: ${trade.amount.toLocaleString('fr-FR', {minimumFractionDigits: 8, maximumFractionDigits: 8})}</div>
@@ -658,6 +889,107 @@ document.addEventListener('DOMContentLoaded', function() {
     setInterval(() => {
         loadMarketData();
     }, 30000);
+
+    // Fonctions pour gérer les transactions
+    function addTransaction(transaction) {
+        fetch('/api/transactions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(transaction)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                alert(data.error);
+            } else {
+                loadPortfolioData();  // Recharger toutes les données
+            }
+        })
+        .catch(error => {
+            console.error('Erreur lors de l\'ajout de la transaction:', error);
+        });
+    }
+
+    function deleteTransaction(id) {
+        fetch('/api/transactions', {
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ id: id })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                alert(data.error);
+            } else {
+                loadPortfolioData();  // Recharger toutes les données
+            }
+        })
+        .catch(error => {
+            console.error('Erreur lors de la suppression de la transaction:', error);
+        });
+    }
+
+    function editTransaction(transaction) {
+        document.getElementById('symbol').value = transaction.symbol;
+        document.getElementById('action').value = transaction.action;
+        document.getElementById('amount').value = transaction.amount;
+        document.getElementById('price').value = transaction.price;
+        document.getElementById('date').value = transaction.date;
+        document.getElementById('edit-id').value = transaction.timestamp;
+        document.getElementById('submit-btn').textContent = 'Modifier';
+    }
+
+    function updateTransaction(transaction) {
+        fetch('/api/transactions', {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(transaction)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                alert(data.error);
+            } else {
+                loadPortfolioData();  // Recharger toutes les données
+            }
+        })
+        .catch(error => {
+            console.error('Erreur lors de la modification de la transaction:', error);
+        });
+    }
+
+    // Gestionnaire du formulaire
+    document.getElementById('transaction-form').addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const transaction = {
+            symbol: document.getElementById('symbol').value.toUpperCase(),
+            action: document.getElementById('action').value,
+            amount: parseFloat(document.getElementById('amount').value),
+            price: parseFloat(document.getElementById('price').value),
+            date: document.getElementById('date').value || new Date().toISOString().slice(0, 16)
+        };
+        
+        const editId = document.getElementById('edit-id').value;
+        if (editId) {
+            // Modification d'une transaction existante
+            transaction.timestamp = editId;
+            updateTransaction(transaction);
+        } else {
+            // Ajout d'une nouvelle transaction
+            addTransaction(transaction);
+        }
+        
+        this.reset();
+        document.getElementById('submit-btn').textContent = 'Ajouter';
+        document.getElementById('edit-id').value = '';
+    });
 });
 </script>
 {% endblock %} 
