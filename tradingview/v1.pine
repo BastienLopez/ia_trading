@@ -1,5 +1,5 @@
 //@version=6
-indicator("BTC Trading Signals", overlay=true)
+indicator("v1", overlay=true)
 
 // === PARAMÈTRES ===
 // RSI

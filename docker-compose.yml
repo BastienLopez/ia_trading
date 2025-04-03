@@ -1,0 +1,60 @@
+services:
+  api:
+    build: .
+    container_name: trading_api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./ai_trading:/app/ai_trading
+      - ./logs:/app/logs
+    depends_on:
+      - db
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/trading
+      - API_URL=http://localhost:8000
+      - LOG_LEVEL=INFO
+    command: python -m ai_trading.api
+
+  bot:
+    build: .
+    container_name: trading_bot
+    restart: unless-stopped
+    volumes:
+      - ./discord_bot:/app/discord_bot
+      - ./logs:/app/logs
+    depends_on:
+      - api
+    environment:
+      - DISCORD_TOKEN=${DISCORD_TOKEN}
+      - API_URL=http://api:8000
+      - LOG_LEVEL=INFO
+    command: python -m discord_bot.bot
+
+  db:
+    image: postgres:14
+    container_name: trading_db
+    restart: unless-stopped
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=trading
+    ports:
+      - "5432:5432"
+
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: pgadmin
+    restart: unless-stopped
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=admin@admin.com
+      - PGADMIN_DEFAULT_PASSWORD=admin
+    ports:
+      - "5050:80"
+    depends_on:
+      - db
+
+volumes:
+  postgres_data: 

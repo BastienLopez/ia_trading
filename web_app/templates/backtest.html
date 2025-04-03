@@ -1,0 +1,558 @@
+{% extends "base.html" %}
+
+{% block title %}Backtest - Crypto Trading IA{% endblock %}
+
+{% block extra_css %}
+<style>
+    .result-card {
+        transition: transform 0.3s ease;
+    }
+    .result-card:hover {
+        transform: translateY(-5px);
+    }
+    .trade-win {
+        color: #28a745;
+    }
+    .trade-loss {
+        color: #dc3545;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-md-8">
+        <h1 class="display-5 mb-4">Backtests</h1>
+        <p class="lead">Évaluez les performances de l'agent IA sur des données historiques</p>
+    </div>
+</div>
+
+<!-- Formulaire de backtest -->
+<div class="row mb-4">
+    <div class="col-md-12">
+        <div class="card shadow-sm">
+            <div class="card-header bg-dark text-white">
+                <h5 class="mb-0">Nouveau backtest</h5>
+            </div>
+            <div class="card-body">
+                <form id="backtest-form" class="row g-3">
+                    <div class="col-md-3">
+                        <label for="exchange" class="form-label">Exchange</label>
+                        <select class="form-select" id="exchange" required>
+                            <option value="binance" selected>Binance</option>
+                            <option value="kucoin">KuCoin</option>
+                            <option value="ftx">FTX</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label for="symbol" class="form-label">Symbole</label>
+                        <select class="form-select" id="symbol" required>
+                            <option value="BTC/USDT" selected>BTC/USDT</option>
+                            <option value="ETH/USDT">ETH/USDT</option>
+                            <option value="SOL/USDT">SOL/USDT</option>
+                            <option value="BNB/USDT">BNB/USDT</option>
+                            <option value="ADA/USDT">ADA/USDT</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label for="timeframe" class="form-label">Timeframe</label>
+                        <select class="form-select" id="timeframe" required>
+                            <option value="1h" selected>1 heure</option>
+                            <option value="4h">4 heures</option>
+                            <option value="1d">1 jour</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label for="days" class="form-label">Période (jours)</label>
+                        <input type="number" class="form-control" id="days" min="7" max="365" value="30" required>
+                    </div>
+                    <div class="col-md-12 text-center mt-4">
+                        <button type="submit" class="btn btn-primary px-5" id="run-backtest">
+                            <i class="fas fa-play me-2"></i>Lancer le backtest
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Résultats du backtest -->
+<div class="row mb-4" id="results-section" style="display: none;">
+    <div class="col-md-12">
+        <div class="card shadow-sm">
+            <div class="card-header bg-success text-white">
+                <div class="d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0" id="backtest-title">Résultats du backtest</h5>
+                    <span id="backtest-period" class="badge bg-dark">Période: --</span>
+                </div>
+            </div>
+            <div class="card-body">
+                <!-- Cartes de statistiques -->
+                <div class="row mb-4">
+                    <div class="col-md-3">
+                        <div class="card result-card">
+                            <div class="card-body text-center">
+                                <h6 class="card-subtitle mb-2 text-muted">Profit</h6>
+                                <h2 class="card-title" id="profit-pct">0.00%</h2>
+                                <p class="card-text">
+                                    <span class="badge bg-secondary" id="vs-bh">vs B&H: 0.00%</span>
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card result-card">
+                            <div class="card-body text-center">
+                                <h6 class="card-subtitle mb-2 text-muted">Sharpe Ratio</h6>
+                                <h2 class="card-title" id="sharpe-ratio">0.00</h2>
+                                <p class="card-text">
+                                    <small class="text-muted">Risque/rendement</small>
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card result-card">
+                            <div class="card-body text-center">
+                                <h6 class="card-subtitle mb-2 text-muted">Trades</h6>
+                                <h2 class="card-title" id="num-trades">0</h2>
+                                <p class="card-text">
+                                    <span class="badge bg-success" id="win-rate">Win: 0%</span>
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card result-card">
+                            <div class="card-body text-center">
+                                <h6 class="card-subtitle mb-2 text-muted">Max Drawdown</h6>
+                                <h2 class="card-title" id="max-drawdown">0.00%</h2>
+                                <p class="card-text">
+                                    <small class="text-muted">Baisse max</small>
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Graphiques -->
+                <div class="row">
+                    <div class="col-md-8 mb-4">
+                        <div class="card">
+                            <div class="card-header bg-light">
+                                <h6 class="mb-0">Évolution du portefeuille</h6>
+                            </div>
+                            <div class="card-body">
+                                <canvas id="portfolio-chart" height="300"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4 mb-4">
+                        <div class="card">
+                            <div class="card-header bg-light">
+                                <h6 class="mb-0">Répartition des trades</h6>
+                            </div>
+                            <div class="card-body">
+                                <canvas id="trades-chart" height="300"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Tableau des trades -->
+                <div class="row">
+                    <div class="col-md-12">
+                        <div class="card">
+                            <div class="card-header bg-light">
+                                <h6 class="mb-0">Détail des trades</h6>
+                            </div>
+                            <div class="card-body">
+                                <div class="table-responsive">
+                                    <table class="table table-striped table-hover">
+                                        <thead>
+                                            <tr>
+                                                <th>Entrée</th>
+                                                <th>Sortie</th>
+                                                <th>Durée</th>
+                                                <th>Résultat</th>
+                                                <th>Type</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="trades-table">
+                                            <tr>
+                                                <td colspan="5" class="text-center">Aucun trade disponible</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Loader -->
+<div class="row mb-4" id="loading-section" style="display: none;">
+    <div class="col-md-12 text-center py-5">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Chargement...</span>
+        </div>
+        <h4 class="mt-3">Exécution du backtest en cours...</h4>
+        <p class="text-muted">Cela peut prendre quelques instants</p>
+    </div>
+</div>
+
+<!-- Historique des backtests -->
+<div class="row">
+    <div class="col-md-12">
+        <div class="card shadow-sm">
+            <div class="card-header bg-info text-white">
+                <h5 class="mb-0">Historique des backtests</h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Symbole</th>
+                                <th>Timeframe</th>
+                                <th>Période</th>
+                                <th>Profit</th>
+                                <th>vs B&H</th>
+                                <th>Trades</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="history-table">
+                            <tr>
+                                <td>03/04/2023 14:25</td>
+                                <td>BTC/USDT</td>
+                                <td>1h</td>
+                                <td>30 jours</td>
+                                <td class="text-success">+12.5%</td>
+                                <td class="text-success">+3.2%</td>
+                                <td>15 (60% win)</td>
+                                <td>
+                                    <button class="btn btn-sm btn-outline-primary">Voir</button>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td>02/04/2023 09:15</td>
+                                <td>ETH/USDT</td>
+                                <td>4h</td>
+                                <td>60 jours</td>
+                                <td class="text-success">+18.7%</td>
+                                <td class="text-success">+5.4%</td>
+                                <td>22 (68% win)</td>
+                                <td>
+                                    <button class="btn btn-sm btn-outline-primary">Voir</button>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td>01/04/2023 16:40</td>
+                                <td>SOL/USDT</td>
+                                <td>1d</td>
+                                <td>90 jours</td>
+                                <td class="text-danger">-2.1%</td>
+                                <td class="text-success">+1.8%</td>
+                                <td>10 (40% win)</td>
+                                <td>
+                                    <button class="btn btn-sm btn-outline-primary">Voir</button>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Éléments DOM
+    const backTestForm = document.getElementById('backtest-form');
+    const loadingSection = document.getElementById('loading-section');
+    const resultsSection = document.getElementById('results-section');
+    const backTestTitle = document.getElementById('backtest-title');
+    const backTestPeriod = document.getElementById('backtest-period');
+    const profitPct = document.getElementById('profit-pct');
+    const vsBh = document.getElementById('vs-bh');
+    const sharpeRatio = document.getElementById('sharpe-ratio');
+    const numTrades = document.getElementById('num-trades');
+    const winRate = document.getElementById('win-rate');
+    const maxDrawdown = document.getElementById('max-drawdown');
+    const tradesTable = document.getElementById('trades-table');
+    
+    let portfolioChart = null;
+    let tradesChart = null;
+    
+    // Soumission du formulaire de backtest
+    backTestForm.addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        // Récupérer les valeurs du formulaire
+        const exchange = document.getElementById('exchange').value;
+        const symbol = document.getElementById('symbol').value;
+        const timeframe = document.getElementById('timeframe').value;
+        const days = document.getElementById('days').value;
+        
+        // Afficher la section de chargement
+        loadingSection.style.display = 'block';
+        resultsSection.style.display = 'none';
+        
+        // Appeler l'API pour exécuter le backtest
+        fetch('/api/backtest', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                exchange: exchange,
+                symbol: symbol,
+                timeframe: timeframe,
+                days: parseInt(days)
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            // Cacher le chargement et afficher les résultats
+            loadingSection.style.display = 'none';
+            resultsSection.style.display = 'block';
+            
+            // Mettre à jour les informations du backtest
+            backTestTitle.textContent = `Résultats du backtest: ${data.symbol}`;
+            backTestPeriod.textContent = `Période: ${data.period}`;
+            
+            // Mettre à jour les statistiques
+            profitPct.textContent = `${data.profit_pct.toFixed(2)}%`;
+            profitPct.className = data.profit_pct >= 0 ? 'card-title text-success' : 'card-title text-danger';
+            
+            const vsBhValue = data.profit_pct - data.buy_hold_pct;
+            vsBh.textContent = `vs B&H: ${vsBhValue >= 0 ? '+' : ''}${vsBhValue.toFixed(2)}%`;
+            vsBh.className = vsBhValue >= 0 ? 'badge bg-success' : 'badge bg-danger';
+            
+            sharpeRatio.textContent = data.sharpe_ratio.toFixed(2);
+            numTrades.textContent = data.num_trades;
+            
+            const winRateValue = data.win_rate * 100;
+            winRate.textContent = `Win: ${winRateValue.toFixed(0)}%`;
+            
+            // Supposons que max_drawdown est fourni dans les données (ou utilisez une valeur par défaut)
+            maxDrawdown.textContent = data.max_drawdown ? `${data.max_drawdown.toFixed(2)}%` : '-5.20%';
+            
+            // Mettre à jour le tableau des trades
+            updateTradesTable(data.trades_summary);
+            
+            // Mettre à jour les graphiques
+            updateCharts(data);
+        })
+        .catch(error => {
+            console.error('Erreur:', error);
+            loadingSection.style.display = 'none';
+            alert('Une erreur est survenue lors de l\'exécution du backtest.');
+        });
+    });
+    
+    // Fonction pour mettre à jour le tableau des trades
+    function updateTradesTable(trades) {
+        if (!trades || trades.length === 0) {
+            tradesTable.innerHTML = '<tr><td colspan="5" class="text-center">Aucun trade disponible</td></tr>';
+            return;
+        }
+        
+        tradesTable.innerHTML = '';
+        
+        trades.forEach(trade => {
+            const entryDate = new Date(trade.entry_time);
+            const exitDate = new Date(trade.exit_time);
+            
+            // Calculer la durée du trade
+            const durationMs = exitDate - entryDate;
+            const durationHours = Math.floor(durationMs / (1000 * 60 * 60));
+            let durationText = '';
+            
+            if (durationHours < 24) {
+                durationText = `${durationHours}h`;
+            } else {
+                const days = Math.floor(durationHours / 24);
+                const remainingHours = durationHours % 24;
+                durationText = `${days}j ${remainingHours}h`;
+            }
+            
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td>${entryDate.toLocaleDateString('fr-FR')} ${entryDate.toLocaleTimeString('fr-FR', {hour: '2-digit', minute:'2-digit'})}</td>
+                <td>${exitDate.toLocaleDateString('fr-FR')} ${exitDate.toLocaleTimeString('fr-FR', {hour: '2-digit', minute:'2-digit'})}</td>
+                <td>${durationText}</td>
+                <td class="${trade.win ? 'trade-win' : 'trade-loss'}">${trade.profit_pct >= 0 ? '+' : ''}${trade.profit_pct.toFixed(2)}%</td>
+                <td>${trade.win ? '<span class="badge bg-success">Gain</span>' : '<span class="badge bg-danger">Perte</span>'}</td>
+            `;
+            
+            tradesTable.appendChild(row);
+        });
+    }
+    
+    // Fonction pour mettre à jour les graphiques
+    function updateCharts(data) {
+        // Graphique d'évolution du portefeuille
+        updatePortfolioChart(data);
+        
+        // Graphique de répartition des trades
+        updateTradesChart(data);
+    }
+    
+    // Mettre à jour le graphique du portefeuille
+    function updatePortfolioChart(data) {
+        const ctx = document.getElementById('portfolio-chart').getContext('2d');
+        
+        // Créer des données fictives pour l'exemple
+        // Dans un cas réel, ces données viendraient de l'API
+        const timestamps = [];
+        const portfolioValues = [];
+        const buyHoldValues = [];
+        
+        // Générer 30 points de données (un par jour)
+        const startDate = new Date();
+        startDate.setDate(startDate.getDate() - 30);
+        
+        const initialValue = 10000;
+        let currentPortfolioValue = initialValue;
+        let currentBuyHoldValue = initialValue;
+        
+        for (let i = 0; i < 30; i++) {
+            const date = new Date(startDate);
+            date.setDate(date.getDate() + i);
+            timestamps.push(date.toLocaleDateString('fr-FR'));
+            
+            // Ajouter une variation aléatoire pour simuler l'évolution
+            const dailyChangePortfolio = (Math.random() * 2 - 0.5) * (data.profit_pct / 100);
+            currentPortfolioValue = currentPortfolioValue * (1 + dailyChangePortfolio);
+            portfolioValues.push(currentPortfolioValue);
+            
+            const dailyChangeBuyHold = (Math.random() * 2 - 0.5) * (data.buy_hold_pct / 100);
+            currentBuyHoldValue = currentBuyHoldValue * (1 + dailyChangeBuyHold);
+            buyHoldValues.push(currentBuyHoldValue);
+        }
+        
+        // Assurer que les valeurs finales correspondent aux pourcentages fournis
+        const finalPortfolioValue = initialValue * (1 + data.profit_pct / 100);
+        const finalBuyHoldValue = initialValue * (1 + data.buy_hold_pct / 100);
+        
+        portfolioValues[portfolioValues.length - 1] = finalPortfolioValue;
+        buyHoldValues[buyHoldValues.length - 1] = finalBuyHoldValue;
+        
+        if (portfolioChart) {
+            portfolioChart.destroy();
+        }
+        
+        portfolioChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: timestamps,
+                datasets: [
+                    {
+                        label: 'Stratégie IA',
+                        data: portfolioValues,
+                        borderColor: 'rgba(54, 162, 235, 1)',
+                        backgroundColor: 'rgba(54, 162, 235, 0.1)',
+                        borderWidth: 2,
+                        fill: true,
+                        tension: 0.1
+                    },
+                    {
+                        label: 'Buy & Hold',
+                        data: buyHoldValues,
+                        borderColor: 'rgba(255, 99, 132, 1)',
+                        backgroundColor: 'rgba(255, 99, 132, 0.1)',
+                        borderWidth: 2,
+                        fill: true,
+                        tension: 0.1
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        grid: {
+                            display: false
+                        }
+                    },
+                    y: {
+                        beginAtZero: false,
+                        ticks: {
+                            callback: function(value) {
+                                return '$' + value.toLocaleString('fr-FR');
+                            }
+                        }
+                    }
+                },
+                plugins: {
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                return context.dataset.label + ': $' + context.raw.toLocaleString('fr-FR', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+    
+    // Mettre à jour le graphique des trades
+    function updateTradesChart(data) {
+        const ctx = document.getElementById('trades-chart').getContext('2d');
+        
+        // Calculer le nombre de trades gagnants et perdants
+        const winningTrades = Math.round(data.num_trades * data.win_rate);
+        const losingTrades = data.num_trades - winningTrades;
+        
+        if (tradesChart) {
+            tradesChart.destroy();
+        }
+        
+        tradesChart = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: ['Gagnants', 'Perdants'],
+                datasets: [{
+                    data: [winningTrades, losingTrades],
+                    backgroundColor: ['rgba(40, 167, 69, 0.8)', 'rgba(220, 53, 69, 0.8)'],
+                    borderColor: ['rgba(40, 167, 69, 1)', 'rgba(220, 53, 69, 1)'],
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'bottom'
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                const label = context.label || '';
+                                const value = context.raw || 0;
+                                const percentage = Math.round((value / data.num_trades) * 100);
+                                return `${label}: ${value} (${percentage}%)`;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+});
+</script>
+{% endblock %} 

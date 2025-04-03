@@ -1,0 +1,398 @@
+/* Styles personnalisés pour l'application web Crypto Trading IA */
+
+/* Variables de couleurs */
+:root {
+    --primary-color: #3498db;
+    --secondary-color: #2ecc71;
+    --accent-color: #e74c3c;
+    --light-bg: #f8f9fa;
+    --dark-bg: #343a40;
+    --success-color: #28a745;
+    --warning-color: #ffc107;
+    --danger-color: #dc3545;
+    --text-light: #f8f9fa;
+    --text-dark: #343a40;
+    
+    /* Variables spécifiques au mode clair */
+    --bg-color: #f5f7fa;
+    --text-color: #212529;
+    --card-bg: #ffffff;
+    --border-color: #dee2e6;
+    --hover-bg: rgba(0, 123, 255, 0.05);
+}
+
+/* Variables du mode sombre */
+[data-bs-theme="dark"] {
+    --primary-color: #0d6efd;
+    --bg-color: #212529;
+    --text-color: #f8f9fa;
+    --card-bg: #2c3034;
+    --border-color: #495057;
+    --hover-bg: rgba(255, 255, 255, 0.05);
+    --light-bg: #212529;
+    --dark-bg: #121416;
+    --text-light: #f8f9fa;
+    --text-dark: #adb5bd;
+}
+
+/* Styles généraux */
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background-color: var(--light-bg);
+    color: var(--text-color);
+    transition: all 0.3s ease;
+}
+
+[data-bs-theme="dark"] body {
+    background-color: var(--light-bg);
+    color: var(--text-light);
+}
+
+.navbar-brand {
+    font-weight: 600;
+}
+
+.navbar {
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+}
+
+/* Styles pour la navigation centrée */
+.navbar-nav {
+    display: flex;
+    align-items: center;
+}
+
+.navbar-nav .nav-link {
+    position: relative;
+    margin: 0 10px;
+    font-weight: 500;
+    transition: color 0.3s;
+}
+
+.navbar-nav .nav-link::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 0;
+    height: 2px;
+    background-color: white;
+    transition: width 0.3s ease;
+}
+
+.navbar-nav .nav-link:hover::after,
+.navbar-nav .nav-link.active::after {
+    width: 100%;
+}
+
+.navbar .navbar-toggler {
+    border: none;
+}
+
+#theme-toggle {
+    transition: all 0.3s ease;
+}
+
+#theme-toggle:hover {
+    transform: rotate(15deg);
+}
+
+/* Cards et conteneurs */
+.card {
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+    margin-bottom: 20px;
+}
+
+.card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 10px 15px rgba(0, 0, 0, 0.1);
+}
+
+.card-header {
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+/* Animations et effets */
+.btn {
+    border-radius: 5px;
+    padding: 8px 16px;
+    transition: all 0.3s ease;
+}
+
+.btn-primary {
+    background-color: var(--primary-color);
+    border-color: var(--primary-color);
+}
+
+.btn-primary:hover {
+    background-color: #2980b9;
+    border-color: #2980b9;
+}
+
+.btn-success {
+    background-color: var(--secondary-color);
+    border-color: var(--secondary-color);
+}
+
+.btn-success:hover {
+    background-color: #27ae60;
+    border-color: #27ae60;
+}
+
+/* Tableaux */
+.table {
+    width: 100%;
+    margin-bottom: 1rem;
+    color: var(--text-color);
+    border-collapse: separate;
+    border-spacing: 0;
+    border-radius: 10px;
+    overflow: hidden;
+    background-color: transparent;
+}
+
+.table thead th {
+    border-bottom: 1px solid var(--border-color);
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 0.9rem;
+    color: var(--secondary-color);
+    padding: 10px 5px;
+    background-color: transparent;
+}
+
+.table tbody tr {
+    background-color: transparent;
+    color: var(--text-color);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.table td {
+    padding: 12px 5px;
+    vertical-align: middle;
+}
+
+/* Styles spécifiques pour le tableau de performances */
+.performance-table th {
+    background-color: transparent !important;
+    color: var(--secondary-color) !important;
+}
+
+.performance-table tbody td {
+    font-weight: 500;
+}
+
+.performance-header {
+    font-size: 1.2rem;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+}
+
+/* Classe spécifique pour les lignes du tableau de performance */
+.table-row {
+    background-color: var(--card-bg) !important;
+}
+
+.table-striped > tbody > tr:nth-of-type(odd) {
+    background-color: var(--hover-bg);
+}
+
+.table-striped > tbody > tr:nth-of-type(even) {
+    background-color: var(--card-bg);
+}
+
+[data-bs-theme="dark"] .table-striped > tbody > tr:nth-of-type(odd) {
+    background-color: rgba(255, 255, 255, 0.05);
+}
+
+[data-bs-theme="dark"] .table-striped > tbody > tr:nth-of-type(even) {
+    background-color: var(--card-bg);
+}
+
+/* Badges et étiquettes */
+.badge {
+    padding: 5px 10px;
+    border-radius: 20px;
+    font-weight: 500;
+}
+
+/* Alertes */
+.alert {
+    border-radius: 10px;
+    border-left: 5px solid;
+}
+
+.alert-success {
+    border-left-color: var(--success-color);
+}
+
+.alert-danger {
+    border-left-color: var(--danger-color);
+}
+
+.alert-warning {
+    border-left-color: var(--warning-color);
+}
+
+/* Animation pour chargement */
+.loading-spinner {
+    width: 3rem;
+    height: 3rem;
+}
+
+/* Tableau de bord des cryptomonnaies */
+.crypto-card {
+    border-left: 5px solid transparent;
+    transition: all 0.3s ease;
+}
+
+.crypto-card.positive {
+    border-left-color: var(--success-color);
+}
+
+.crypto-card.negative {
+    border-left-color: var(--danger-color);
+}
+
+.price-change-badge {
+    font-size: 0.85rem;
+    padding: 0.25rem 0.5rem;
+    margin-left: 0.5rem;
+}
+
+/* Graphiques et visualisations */
+canvas {
+    border-radius: 5px;
+    margin-bottom: 20px;
+}
+
+/* Styles pour la légende du graphique en mode sombre */
+[data-bs-theme="dark"] .text-success {
+    color: #2ecc71 !important;
+}
+
+[data-bs-theme="dark"] .card-header {
+    background-color: #1a1e21 !important;
+}
+
+.performance-legend {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.performance-legend-item {
+    display: flex;
+    align-items: center;
+    margin: 0 15px;
+}
+
+.performance-legend-color {
+    width: 15px;
+    height: 15px;
+    border-radius: 50%;
+    margin-right: 8px;
+}
+
+.text-surperformance {
+    color: #2ecc71;
+}
+
+/* Styles pour la légende du graphique */
+.chart-legend {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 15px;
+}
+
+.chart-legend-item {
+    display: flex;
+    align-items: center;
+    margin: 0 10px;
+    font-size: 0.9rem;
+}
+
+.chart-legend-color {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    margin-right: 5px;
+}
+
+/* Formulaires */
+.form-control, .form-select {
+    border-radius: 5px;
+    padding: 10px 15px;
+    border: 1px solid var(--border-color);
+    background-color: var(--card-bg);
+    color: var(--text-color);
+    transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out, background-color 0.3s, color 0.3s;
+}
+
+.form-control:focus, .form-select:focus {
+    border-color: #80bdff;
+    box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+}
+
+/* Page d'accueil */
+.feature-icon {
+    font-size: 2.5rem;
+    margin-bottom: 1rem;
+    color: var(--primary-color);
+}
+
+.feature-card {
+    text-align: center;
+    transition: transform 0.3s ease;
+}
+
+.feature-card:hover {
+    transform: translateY(-10px);
+}
+
+/* Footer */
+.footer {
+    padding: 1.5rem 0;
+    margin-top: 2rem;
+}
+
+/* Styles pour le sélecteur de thème */
+.theme-switch-wrapper {
+    display: flex;
+    align-items: center;
+}
+
+/* Animation de transition */
+.fade-transition {
+    transition: all 0.3s ease;
+}
+
+/* Responsive */
+@media (max-width: 991px) {
+    .navbar-nav {
+        margin-top: 15px;
+        margin-bottom: 15px;
+    }
+    
+    .navbar-nav .nav-link {
+        text-align: center;
+        padding: 10px 0;
+    }
+    
+    .navbar .navbar-brand {
+        margin: 10px auto;
+        text-align: center;
+    }
+    
+    .navbar #theme-toggle {
+        margin: 10px auto;
+        display: block;
+    }
+} 

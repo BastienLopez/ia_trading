@@ -26,6 +26,25 @@ wheels/
 .installed.cfg
 *.egg
 
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Virtual Environments
+venv/
+ENV/
+
+# Models and data
+models/*.zip
+models/*.pkl
+data/*.csv
+*.pt
+
+# PyCharm
+.idea/
+
+# VSCode
+.vscode/
+
 # Logs
 *.log
 logs/
@@ -42,4 +61,35 @@ yarn-error.log*
 
 # OS
 .DS_Store
-Thumbs.db 
+Thumbs.db
+
+# Database
+*.sqlite
+*.db
+
+# System files
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+
+# Docker volumes
+postgres_data/
+
+# Couverture de code
+.coverage
+htmlcov/
+coverage.xml
+*.cover
+.hypothesis/
+
+# Tests
+.pytest_cache/
+.coverage.*
+
+# Éditeurs
+.idea/
+.vscode/
+*.swp
+*.swo 

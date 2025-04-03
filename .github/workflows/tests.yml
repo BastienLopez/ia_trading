@@ -1,0 +1,44 @@
+name: Tests unitaires
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: [3.9, 3.10]
+
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Configuration Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+        
+    - name: Installation des dépendances
+      run: |
+        python -m pip install --upgrade pip
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+        pip install pytest pytest-asyncio pytest-cov
+        
+    - name: Création de fichier .env pour les tests
+      run: |
+        echo "DISCORD_TOKEN=dummy_token" > .env
+        echo "DATABASE_URL=sqlite:///test.db" >> .env
+        echo "API_URL=http://localhost:8000" >> .env
+        
+    - name: Exécution des tests
+      run: |
+        pytest tests/ --cov=. --cov-report=xml
+        
+    - name: Envoi des résultats de couverture à Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.xml
+        fail_ci_if_error: false 

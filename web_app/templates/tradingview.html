@@ -1,0 +1,241 @@
+{% extends "base.html" %}
+
+{% block title %}TradingView - Crypto Trading IA{% endblock %}
+
+{% block extra_css %}
+<style>
+    #tradingview_chart {
+        height: 600px;
+        border-radius: 10px;
+        overflow: hidden;
+        box-shadow: 0 3px 10px rgba(0, 0, 0, 0.05);
+    }
+    
+    .pine-script {
+        font-family: monospace;
+        height: 300px;
+    }
+    
+    .guide-item {
+        margin-bottom: 1rem;
+    }
+    
+    .guide-item h5 {
+        color: var(--primary-color);
+        font-weight: 600;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-md-8">
+        <h1 class="display-5 mb-3">Graphique TradingView</h1>
+        <p class="lead">Analysez les marchés en temps réel et utilisez des scripts personnalisés</p>
+    </div>
+</div>
+
+<div class="row mb-4">
+    <div class="col-md-12">
+        <div class="card shadow-sm">
+            <div class="card-header bg-dark text-white">
+                <h5 class="mb-0">
+                    <i class="fas fa-chart-area me-2"></i>Graphique TradingView
+                </h5>
+            </div>
+            <div class="card-body p-0">
+                <!-- TradingView Chart Widget -->
+                <div id="tradingview_chart"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-5">
+        <div class="card shadow-sm">
+            <div class="card-header bg-dark text-white">
+                <h5 class="mb-0">
+                    <i class="fas fa-code me-2"></i>Pine Script
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label for="symbolSelector" class="form-label">Sélectionnez une paire</label>
+                    <select class="form-select" id="symbolSelector">
+                        {% for symbol in symbols %}
+                        <option value="{{ symbol.symbol }}" {% if symbol.symbol == default_symbol %}selected{% endif %}>{{ symbol.name }} ({{ symbol.symbol }})</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label for="pineScript" class="form-label">Script Pine</label>
+                    <textarea class="form-control pine-script" id="pineScript" rows="12" placeholder="Chargement du script Pine..."></textarea>
+                </div>
+                <div class="d-grid">
+                    <button class="btn btn-primary mb-2" id="copyScript">
+                        <i class="fas fa-copy me-2"></i>Copier le script
+                    </button>
+                    <button class="btn btn-success" id="applyScript">
+                        <i class="fas fa-play me-2"></i>Appliquer le script au graphique
+                    </button>
+                    <small class="text-muted mt-2">
+                        <i class="fas fa-info-circle me-1"></i>Copiez ce script et collez-le dans l'éditeur Pine de TradingView pour l'utiliser.
+                    </small>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-7">
+        <div class="card shadow-sm">
+            <div class="card-header bg-dark text-white">
+                <h5 class="mb-0">
+                    <i class="fas fa-info-circle me-2"></i>Guide d'utilisation
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="guide-item">
+                    <h5>Utilisation du graphique TradingView</h5>
+                    <p>Ce graphique intégré vous permet de visualiser les prix en temps réel et d'effectuer des analyses techniques de base directement dans notre application.</p>
+                </div>
+                
+                <div class="guide-item">
+                    <h5>Utilisation du script Pine</h5>
+                    <ol>
+                        <li>Copiez le script Pine fourni en cliquant sur le bouton "Copier le script".</li>
+                        <li>Dans TradingView, ouvrez un graphique et cliquez sur "Pine Editor" en bas de l'écran.</li>
+                        <li>Collez le script dans l'éditeur et cliquez sur "Save & Apply".</li>
+                        <li>Les indicateurs et signaux de la stratégie apparaîtront sur votre graphique.</li>
+                    </ol>
+                </div>
+                
+                <div class="guide-item">
+                    <h5>Principales fonctionnalités du script</h5>
+                    <ul>
+                        <li>Calcul des moyennes mobiles exponentielles (EMA) rapide et lente.</li>
+                        <li>Détection des croisements (signaux d'achat et de vente).</li>
+                        <li>Visualisation des signaux d'achat (triangles verts) et de vente (triangles rouges).</li>
+                        <li>Indicateur MACD pour confirmation des tendances.</li>
+                        <li>Exécution automatique de la stratégie pour le backtesting.</li>
+                    </ul>
+                </div>
+                
+                <div class="guide-item">
+                    <h5>Personnalisation</h5>
+                    <p>Vous pouvez modifier les paramètres du script pour ajuster la stratégie à vos besoins :</p>
+                    <ul>
+                        <li>Changer les périodes des EMA (fastLength et slowLength).</li>
+                        <li>Ajuster les paramètres du MACD (macdFast, macdSlow, macdSignal).</li>
+                        <li>Modifier les conditions d'entrée et de sortie pour affiner la stratégie.</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    let tvWidget;
+    let pineScript = "";
+    
+    // Initialiser le widget TradingView
+    function initTradingViewWidget(symbol) {
+        if (typeof TradingView !== 'undefined') {
+            tvWidget = new TradingView.widget({
+                "autosize": true,
+                "symbol": symbol,
+                "interval": "D",
+                "timezone": "Etc/UTC",
+                "theme": "dark",
+                "style": "1",
+                "locale": "fr",
+                "toolbar_bg": "#2c3034",
+                "enable_publishing": false,
+                "hide_top_toolbar": false,
+                "allow_symbol_change": true,
+                "hide_volume": true,
+                "studies": [
+                    "MACD@tv-basicstudies"
+                ],
+                "container_id": "tradingview_chart"
+            });
+            
+            // Fonction pour appliquer le script Pine
+            document.getElementById('applyScript').addEventListener('click', function() {
+                const scriptText = document.getElementById('pineScript').value;
+                if (tvWidget && tvWidget.chart && typeof tvWidget.chart().createStudy === 'function') {
+                    try {
+                        // Nettoyer les études précédentes
+                        tvWidget.chart().removeAllStudies();
+                        // Ajouter le script Pine
+                        tvWidget.chart().createStudy('Pine Script', false, false, [scriptText]);
+                        // Notification de succès
+                        this.innerHTML = '<i class="fas fa-check me-2"></i>Script appliqué !';
+                        setTimeout(() => {
+                            this.innerHTML = '<i class="fas fa-play me-2"></i>Appliquer le script au graphique';
+                        }, 2000);
+                    } catch (error) {
+                        console.error("Erreur lors de l'application du script:", error);
+                        this.innerHTML = '<i class="fas fa-times me-2"></i>Erreur !';
+                        setTimeout(() => {
+                            this.innerHTML = '<i class="fas fa-play me-2"></i>Appliquer le script au graphique';
+                        }, 2000);
+                    }
+                } else {
+                    console.error("Widget TradingView non disponible ou initialisé incorrectement");
+                }
+            });
+        } else {
+            console.error("TradingView library not loaded");
+            document.getElementById('tradingview_chart').innerHTML = '<div class="alert alert-danger">Impossible de charger le graphique TradingView.</div>';
+        }
+    }
+    
+    // Charger le contenu du script Pine et initialiser le widget
+    fetch('/get-pine-script')
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Erreur lors du chargement du script Pine');
+            }
+            return response.text();
+        })
+        .then(data => {
+            document.getElementById('pineScript').value = data;
+            pineScript = data;
+            // Initialiser avec le symbole par défaut une fois le script chargé
+            initTradingViewWidget('{{ default_symbol }}');
+        })
+        .catch(error => {
+            console.error('Erreur:', error);
+            document.getElementById('pineScript').value = 'Erreur de chargement du script Pine. Veuillez réessayer.';
+            // Initialiser quand même le widget même en cas d'erreur
+            initTradingViewWidget('{{ default_symbol }}');
+        });
+    
+    // Changement de symbole
+    document.getElementById('symbolSelector').addEventListener('change', function() {
+        const symbol = this.value;
+        // Clear et réinitialiser le widget
+        document.getElementById('tradingview_chart').innerHTML = '';
+        initTradingViewWidget(symbol);
+    });
+    
+    // Bouton pour copier le script
+    document.getElementById('copyScript').addEventListener('click', function() {
+        const scriptText = document.getElementById('pineScript');
+        scriptText.select();
+        document.execCommand('copy');
+        
+        // Notification
+        this.innerHTML = '<i class="fas fa-check me-2"></i>Copié !';
+        setTimeout(() => {
+            this.innerHTML = '<i class="fas fa-copy me-2"></i>Copier le script';
+        }, 2000);
+    });
+});
+</script>
+{% endblock %} 

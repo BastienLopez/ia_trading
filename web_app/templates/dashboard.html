@@ -1,0 +1,663 @@
+{% extends "base.html" %}
+
+{% block title %}Tableau de bord - Crypto Trading IA{% endblock %}
+
+{% block extra_css %}
+<style>
+    .crypto-card {
+        transition: transform 0.3s ease;
+    }
+    .crypto-card:hover {
+        transform: translateY(-5px);
+    }
+    .indicator-value {
+        font-size: 1.1rem;
+        font-weight: 500;
+    }
+    .price-movement-up {
+        color: #28a745;
+    }
+    .price-movement-down {
+        color: #dc3545;
+    }
+    .trade-history-item {
+        border-left: 3px solid #007bff;
+        padding-left: 15px;
+        margin-bottom: 15px;
+    }
+    .trade-buy {
+        border-left-color: #28a745;
+    }
+    .trade-sell {
+        border-left-color: #dc3545;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-md-8">
+        <h1 class="display-5 mb-4">Tableau de bord</h1>
+    </div>
+    <div class="col-md-4 text-end">
+        <div class="btn-group">
+            <button type="button" class="btn btn-outline-primary" id="refresh-data">
+                <i class="fas fa-sync-alt"></i> Actualiser
+            </button>
+            <button type="button" class="btn btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown">
+                <i class="fas fa-clock"></i> Période
+            </button>
+            <ul class="dropdown-menu">
+                <li><a class="dropdown-item period-selector" href="#" data-period="24h">24 heures</a></li>
+                <li><a class="dropdown-item period-selector" href="#" data-period="7d">7 jours</a></li>
+                <li><a class="dropdown-item period-selector" href="#" data-period="30d">30 jours</a></li>
+            </ul>
+        </div>
+    </div>
+</div>
+
+<!-- Portefeuille et résumé des performances -->
+<div class="row mb-4">
+    <div class="col-md-6">
+        <div class="card shadow-sm">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0">Portefeuille</h5>
+            </div>
+            <div class="card-body">
+                <div class="row align-items-center">
+                    <div class="col-md-6">
+                        <h3 class="mb-0" id="portfolio-value">$0.00</h3>
+                        <p class="text-muted">Valeur du portefeuille</p>
+                        <div id="portfolio-change" class="mb-3">
+                            <span class="badge bg-success">+0.00%</span>
+                            <small class="text-muted ms-2">depuis le début</small>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <canvas id="portfolio-chart" width="150" height="150"></canvas>
+                    </div>
+                </div>
+                <hr>
+                <h6>Détails des actifs</h6>
+                <div class="table-responsive">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>Actif</th>
+                                <th class="text-end">Quantité</th>
+                                <th class="text-end">Valeur</th>
+                            </tr>
+                        </thead>
+                        <tbody id="assets-table">
+                            <tr>
+                                <td colspan="3" class="text-center">Chargement...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card shadow-sm">
+            <div class="card-header bg-success text-white">
+                <h5 class="mb-0">Performance globale</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-6 col-md-3 mb-3">
+                        <div class="text-center">
+                            <h2 id="profit-pct">0%</h2>
+                            <p class="text-muted mb-0">Profit</p>
+                        </div>
+                    </div>
+                    <div class="col-6 col-md-3 mb-3">
+                        <div class="text-center">
+                            <h2 id="surperf">0%</h2>
+                            <p class="text-muted mb-0">Vs Buy&Hold</p>
+                        </div>
+                    </div>
+                    <div class="col-6 col-md-3 mb-3">
+                        <div class="text-center">
+                            <h2 id="win-rate">0%</h2>
+                            <p class="text-muted mb-0">Taux gain</p>
+                        </div>
+                    </div>
+                    <div class="col-6 col-md-3 mb-3">
+                        <div class="text-center">
+                            <h2 id="sharpe">0.0</h2>
+                            <p class="text-muted mb-0">Ratio Sharpe</p>
+                        </div>
+                    </div>
+                </div>
+                <canvas id="performance-comparison-chart" height="200"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Prix et indicateurs -->
+<div class="row mb-4">
+    <div class="col-md-12">
+        <div class="card shadow-sm">
+            <div class="card-header bg-dark text-white">
+                <div class="d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">BTC/USDT</h5>
+                    <div>
+                        <div class="btn-group btn-group-sm">
+                            <button type="button" class="btn btn-outline-light timeframe-selector active" data-timeframe="1h">1h</button>
+                            <button type="button" class="btn btn-outline-light timeframe-selector" data-timeframe="4h">4h</button>
+                            <button type="button" class="btn btn-outline-light timeframe-selector" data-timeframe="1d">1j</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <h2 id="current-price">$0.00</h2>
+                        <div id="price-change">
+                            <span class="badge bg-success">+0.00%</span>
+                            <small class="text-muted ms-2">24h</small>
+                        </div>
+                    </div>
+                    <div class="col-md-6 text-end">
+                        <div class="alert alert-primary p-2" id="prediction-alert">
+                            <strong>Prédiction:</strong> <span id="prediction">Chargement...</span>
+                            <div class="d-flex align-items-center justify-content-end">
+                                <div class="progress flex-grow-1 mx-2" style="height: 5px;">
+                                    <div id="confidence-bar" class="progress-bar" role="progressbar" style="width: 0%"></div>
+                                </div>
+                                <span id="confidence" class="small">0%</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="row mb-3">
+                    <div class="col-md-8">
+                        <canvas id="price-chart" height="300"></canvas>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card mb-3">
+                            <div class="card-header bg-light">
+                                <h6 class="mb-0">Indicateurs techniques</h6>
+                            </div>
+                            <div class="card-body">
+                                <div class="row">
+                                    <div class="col-6 mb-3">
+                                        <div class="d-flex flex-column">
+                                            <small class="text-muted">RSI (14)</small>
+                                            <span id="rsi-value" class="indicator-value">00.00</span>
+                                        </div>
+                                    </div>
+                                    <div class="col-6 mb-3">
+                                        <div class="d-flex flex-column">
+                                            <small class="text-muted">MACD</small>
+                                            <span id="macd-value" class="indicator-value">0.000</span>
+                                        </div>
+                                    </div>
+                                    <div class="col-6 mb-3">
+                                        <div class="d-flex flex-column">
+                                            <small class="text-muted">EMA (9)</small>
+                                            <span id="ema9-value" class="indicator-value">$0.00</span>
+                                        </div>
+                                    </div>
+                                    <div class="col-6 mb-3">
+                                        <div class="d-flex flex-column">
+                                            <small class="text-muted">EMA (21)</small>
+                                            <span id="ema21-value" class="indicator-value">$0.00</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Historique des transactions -->
+<div class="row">
+    <div class="col-md-12">
+        <div class="card shadow-sm">
+            <div class="card-header bg-info text-white">
+                <h5 class="mb-0">Historique des transactions</h5>
+            </div>
+            <div class="card-body">
+                <div id="trade-history">
+                    <p class="text-center">Chargement de l'historique...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    let priceChart = null;
+    let portfolioChart = null;
+    let performanceChart = null;
+    
+    // Variables pour stocker les données
+    let currentTimeframe = '1h';
+    let currentPeriod = '7d';
+    let marketData = null;
+    let portfolioData = null;
+    
+    // Sélecteurs d'éléments
+    const currentPrice = document.getElementById('current-price');
+    const priceChange = document.getElementById('price-change');
+    const prediction = document.getElementById('prediction');
+    const confidence = document.getElementById('confidence');
+    const confidenceBar = document.getElementById('confidence-bar');
+    const predictionAlert = document.getElementById('prediction-alert');
+    const rsiValue = document.getElementById('rsi-value');
+    const macdValue = document.getElementById('macd-value');
+    const ema9Value = document.getElementById('ema9-value');
+    const ema21Value = document.getElementById('ema21-value');
+    const portfolioValue = document.getElementById('portfolio-value');
+    const portfolioChange = document.getElementById('portfolio-change');
+    const assetsTable = document.getElementById('assets-table');
+    const profitPct = document.getElementById('profit-pct');
+    const surperf = document.getElementById('surperf');
+    const winRate = document.getElementById('win-rate');
+    const sharpe = document.getElementById('sharpe');
+    const tradeHistory = document.getElementById('trade-history');
+    
+    // Fonction pour charger les données de marché
+    function loadMarketData() {
+        fetch(`/api/market_data?timeframe=${currentTimeframe}`)
+            .then(response => response.json())
+            .then(data => {
+                marketData = data;
+                updateMarketData();
+            })
+            .catch(error => {
+                console.error('Erreur lors du chargement des données de marché:', error);
+            });
+    }
+    
+    // Fonction pour charger les données du portefeuille
+    function loadPortfolioData() {
+        fetch('/api/portfolio')
+            .then(response => response.json())
+            .then(data => {
+                portfolioData = data;
+                updatePortfolioData();
+            })
+            .catch(error => {
+                console.error('Erreur lors du chargement des données du portefeuille:', error);
+            });
+    }
+    
+    // Fonction pour charger les données de performance
+    function loadPerformanceData() {
+        fetch('/api/performance')
+            .then(response => response.json())
+            .then(data => {
+                updatePerformanceData(data);
+            })
+            .catch(error => {
+                console.error('Erreur lors du chargement des données de performance:', error);
+            });
+    }
+    
+    // Mettre à jour les affichages des données de marché
+    function updateMarketData() {
+        if (!marketData) return;
+        
+        // Mettre à jour le prix actuel
+        const lastPrice = marketData.prices[marketData.prices.length - 1].price;
+        currentPrice.textContent = `$${lastPrice.toLocaleString('fr-FR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+        
+        // Calculer le changement de prix sur 24h
+        const first = marketData.prices[0].price;
+        const last = lastPrice;
+        const change = ((last - first) / first) * 100;
+        
+        priceChange.innerHTML = `
+            <span class="badge ${change >= 0 ? 'bg-success' : 'bg-danger'}">
+                ${change >= 0 ? '+' : ''}${change.toFixed(2)}%
+            </span>
+            <small class="text-muted ms-2">24h</small>
+        `;
+        
+        // Mettre à jour les indicateurs
+        rsiValue.textContent = marketData.indicators.rsi.toFixed(2);
+        macdValue.textContent = marketData.indicators.macd.toFixed(4);
+        ema9Value.textContent = `$${marketData.prices[marketData.prices.length - 1].price.toLocaleString('fr-FR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+        ema21Value.textContent = `$${(marketData.prices[marketData.prices.length - 1].price * 0.995).toLocaleString('fr-FR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+        
+        // Mettre à jour la prédiction
+        prediction.textContent = marketData.last_recommendation.action;
+        const confidenceValue = (marketData.last_recommendation.confidence * 100).toFixed(0);
+        confidence.textContent = `${confidenceValue}%`;
+        confidenceBar.style.width = `${confidenceValue}%`;
+        
+        // Changer la couleur de l'alerte selon la prédiction
+        if (marketData.last_recommendation.action === "ACHETER") {
+            predictionAlert.className = "alert alert-success p-2";
+        } else if (marketData.last_recommendation.action === "VENDRE") {
+            predictionAlert.className = "alert alert-danger p-2";
+        } else {
+            predictionAlert.className = "alert alert-primary p-2";
+        }
+        
+        // Mettre à jour le graphique
+        updatePriceChart();
+    }
+    
+    // Mettre à jour les données du portefeuille
+    function updatePortfolioData() {
+        if (!portfolioData) return;
+        
+        // Mettre à jour la valeur du portefeuille
+        portfolioValue.textContent = `$${portfolioData.current_value.toLocaleString('fr-FR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+        
+        // Calculer le % de profit
+        const profitPercent = ((portfolioData.current_value - portfolioData.starting_value) / portfolioData.starting_value) * 100;
+        
+        portfolioChange.innerHTML = `
+            <span class="badge ${profitPercent >= 0 ? 'bg-success' : 'bg-danger'}">
+                ${profitPercent >= 0 ? '+' : ''}${profitPercent.toFixed(2)}%
+            </span>
+            <small class="text-muted ms-2">depuis le début</small>
+        `;
+        
+        // Mettre à jour le tableau des actifs
+        assetsTable.innerHTML = '';
+        portfolioData.assets.forEach(asset => {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td><strong>${asset.symbol}</strong></td>
+                <td class="text-end">${asset.amount.toLocaleString('fr-FR', {minimumFractionDigits: asset.symbol === 'USDT' ? 2 : 8, maximumFractionDigits: asset.symbol === 'USDT' ? 2 : 8})}</td>
+                <td class="text-end">$${asset.value_usd.toLocaleString('fr-FR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+            `;
+            assetsTable.appendChild(row);
+        });
+        
+        // Mettre à jour le graphique du portefeuille
+        updatePortfolioChart();
+        
+        // Mettre à jour l'historique des transactions
+        updateTradeHistory();
+    }
+    
+    // Mettre à jour les données de performance
+    function updatePerformanceData(data) {
+        // Mettre à jour les statistiques
+        profitPct.textContent = `${data.overall.profit_pct.toFixed(2)}%`;
+        surperf.textContent = `${(data.overall.profit_pct - data.overall.buy_hold_pct).toFixed(2)}%`;
+        winRate.textContent = `${(data.overall.win_rate * 100).toFixed(0)}%`;
+        sharpe.textContent = data.overall.sharpe_ratio.toFixed(2);
+        
+        // Mettre à jour le graphique de comparaison de performance
+        updatePerformanceChart(data);
+    }
+    
+    // Mettre à jour le graphique des prix
+    function updatePriceChart() {
+        if (!marketData) return;
+        
+        const ctx = document.getElementById('price-chart').getContext('2d');
+        
+        // Données pour le graphique
+        const labels = marketData.prices.map(p => {
+            const date = new Date(p.date);
+            return date.toLocaleTimeString('fr-FR', {hour: '2-digit', minute: '2-digit'});
+        });
+        
+        const prices = marketData.prices.map(p => p.price);
+        
+        // Si le graphique existe déjà, le mettre à jour
+        if (priceChart) {
+            priceChart.data.labels = labels;
+            priceChart.data.datasets[0].data = prices;
+            priceChart.update();
+        } else {
+            // Sinon, créer un nouveau graphique
+            priceChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Prix (USD)',
+                        data: prices,
+                        borderColor: 'rgba(54, 162, 235, 1)',
+                        backgroundColor: 'rgba(54, 162, 235, 0.1)',
+                        borderWidth: 2,
+                        tension: 0.1,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false,
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: {
+                                display: false
+                            }
+                        },
+                        y: {
+                            position: 'right',
+                            grid: {
+                                color: 'rgba(200, 200, 200, 0.2)'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+    }
+    
+    // Mettre à jour le graphique du portefeuille
+    function updatePortfolioChart() {
+        if (!portfolioData) return;
+        
+        const ctx = document.getElementById('portfolio-chart').getContext('2d');
+        
+        // Données pour le graphique
+        const labels = portfolioData.assets.map(a => a.symbol);
+        const data = portfolioData.assets.map(a => a.value_usd);
+        const colors = [
+            'rgba(54, 162, 235, 0.8)',
+            'rgba(255, 99, 132, 0.8)',
+            'rgba(255, 206, 86, 0.8)',
+            'rgba(75, 192, 192, 0.8)',
+            'rgba(153, 102, 255, 0.8)'
+        ];
+        
+        // Si le graphique existe déjà, le mettre à jour
+        if (portfolioChart) {
+            portfolioChart.data.labels = labels;
+            portfolioChart.data.datasets[0].data = data;
+            portfolioChart.update();
+        } else {
+            // Sinon, créer un nouveau graphique
+            portfolioChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        data: data,
+                        backgroundColor: colors.slice(0, labels.length),
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    }
+                }
+            });
+        }
+    }
+    
+    // Mettre à jour le graphique de performance
+    function updatePerformanceChart(data) {
+        const ctx = document.getElementById('performance-comparison-chart').getContext('2d');
+        
+        // Données pour le graphique
+        const labels = data.monthly.map(m => m.month);
+        const strategyData = data.monthly.map(m => m.profit_pct);
+        const buyHoldData = data.monthly.map(m => m.buy_hold_pct);
+        
+        // Si le graphique existe déjà, le mettre à jour
+        if (performanceChart) {
+            performanceChart.data.labels = labels;
+            performanceChart.data.datasets[0].data = strategyData;
+            performanceChart.data.datasets[1].data = buyHoldData;
+            performanceChart.update();
+        } else {
+            // Sinon, créer un nouveau graphique
+            performanceChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'Stratégie IA',
+                            data: strategyData,
+                            backgroundColor: 'rgba(54, 162, 235, 0.7)',
+                            borderColor: 'rgba(54, 162, 235, 1)',
+                            borderWidth: 1
+                        },
+                        {
+                            label: 'Buy & Hold',
+                            data: buyHoldData,
+                            backgroundColor: 'rgba(255, 99, 132, 0.7)',
+                            borderColor: 'rgba(255, 99, 132, 1)',
+                            borderWidth: 1
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    let label = context.dataset.label || '';
+                                    if (label) {
+                                        label += ': ';
+                                    }
+                                    label += context.parsed.y.toFixed(2) + '%';
+                                    return label;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            ticks: {
+                                callback: function(value) {
+                                    return value + '%';
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+    }
+    
+    // Mettre à jour l'historique des transactions
+    function updateTradeHistory() {
+        if (!portfolioData || !portfolioData.trade_history) return;
+        
+        tradeHistory.innerHTML = '';
+        
+        if (portfolioData.trade_history.length === 0) {
+            tradeHistory.innerHTML = '<p class="text-center">Aucune transaction récente</p>';
+            return;
+        }
+        
+        portfolioData.trade_history.forEach(trade => {
+            const date = new Date(trade.timestamp);
+            const formattedDate = date.toLocaleDateString('fr-FR') + ' ' + date.toLocaleTimeString('fr-FR');
+            
+            // Déterminer la classe CSS en fonction de l'action
+            const tradeClass = trade.action === 'ACHETER' ? 'trade-buy' : 'trade-sell';
+            
+            const tradeItem = document.createElement('div');
+            tradeItem.className = `trade-history-item ${tradeClass}`;
+            tradeItem.innerHTML = `
+                <div class="d-flex justify-content-between">
+                    <h6>${trade.action} ${trade.symbol}</h6>
+                    <small class="text-muted">${formattedDate}</small>
+                </div>
+                <div class="d-flex justify-content-between">
+                    <div>Quantité: ${trade.amount.toLocaleString('fr-FR', {minimumFractionDigits: 8, maximumFractionDigits: 8})}</div>
+                    <div>Prix: $${trade.price.toLocaleString('fr-FR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
+                    <div>Valeur: $${trade.value.toLocaleString('fr-FR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
+                </div>
+            `;
+            
+            tradeHistory.appendChild(tradeItem);
+        });
+    }
+    
+    // Gestionnaires d'événements
+    
+    // Changement de période
+    document.querySelectorAll('.period-selector').forEach(button => {
+        button.addEventListener('click', function(e) {
+            e.preventDefault();
+            currentPeriod = this.dataset.period;
+            loadMarketData();
+        });
+    });
+    
+    // Changement de timeframe
+    document.querySelectorAll('.timeframe-selector').forEach(button => {
+        button.addEventListener('click', function(e) {
+            e.preventDefault();
+            document.querySelectorAll('.timeframe-selector').forEach(btn => btn.classList.remove('active'));
+            this.classList.add('active');
+            currentTimeframe = this.dataset.timeframe;
+            loadMarketData();
+        });
+    });
+    
+    // Bouton de rafraîchissement
+    document.getElementById('refresh-data').addEventListener('click', function() {
+        loadMarketData();
+        loadPortfolioData();
+        loadPerformanceData();
+    });
+    
+    // Charger les données initiales
+    loadMarketData();
+    loadPortfolioData();
+    loadPerformanceData();
+    
+    // Rafraîchir les données toutes les 30 secondes
+    setInterval(() => {
+        loadMarketData();
+    }, 30000);
+});
+</script>
+{% endblock %} 
