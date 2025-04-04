@@ -80,18 +80,17 @@
                 <hr>
                 <h6>Détails des actifs</h6>
                 <div class="table-responsive">
-                    <table class="table table-sm">
+                    <table class="table table-hover" id="assetsTable">
                         <thead>
                             <tr>
-                                <th>Actif</th>
-                                <th class="text-end">Quantité</th>
-                                <th class="text-end">Valeur</th>
+                                <th>ACTIF</th>
+                                <th class="text-end">QUANTITÉ</th>
+                                <th class="text-end">$/u</th>
+                                <th class="text-end">VALEUR</th>
                             </tr>
                         </thead>
-                        <tbody id="assets-table">
-                            <tr>
-                                <td colspan="3" class="text-center">Chargement...</td>
-                            </tr>
+                        <tbody>
+                            <!-- Les actifs seront ajoutés ici dynamiquement -->
                         </tbody>
                     </table>
                 </div>
@@ -221,7 +220,7 @@
     </div>
 </div>
 
-<!-- Ajouter cette section avant la section "Historique des transactions" -->
+<!-- Section Nouvelle transaction -->
 <div class="row mb-4">
     <div class="col-md-12">
         <div class="card shadow-sm">
@@ -231,11 +230,11 @@
             <div class="card-body">
                 <form id="transaction-form">
                     <div class="row">
-                        <div class="col-md-2">
+                        <div class="col-md-3">
                             <div class="mb-3">
-                                <label for="symbol" class="form-label">Actif</label>
+                                <label for="symbol" class="form-label">Crypto-monnaie</label>
                                 <select class="form-select" id="symbol" required>
-                                    <option value="">Sélectionner un actif</option>
+                                    <option value="">Choisir une crypto-monnaie</option>
                                     <option value="BTC">Bitcoin (BTC)</option>
                                     <option value="ETH">Ethereum (ETH)</option>
                                     <option value="BNB">Binance Coin (BNB)</option>
@@ -257,7 +256,7 @@
                                 </select>
                             </div>
                         </div>
-                        <div class="col-md-2">
+                        <div class="col-md-3">
                             <div class="mb-3">
                                 <label for="action" class="form-label">Action</label>
                                 <select class="form-select" id="action" required>
@@ -266,30 +265,16 @@
                                 </select>
                             </div>
                         </div>
-                        <div class="col-md-2">
+                        <div class="col-md-3">
                             <div class="mb-3">
                                 <label for="amount" class="form-label">Quantité</label>
-                                <input type="number" class="form-control" id="amount" step="0.00000001" required>
+                                <input type="number" class="form-control" id="amount" step="any" required>
                             </div>
                         </div>
-                        <div class="col-md-2">
-                            <div class="mb-3">
-                                <label for="price" class="form-label">Prix ($)</label>
-                                <input type="number" class="form-control" id="price" step="0.01" required>
-                            </div>
-                        </div>
-                        <div class="col-md-2">
-                            <div class="mb-3">
-                                <label for="date" class="form-label">Date (optionnel)</label>
-                                <input type="datetime-local" class="form-control" id="date">
-                                <small class="text-muted">Si non renseignée, la date actuelle sera utilisée</small>
-                            </div>
-                        </div>
-                        <div class="col-md-2">
+                        <div class="col-md-3">
                             <div class="mb-3">
                                 <label class="form-label">&nbsp;</label>
-                                <button type="submit" class="btn btn-primary w-100" id="submit-btn">Ajouter</button>
-                                <input type="hidden" id="edit-id" value="">
+                                <button type="submit" class="btn btn-primary w-100">Ajouter</button>
                             </div>
                         </div>
                     </div>
@@ -342,7 +327,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const ema21Value = document.getElementById('ema21-value');
     const portfolioValue = document.getElementById('portfolio-value');
     const portfolioChange = document.getElementById('portfolio-change');
-    const assetsTable = document.getElementById('assets-table');
+    const assetsTable = document.getElementById('assetsTable');
     const profitPct = document.getElementById('profit-pct');
     const surperf = document.getElementById('surperf');
     const winRate = document.getElementById('win-rate');
@@ -378,7 +363,7 @@ document.addEventListener('DOMContentLoaded', function() {
             })
             .catch(error => {
                 console.error('Erreur lors du chargement des données du portefeuille:', error);
-                assetsTable.innerHTML = '<tr><td colspan="3" class="text-center">Erreur lors du chargement des données</td></tr>';
+                assetsTable.innerHTML = '<tr><td colspan="4" class="text-center">Erreur lors du chargement des données</td></tr>';
                 document.getElementById('trade-history').innerHTML = '<p class="text-center text-danger">Erreur lors du chargement des transactions</p>';
             });
     }
@@ -440,103 +425,68 @@ document.addEventListener('DOMContentLoaded', function() {
         updatePriceChart();
     }
     
-    // Fonction pour récupérer les prix actuels des cryptomonnaies
-    async function getCurrentPrices() {
-        try {
-            const response = await fetch('/api/market_data?timeframe=1h');
-            const data = await response.json();
-            return data.prices[data.prices.length - 1].price; // Prix actuel du BTC
-        } catch (error) {
-            console.error('Erreur lors de la récupération des prix:', error);
-            return null;
-        }
-    }
-    
     // Mettre à jour les données du portefeuille
     async function updatePortfolioData() {
-        if (!portfolioData) {
-            // Si pas de données, afficher un message vide
-            portfolioValue.textContent = '$0.00';
+        try {
+            const response = await fetch('/api/portfolio');
+            const data = await response.json();
+            
+            if (!data || !data.assets || data.assets.length === 0) {
+                portfolioValue.textContent = '$0.00';
+                portfolioChange.innerHTML = `
+                    <span class="badge bg-secondary">0.00%</span>
+                    <small class="text-muted ms-2">depuis le début</small>
+                `;
+                assetsTable.innerHTML = '<tr><td colspan="4" class="text-center">Aucun actif dans le portefeuille</td></tr>';
+                return;
+            }
+
+            // Mettre à jour la valeur totale du portefeuille
+            portfolioValue.textContent = `$${data.current_value.toLocaleString('fr-FR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+
+            // Calculer et afficher le pourcentage de changement
+            const profitPercent = data.starting_value > 0 ? 
+                ((data.current_value - data.starting_value) / data.starting_value) * 100 : 0;
+
             portfolioChange.innerHTML = `
-                <span class="badge bg-secondary">0.00%</span>
+                <span class="badge ${profitPercent >= 0 ? 'bg-success' : 'bg-danger'}">
+                    ${profitPercent >= 0 ? '+' : ''}${profitPercent.toFixed(2)}%
+                </span>
                 <small class="text-muted ms-2">depuis le début</small>
             `;
-            assetsTable.innerHTML = '<tr><td colspan="3" class="text-center">Aucun actif dans le portefeuille</td></tr>';
-            return;
-        }
 
-        // Récupérer le prix actuel du BTC
-        const btcPrice = await getCurrentPrices();
-        if (!btcPrice) {
-            console.error('Impossible de récupérer le prix actuel');
-            return;
-        }
+            // Mettre à jour le tableau des actifs
+            const tbody = document.querySelector('#assetsTable tbody');
+            tbody.innerHTML = '';
 
-        // Calculer la valeur actuelle totale du portefeuille
-        let totalCurrentValue = 0;
-        let totalStartingValue = 0;
-        const assets = {};
-
-        // Traiter les transactions pour calculer les quantités et valeurs
-        if (portfolioData.transactions && portfolioData.transactions.length > 0) {
-            portfolioData.transactions.forEach(transaction => {
-                const symbol = transaction.symbol;
-                if (!assets[symbol]) {
-                    assets[symbol] = {
-                        amount: 0,
-                        value_usd: 0
-                    };
-                }
-                
-                if (transaction.action === 'ACHETER') {
-                    assets[symbol].amount += transaction.amount;
-                    assets[symbol].value_usd += transaction.value;
-                } else {
-                    assets[symbol].amount -= transaction.amount;
-                    assets[symbol].value_usd -= transaction.value;
-                }
-            });
-        }
-
-        // Mettre à jour le tableau des actifs
-        assetsTable.innerHTML = '';
-        const validAssets = Object.entries(assets).filter(([_, asset]) => asset.amount > 0);
-        
-        if (validAssets.length > 0) {
-            validAssets.forEach(([symbol, asset]) => {
-                // Calculer la valeur actuelle de l'actif
-                const currentValue = asset.amount * btcPrice;
-                totalCurrentValue += currentValue;
-                totalStartingValue += asset.value_usd;
-
+            // Ajouter chaque actif
+            data.assets.forEach(asset => {
                 const row = document.createElement('tr');
                 row.innerHTML = `
-                    <td><strong>${symbol}</strong></td>
-                    <td class="text-end">${asset.amount.toLocaleString('fr-FR', {minimumFractionDigits: symbol === 'USDT' ? 2 : 8, maximumFractionDigits: symbol === 'USDT' ? 2 : 8})}</td>
-                    <td class="text-end">$${currentValue.toLocaleString('fr-FR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+                    <td><strong>${asset.symbol}</strong></td>
+                    <td class="text-end">${asset.amount.toLocaleString('fr-FR', {minimumFractionDigits: 8, maximumFractionDigits: 8})}</td>
+                    <td class="text-end">$${asset.current_price.toLocaleString('fr-FR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+                    <td class="text-end">$${asset.value_usd.toLocaleString('fr-FR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
                 `;
-                assetsTable.appendChild(row);
+                tbody.appendChild(row);
             });
-        } else {
-            assetsTable.innerHTML = '<tr><td colspan="3" class="text-center">Aucun actif dans le portefeuille</td></tr>';
+
+            // Ajouter la ligne du total
+            const totalRow = document.createElement('tr');
+            totalRow.className = 'table-active';
+            totalRow.innerHTML = `
+                <td colspan="3"><strong>Total</strong></td>
+                <td class="text-end"><strong>$${data.current_value.toLocaleString('fr-FR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</strong></td>
+            `;
+            tbody.appendChild(totalRow);
+
+            // Mettre à jour le graphique
+            updatePortfolioChart(data.assets);
+
+        } catch (error) {
+            console.error('Erreur lors de la mise à jour du portfolio:', error);
+            assetsTable.innerHTML = '<tr><td colspan="4" class="text-center text-danger">Erreur lors de la mise à jour des données</td></tr>';
         }
-
-        // Mettre à jour la valeur totale du portefeuille
-        portfolioValue.textContent = `$${totalCurrentValue.toLocaleString('fr-FR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
-
-        // Calculer le % de profit
-        const profitPercent = totalStartingValue > 0 ? 
-            ((totalCurrentValue - totalStartingValue) / totalStartingValue) * 100 : 0;
-
-        portfolioChange.innerHTML = `
-            <span class="badge ${profitPercent >= 0 ? 'bg-success' : 'bg-danger'}">
-                ${profitPercent >= 0 ? '+' : ''}${profitPercent.toFixed(2)}%
-            </span>
-            <small class="text-muted ms-2">depuis le début</small>
-        `;
-
-        // Mettre à jour le graphique du portefeuille
-        updatePortfolioChart();
     }
     
     // Mettre à jour les données de performance
@@ -627,35 +577,11 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     // Mettre à jour le graphique du portefeuille
-    function updatePortfolioChart() {
-        if (!portfolioData) return;
-        
+    function updatePortfolioChart(assets) {
         const ctx = document.getElementById('portfolio-chart').getContext('2d');
         
-        // Calculer les actifs à partir des transactions
-        const assets = {};
-        if (portfolioData.transactions && portfolioData.transactions.length > 0) {
-            portfolioData.transactions.forEach(transaction => {
-                const symbol = transaction.symbol;
-                if (!assets[symbol]) {
-                    assets[symbol] = 0;
-                }
-                if (transaction.action === 'ACHETER') {
-                    assets[symbol] += transaction.amount;
-                } else {
-                    assets[symbol] -= transaction.amount;
-                }
-            });
-        }
-        
-        // Filtrer les actifs avec une quantité positive
-        const validAssets = Object.entries(assets)
-            .filter(([_, amount]) => amount > 0)
-            .map(([symbol, amount]) => ({
-                symbol,
-                amount,
-                value_usd: amount * (marketData ? marketData.prices[marketData.prices.length - 1].price : 0)
-            }));
+        // Filtrer les actifs avec une valeur positive
+        const validAssets = assets.filter(asset => asset.value_usd > 0);
         
         if (validAssets.length === 0) {
             // Si aucun actif valide, détruire le graphique s'il existe
@@ -667,14 +593,14 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         
         // Données pour le graphique
-        const labels = validAssets.map(a => a.symbol);
-        const data = validAssets.map(a => a.value_usd);
+        const labels = validAssets.map(asset => asset.symbol);
+        const data = validAssets.map(asset => asset.value_usd);
         const colors = [
-            'rgba(54, 162, 235, 0.8)',
-            'rgba(255, 99, 132, 0.8)',
-            'rgba(255, 206, 86, 0.8)',
-            'rgba(75, 192, 192, 0.8)',
-            'rgba(153, 102, 255, 0.8)'
+            'rgba(54, 162, 235, 0.8)',  // Bleu pour BTC
+            'rgba(255, 99, 132, 0.8)',   // Rose pour ETH
+            'rgba(255, 206, 86, 0.8)',   // Jaune pour ADA
+            'rgba(75, 192, 192, 0.8)',   // Vert pour SHIB
+            'rgba(153, 102, 255, 0.8)'   // Violet pour autres
         ];
         
         // Si le graphique existe déjà, le mettre à jour
@@ -700,7 +626,22 @@ document.addEventListener('DOMContentLoaded', function() {
                     maintainAspectRatio: false,
                     plugins: {
                         legend: {
-                            display: false
+                            display: true,
+                            position: 'right',
+                            labels: {
+                                boxWidth: 12,
+                                padding: 10
+                            }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    const value = context.raw;
+                                    const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                    const percentage = ((value / total) * 100).toFixed(1);
+                                    return `${context.label}: $${value.toLocaleString('fr-FR', {minimumFractionDigits: 2, maximumFractionDigits: 2})} (${percentage}%)`;
+                                }
+                            }
                         }
                     }
                 }
@@ -817,10 +758,10 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         
         // Trier les transactions par date (les plus récentes en premier)
-        transactions.sort((a, b) => new Date(b.date) - new Date(a.date));
+        transactions.sort((a, b) => b.timestamp - a.timestamp);
         
         transactions.forEach(trade => {
-            const date = new Date(trade.date);
+            const date = new Date(trade.timestamp * 1000);
             const formattedDate = date.toLocaleDateString('fr-FR') + ' ' + date.toLocaleTimeString('fr-FR');
             
             const tradeClass = trade.action === 'ACHETER' ? 'trade-buy' : 'trade-sell';
@@ -832,10 +773,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     <h6>${trade.action} ${trade.symbol}</h6>
                     <div>
                         <small class="text-muted">${formattedDate}</small>
-                        <button class="btn btn-sm btn-primary ms-2" onclick="editTransaction(${JSON.stringify(trade)})">
-                            <i class="fas fa-edit"></i>
-                        </button>
-                        <button class="btn btn-sm btn-danger ms-2" onclick="deleteTransaction('${trade.timestamp}')">
+                        <button class="btn btn-sm btn-danger ms-2" onclick="deleteHistoryTransaction('${trade.timestamp}')">
                             <i class="fas fa-trash"></i>
                         </button>
                     </div>
@@ -843,12 +781,45 @@ document.addEventListener('DOMContentLoaded', function() {
                 <div class="d-flex justify-content-between">
                     <div>Quantité: ${trade.amount.toLocaleString('fr-FR', {minimumFractionDigits: 8, maximumFractionDigits: 8})}</div>
                     <div>Prix: $${trade.price.toLocaleString('fr-FR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
-                    <div>Valeur: $${trade.value.toLocaleString('fr-FR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
+                    <div>Valeur: $${(trade.amount * trade.price).toLocaleString('fr-FR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
                 </div>
             `;
-            
             tradeHistory.appendChild(tradeItem);
         });
+    }
+    
+    // Fonction pour supprimer une transaction de l'historique
+    function deleteHistoryTransaction(timestamp) {
+        if (confirm('Êtes-vous sûr de vouloir supprimer cette transaction ?')) {
+            fetch('/api/transactions', {
+                method: 'DELETE',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ timestamp: timestamp })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    showAlert(data.error, 'danger');
+                } else {
+                    showAlert('Transaction supprimée avec succès', 'success');
+                    // Recharger toutes les données
+                    loadPortfolioData();
+                    loadTransactions();
+                    // Recharger l'historique des transactions
+                    fetch('/api/transactions')
+                        .then(response => response.json())
+                        .then(data => {
+                            updateTradeHistory(data);
+                        });
+                }
+            })
+            .catch(error => {
+                console.error('Erreur lors de la suppression de la transaction:', error);
+                showAlert('Erreur lors de la suppression de la transaction', 'danger');
+            });
+        }
     }
     
     // Gestionnaires d'événements
@@ -912,27 +883,6 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    function deleteTransaction(id) {
-        fetch('/api/transactions', {
-            method: 'DELETE',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ id: id })
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.error) {
-                alert(data.error);
-            } else {
-                loadPortfolioData();  // Recharger toutes les données
-            }
-        })
-        .catch(error => {
-            console.error('Erreur lors de la suppression de la transaction:', error);
-        });
-    }
-
     function editTransaction(transaction) {
         document.getElementById('symbol').value = transaction.symbol;
         document.getElementById('action').value = transaction.action;
@@ -964,32 +914,146 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    // Gestionnaire du formulaire
+    // Gestionnaire de soumission du formulaire de transaction
     document.getElementById('transaction-form').addEventListener('submit', function(e) {
         e.preventDefault();
         
-        const transaction = {
-            symbol: document.getElementById('symbol').value.toUpperCase(),
+        const formData = {
+            symbol: document.getElementById('symbol').value,
             action: document.getElementById('action').value,
-            amount: parseFloat(document.getElementById('amount').value),
-            price: parseFloat(document.getElementById('price').value),
-            date: document.getElementById('date').value || new Date().toISOString().slice(0, 16)
+            amount: parseFloat(document.getElementById('amount').value)
         };
-        
-        const editId = document.getElementById('edit-id').value;
-        if (editId) {
-            // Modification d'une transaction existante
-            transaction.timestamp = editId;
-            updateTransaction(transaction);
-        } else {
-            // Ajout d'une nouvelle transaction
-            addTransaction(transaction);
-        }
-        
-        this.reset();
-        document.getElementById('submit-btn').textContent = 'Ajouter';
-        document.getElementById('edit-id').value = '';
+
+        // Afficher un message de chargement
+        showAlert('Ajout de la transaction en cours...', 'info');
+
+        fetch('/api/transactions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(formData)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // Réinitialiser le formulaire
+                document.getElementById('transaction-form').reset();
+                
+                // Recharger les données
+                loadTransactions();
+                loadPortfolioData();
+                
+                // Afficher un message de succès
+                showAlert('Transaction ajoutée avec succès', 'success');
+            } else {
+                showAlert(data.error || 'Erreur lors de l\'ajout de la transaction', 'danger');
+            }
+        })
+        .catch(error => {
+            console.error('Erreur:', error);
+            showAlert('Erreur lors de l\'ajout de la transaction', 'danger');
+        });
     });
+
+    function loadTransactions() {
+        fetch('/api/transactions')
+            .then(response => response.json())
+            .then(transactions => {
+                const tbody = document.querySelector('#transactionsTable tbody');
+                tbody.innerHTML = '';
+                
+                if (transactions.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="6" class="text-center">Aucune transaction</td></tr>';
+                    return;
+                }
+                
+                // Trier les transactions par date (plus récentes en premier)
+                transactions.sort((a, b) => b.timestamp - a.timestamp);
+                
+                transactions.forEach(transaction => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>${transaction.symbol}</td>
+                        <td>${transaction.action}</td>
+                        <td>${transaction.amount.toLocaleString('fr-FR', {minimumFractionDigits: 8, maximumFractionDigits: 8})}</td>
+                        <td>$${transaction.price.toLocaleString('fr-FR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+                        <td>$${(transaction.amount * transaction.price).toLocaleString('fr-FR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+                        <td>
+                            <button class="btn btn-sm btn-danger" onclick="deleteHistoryTransaction('${transaction.timestamp}')">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </td>
+                    `;
+                    tbody.appendChild(row);
+                });
+            })
+            .catch(error => {
+                console.error('Erreur:', error);
+                const tbody = document.querySelector('#transactionsTable tbody');
+                tbody.innerHTML = '<tr><td colspan="6" class="text-center text-danger">Erreur lors du chargement des transactions</td></tr>';
+            });
+    }
+
+    function submitTransaction() {
+        const formData = {
+            symbol: document.getElementById('symbol').value,
+            action: document.getElementById('action').value,
+            amount: parseFloat(document.getElementById('amount').value)
+        };
+
+        fetch('/api/transactions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(formData)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // Fermer le modal
+                const modal = bootstrap.Modal.getInstance(document.getElementById('newTransactionModal'));
+                modal.hide();
+                
+                // Réinitialiser le formulaire
+                document.getElementById('newTransactionForm').reset();
+                
+                // Recharger les données
+                loadTransactions();
+                loadPortfolioData();
+                
+                // Afficher un message de succès
+                showAlert('Transaction ajoutée avec succès', 'success');
+            } else {
+                showAlert('Erreur lors de l\'ajout de la transaction', 'danger');
+            }
+        })
+        .catch(error => {
+            console.error('Erreur:', error);
+            showAlert('Erreur lors de l\'ajout de la transaction', 'danger');
+        });
+    }
+
+    // Fonction pour afficher les alertes
+    function showAlert(message, type) {
+        const alertDiv = document.createElement('div');
+        alertDiv.className = `alert alert-${type} alert-dismissible fade show`;
+        alertDiv.role = 'alert';
+        alertDiv.innerHTML = `
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        `;
+        
+        // Insérer l'alerte en haut de la page
+        const container = document.querySelector('.container');
+        container.insertBefore(alertDiv, container.firstChild);
+        
+        // Supprimer automatiquement l'alerte après 3 secondes
+        setTimeout(() => {
+            alertDiv.remove();
+        }, 3000);
+    }
 });
 </script>
 {% endblock %} 
