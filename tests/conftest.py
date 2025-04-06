@@ -7,7 +7,7 @@ import logging
 import pytest
 import pandas as pd
 import numpy as np
-from unittest.mock import MagicMock, AsyncMock
+from unittest.mock import MagicMock
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -109,7 +109,6 @@ def sample_ohlcv_data():
     df.set_index('timestamp', inplace=True)
     return df
 
-
 @pytest.fixture
 def sample_data_with_indicators(sample_ohlcv_data):
     """Génère des données OHLCV avec des indicateurs techniques"""
@@ -133,28 +132,6 @@ def sample_data_with_indicators(sample_ohlcv_data):
     
     return df
 
-
-@pytest.fixture
-def mock_discord_context():
-    """Crée un mock de contexte Discord pour tester les commandes"""
-    ctx = MagicMock()
-    ctx.send = AsyncMock()
-    
-    # Simuler un message d'attente avec une méthode edit
-    mock_message = MagicMock()
-    mock_message.edit = AsyncMock()
-    ctx.send.return_value = mock_message
-    
-    # Ajouter d'autres attributs souvent utilisés
-    ctx.channel = MagicMock()
-    ctx.channel.id = 12345
-    ctx.author = MagicMock()
-    ctx.author.name = "TestUser"
-    ctx.author.id = 67890
-    
-    return ctx
-
-
 @pytest.fixture
 def mock_api_response():
     """Crée une réponse d'API mock standard pour les tests"""
@@ -172,7 +149,6 @@ def mock_api_response():
         }
     
     return _create_response
-
 
 @pytest.fixture
 def mock_backtest_results():

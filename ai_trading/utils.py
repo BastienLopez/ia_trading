@@ -251,23 +251,4 @@ def config_loader(config_file="config.json"):
         return default_config
     
     with open(config_file, 'r') as f:
-        return json.load(f)
-
-def send_discord_notification(webhook_url, message, title=None, color=0x00ff00):
-    """
-    Envoie une notification sur Discord
-    """
-    data = {
-        "embeds": [{
-            "title": title or "Notification Trading RL",
-            "description": message,
-            "color": color
-        }]
-    }
-    
-    try:
-        response = requests.post(webhook_url, json=data)
-        return response.status_code == 204
-    except Exception as e:
-        print(f"Erreur lors de l'envoi de la notification Discord: {str(e)}")
-        return False 
+        return json.load(f) 

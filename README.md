@@ -1,109 +1,77 @@
-# Crypto Trading AI
+# Système de Trading Automatisé avec Apprentissage par Renforcement
 
-Un système complet d'intelligence artificielle pour le trading de cryptomonnaies, utilisant l'apprentissage par renforcement et des outils avancés d'analyse de données.
+Un système de trading automatisé utilisant l'apprentissage par renforcement pour trader les cryptomonnaies.
 
-## 🚀 Vue d'ensemble
+## Fonctionnalités
 
-Ce projet combine plusieurs technologies pour créer un système de trading automatisé:
+- **API de Trading** : Interface REST pour interagir avec le système
+- **Analyse Technique** : Utilisation d'indicateurs techniques pour l'analyse
+- **Apprentissage par Renforcement** : Modèles d'IA pour la prise de décision
+- **Backtesting** : Simulation de stratégies sur des données historiques
+- **Visualisation** : Graphiques et tableaux de bord pour le suivi
 
-- **Intelligence Artificielle**: Apprentissage par renforcement pour prendre des décisions de trading
-- **API RESTful**: Interface permettant d'accéder aux prédictions et de gérer les modèles
-- **Bot Discord**: Notifications et commandes pour interagir avec le système
-- **Interface Web**: Tableau de bord pour visualiser les performances et gérer les stratégies
-
-## 📋 Structure du projet
+## Structure du Projet
 
 ```
 .
-├── ai_trading/               # Module d'IA pour le trading
-│   ├── data/                 # Données historiques
-│   ├── models/               # Modèles entraînés
-│   ├── rl_agent.py           # Agent d'apprentissage par renforcement
-│   ├── data_processor.py     # Traitement des données
-│   ├── api.py                # API pour servir les prédictions
-│   └── utils.py              # Utilitaires divers
-│
-├── discord_bot/              # Bot Discord pour les notifications
-│   └── bot.py                # Implémentation du bot
-│
-├── web_app/                  # Interface web
-│   ├── templates/            # Templates HTML
-│   ├── static/               # Ressources statiques (CSS, JS)
-│   └── app.py                # Application Flask
-│
-├── tests/                    # Tests unitaires et d'intégration
-│   ├── ai_trading/           # Tests du module d'IA
-│   └── discord_bot/          # Tests du bot Discord
-│
-├── docs/                     # Documentation complémentaire
-├── requirements.txt          # Dépendances Python
-└── README.md                 # Documentation principale
+├── ai_trading/           # Module principal de trading
+├── tradingview/          # Intégration avec TradingView
+├── tests/               # Tests unitaires et d'intégration
+├── docs/                # Documentation
+├── logs/                # Fichiers de logs
+└── instance/            # Fichiers de configuration
 ```
 
-## ⚙️ Installation
+## Configuration
 
-1. **Cloner le dépôt**
-   ```bash
-   git clone https://github.com/votre-username/crypto-trading-ai.git
-   cd crypto-trading-ai
-   ```
+1. Créez un fichier `.env` à la racine du projet avec les variables suivantes :
 
-2. **Installer les dépendances**
-   ```bash
-   pip install -r requirements.txt
-   ```
+```env
+API_KEY=votre_clé_api
+API_SECRET=votre_secret_api
+DATABASE_URL=postgresql://user:password@localhost:5432/dbname
+LOG_LEVEL=INFO
+```
 
-3. **Configuration**
-   Créez un fichier `.env` à la racine du projet avec les variables suivantes:
-   ```
-   API_URL=http://localhost:8000
-   DISCORD_TOKEN=votre_token_discord
-   ```
+2. Installez les dépendances globalement :
 
-## 💻 Composants principaux
+```bash
+pip install -r requirements.txt
+```
 
-### Module d'IA Trading
+## Utilisation
 
-Le cœur du système est un agent d'apprentissage par renforcement qui analyse les données de marché pour prendre des décisions de trading optimales.
+### API de Trading
 
-### API RESTful
+L'API permet d'interagir avec le système via des endpoints REST :
 
-Une API FastAPI qui expose les fonctionnalités du système:
-- Prédictions en temps réel
-- Gestion des modèles
-- Backtesting des stratégies
+```bash
+# Démarrer l'API
+python -m ai_trading.api
+```
 
-### Bot Discord
+### Backtesting
 
-Un bot permettant d'interagir avec le système via Discord:
-- Notifications des signaux de trading
-- Consultation des performances
-- Commandes pour lancer des analyses
+Pour tester une stratégie sur des données historiques :
 
-### Interface Web
+```bash
+python -m ai_trading.train --backtest --symbol BTC/USDT --timeframe 1h --days 60
+```
 
-Une application web Flask qui offre:
-- Tableau de bord interactif
-- Visualisation des performances
-- Configuration des stratégies
+## Tests
 
-## 🔍 Documentation détaillée
+Pour exécuter les tests :
 
-Pour plus d'informations sur les différents composants, consultez:
+```bash
+# Tous les tests
+python -m pytest
 
-- [Guide de l'API](docs/API.md)
-- [Guide du Bot Discord](docs/DISCORD.md)
-- [Guide de l'Interface Web](web_app/README.md)
-- [Guide des Tests](docs/TESTING.md)
+# Tests avec couverture
+python -m pytest --cov=ai_trading --cov-report=term-missing
+```
 
-## 🤝 Contribution
+## Documentation
 
-Les contributions sont les bienvenues! Consultez notre [guide de contribution](CONTRIBUTING.md) pour plus d'informations.
-
-## ⚠️ Avertissement
-
-Ce système est fourni à des fins éducatives et de recherche uniquement. Le trading de cryptomonnaies comporte des risques financiers importants.
-
-## 📄 Licence
-
-Ce projet est sous licence MIT.
+- [Guide d'Installation](docs/INSTALLATION.md)
+- [Guide de Développement](docs/DEVELOPMENT.md)
+- [Guide de Test](docs/TESTING.md)

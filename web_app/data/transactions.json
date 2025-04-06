@@ -17,23 +17,53 @@
             "price": 1784.75,
             "value": 35695.0,
             "date": "2025-04-04T14:03:24.596081"
+        },
+        {
+            "symbol": "SHIB",
+            "action": "ACHETER",
+            "amount": 12,
+            "timestamp": 1743924992.763449,
+            "price": 1.212e-05,
+            "value": 0.00014544,
+            "date": "2025-04-06T09:36:32.763449"
+        },
+        {
+            "symbol": "UNI",
+            "action": "ACHETER",
+            "amount": 1,
+            "timestamp": 1743925072.651934,
+            "price": 5.81,
+            "value": 5.81,
+            "date": "2025-04-06T09:37:52.651934"
         }
     ],
     "portfolio": {
-        "current_value": 76854.4,
+        "current_value": 77443.91,
         "starting_value": 0,
         "assets": [
             {
                 "symbol": "BTC",
                 "amount": 0.5,
-                "value_usd": 41233.0,
-                "current_price": 82466.0
+                "value_usd": 41506.5,
+                "current_price": 83013.0
             },
             {
                 "symbol": "ETH",
                 "amount": 20.0,
-                "value_usd": 35621.4,
-                "current_price": 1781.07
+                "value_usd": 35931.6,
+                "current_price": 1796.58
+            },
+            {
+                "symbol": "UNI",
+                "amount": 1.0,
+                "value_usd": 5.81,
+                "current_price": 5.81
+            },
+            {
+                "symbol": "SHIB",
+                "amount": 12.0,
+                "value_usd": 0.0,
+                "current_price": 1.211e-05
             }
         ]
     }

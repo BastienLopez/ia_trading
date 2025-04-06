@@ -16,21 +16,6 @@ services:
       - LOG_LEVEL=INFO
     command: python -m ai_trading.api
 
-  bot:
-    build: .
-    container_name: trading_bot
-    restart: unless-stopped
-    volumes:
-      - ./discord_bot:/app/discord_bot
-      - ./logs:/app/logs
-    depends_on:
-      - api
-    environment:
-      - DISCORD_TOKEN=${DISCORD_TOKEN}
-      - API_URL=http://api:8000
-      - LOG_LEVEL=INFO
-    command: python -m discord_bot.bot
-
   db:
     image: postgres:14
     container_name: trading_db

@@ -13,7 +13,6 @@ RUN mkdir -p logs
 
 # Copier le code source
 COPY ai_trading/ ai_trading/
-COPY discord_bot/ discord_bot/
 COPY tradingview/ tradingview/
 COPY .env .
 
@@ -25,7 +24,4 @@ CMD ["python", "-m", "ai_trading.api"]
 
 # Autres commandes possibles en fonction de l'utilisation :
 # Pour entraîner un modèle : 
-# CMD ["python", "ai_trading/train.py", "--download", "--symbol", "BTC/USDT", "--timeframe", "1h", "--days", "60", "--backtest"]
-# 
-# Pour lancer le bot Discord :
-# CMD ["python", "discord_bot/bot.py"] 
+# CMD ["python", "ai_trading/train.py", "--download", "--symbol", "BTC/USDT", "--timeframe", "1h", "--days", "60", "--backtest"] 
