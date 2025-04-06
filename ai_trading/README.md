@@ -53,9 +53,10 @@ ai_trading/
   - Prétraitement des données textuelles
 
 ### Phase 2: Analyse de Sentiment (LLM) 🔄
-- 🔄 2.1 Implémentation de `llm/sentiment_analysis/news_analyzer.py`
+- ✅ 2.1 Implémentation de `llm/sentiment_analysis/news_analyzer.py`
   - Analyse des actualités crypto
   - Extraction des entités et sentiments
+  - Version améliorée avec visualisations et rapports
 - 🔄 2.2 Implémentation de `llm/sentiment_analysis/social_analyzer.py`
   - Analyse des tweets et posts Reddit
   - Détection des tendances et sentiments
@@ -91,6 +92,9 @@ python -m ai_trading.tests.test_enhanced_collector
 
 # Exécution des tests pour le préprocesseur
 python -m ai_trading.tests.test_enhanced_preprocessor
+
+# Exécution des tests pour l'analyseur de sentiment amélioré
+python -m ai_trading.tests.test_enhanced_news_analyzer
 ```
 
 ## Comment exécuter les exemples
@@ -110,16 +114,43 @@ Pour exécuter cet exemple :
 python -m ai_trading.examples.enhanced_data_pipeline
 ```
 
-Cet exemple va :
-1. Collecter des données pour Bitcoin, Ethereum et Solana
-2. Prétraiter ces données (nettoyage, features techniques, normalisation)
-3. Générer des visualisations des prix
-4. Sauvegarder tous les résultats dans les dossiers `data/raw` et `data/processed`
+### Analyse de sentiment des actualités
 
-Vous pouvez modifier le script pour :
-- Ajouter d'autres cryptomonnaies à analyser
-- Changer la période de collecte des données
-- Utiliser différentes méthodes de prétraitement
+L'exemple `sentiment_analysis_example.py` montre comment analyser le sentiment des actualités crypto :
+- Collecte des actualités pour plusieurs cryptomonnaies
+- Analyse du sentiment et extraction des entités
+- Affichage des résultats
+
+Pour exécuter cet exemple :
+
+```bash
+python -m ai_trading.examples.sentiment_analysis_example
+```
+
+### Analyse de sentiment avancée
+
+L'exemple `enhanced_sentiment_analysis_example.py` montre comment utiliser les fonctionnalités avancées d'analyse de sentiment :
+- Collecte des actualités pour plusieurs cryptomonnaies
+- Analyse avancée du sentiment avec visualisations
+- Génération de rapports détaillés
+
+Pour exécuter cet exemple :
+
+```bash
+python -m ai_trading.examples.enhanced_sentiment_analysis_example
+```
+
+### Démonstration simple d'analyse de sentiment
+
+L'exemple `sentiment_analysis_demo.py` est une démonstration simple de l'analyse de sentiment :
+- Analyse d'exemples d'actualités prédéfinis
+- Affichage des résultats de sentiment
+
+Pour exécuter cette démonstration :
+
+```bash
+python -m ai_trading.examples.sentiment_analysis_demo
+```
 
 ## Technologies utilisées
 
@@ -164,4 +195,39 @@ Vous pouvez modifier le script pour :
 
 ### Quand utiliser quelle version ?
 - **Version minimale** : Pour les tests, l'apprentissage, ou quand la simplicité est prioritaire
-- **Version améliorée** : Pour la production, quand la robustesse et les fonctionnalités avancées sont nécessaires 
+- **Version améliorée** : Pour la production, quand la robustesse et les fonctionnalités avancées sont nécessaires
+
+## Modules d'analyse de sentiment
+
+### Analyseurs de sentiment
+- **news_analyzer.py** : Version de base pour l'analyse des actualités crypto
+- **enhanced_news_analyzer.py** : Version avancée avec plus de fonctionnalités (visualisations, rapports, cache)
+
+### Fonctionnalités principales
+- Analyse du sentiment des actualités (positif, négatif, neutre)
+- Extraction des entités (cryptomonnaies, montants, pourcentages)
+- Génération de rapports détaillés
+- Visualisation des tendances de sentiment
+- Gestion du cache pour optimiser les performances
+
+### Quand utiliser quelle version ?
+- **Version de base** : Pour les tests simples ou quand les dépendances sont limitées
+- **Version améliorée** : Pour une analyse complète avec visualisations et rapports détaillés
+
+## Dépendances optionnelles
+
+Pour profiter de toutes les fonctionnalités du système, vous pouvez installer ces dépendances supplémentaires :
+
+```bash
+# Pour la compatibilité avec Transformers et Keras 3
+pip install tf-keras
+
+# Pour les visualisations (si Tkinter n'est pas installé)
+# Sur Ubuntu/Debian
+sudo apt-get install python3-tk
+
+# Sur Windows avec Anaconda
+conda install -c anaconda tk
+```
+
+Les modules fonctionneront même sans ces dépendances, mais avec des fonctionnalités réduites. 

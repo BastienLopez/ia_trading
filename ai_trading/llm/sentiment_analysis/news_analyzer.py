@@ -1,233 +1,528 @@
 """
-Module d'analyse des actualités crypto.
+Module d'analyse des actualités crypto pour extraire le sentiment et les entités.
+Utilise des modèles LLM pour analyser le contenu des actualités.
 """
 
-import logging
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple
-
+import os
 import pandas as pd
+import numpy as np
+from typing import List, Dict, Any, Optional, Union
+from datetime import datetime, timedelta
+import logging
+import re
+import json
 
-from .sentiment_model import SentimentAnalyzer
-
+# Configuration du logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+# Importation conditionnelle des bibliothèques LLM
+try:
+    from transformers import pipeline, AutoModelForSequenceClassification, AutoTokenizer
+    from transformers import BertTokenizer, BertForSequenceClassification
+    TRANSFORMERS_AVAILABLE = True
+except ImportError:
+    logger.warning("La bibliothèque 'transformers' n'est pas disponible. Certaines fonctionnalités seront limitées.")
+    TRANSFORMERS_AVAILABLE = False
+
 class NewsAnalyzer:
-    """Classe pour l'analyse des actualités crypto."""
+    """Classe pour analyser les actualités crypto et en extraire le sentiment et les entités."""
     
-    def __init__(self):
-        """Initialisation de l'analyseur d'actualités."""
-        self.sentiment_analyzer = SentimentAnalyzer()
-        
-    def analyze_news(
-        self,
-        news_data: pd.DataFrame,
-        detailed: bool = False
-    ) -> List[Dict]:
+    def __init__(self, sentiment_model: str = "finiteautomata/bertweet-base-sentiment-analysis",
+                 entity_model: str = "dslim/bert-base-NER",
+                 use_gpu: bool = False):
         """
-        Analyse les actualités et leur sentiment.
+        Initialise l'analyseur d'actualités.
         
         Args:
-            news_data: DataFrame contenant les actualités
-            detailed: Si True, effectue une analyse détaillée
-            
-        Returns:
-            Liste des analyses d'actualités
+            sentiment_model: Modèle à utiliser pour l'analyse de sentiment
+            entity_model: Modèle à utiliser pour la reconnaissance d'entités
+            use_gpu: Si True, utilise le GPU pour l'inférence
         """
-        analyzed_news = []
+        self.sentiment_model_name = sentiment_model
+        self.entity_model_name = entity_model
+        self.use_gpu = use_gpu and TRANSFORMERS_AVAILABLE
+        self.device = 0 if self.use_gpu else -1
         
-        for _, news in news_data.iterrows():
+        # Initialisation des modèles
+        if TRANSFORMERS_AVAILABLE:
             try:
-                # Combinaison du titre et de la description pour l'analyse
-                text = f"{news['title']} {news['description']}"
+                logger.info(f"Chargement du modèle de sentiment: {sentiment_model}")
+                self.sentiment_pipeline = pipeline(
+                    "sentiment-analysis",
+                    model=sentiment_model,
+                    device=self.device
+                )
                 
-                # Analyse du sentiment
-                if detailed:
-                    sentiment = self.sentiment_analyzer.analyze_detailed(text)
-                else:
-                    sentiment = self.sentiment_analyzer.analyze_quick(text)[0]
+                logger.info(f"Chargement du modèle de reconnaissance d'entités: {entity_model}")
+                self.ner_pipeline = pipeline(
+                    "ner",
+                    model=entity_model,
+                    aggregation_strategy="simple",
+                    device=self.device
+                )
                 
-                # Création de l'entrée analysée
-                analyzed_entry = {
-                    'title': news['title'],
-                    'description': news['description'],
-                    'source': news['source'],
-                    'published_at': news['published_at'],
-                    'sentiment': sentiment
-                }
-                
-                analyzed_news.append(analyzed_entry)
-                
+                logger.info("Modèles chargés avec succès")
             except Exception as e:
-                logger.error(f"Erreur lors de l'analyse de l'actualité: {e}")
-                continue
+                logger.error(f"Erreur lors du chargement des modèles: {e}")
+                self.sentiment_pipeline = None
+                self.ner_pipeline = None
+        else:
+            logger.warning("Fonctionnement en mode dégradé sans modèles LLM")
+            self.sentiment_pipeline = None
+            self.ner_pipeline = None
         
-        return analyzed_news
+        # Liste des entités crypto à rechercher
+        self.crypto_entities = {
+            "BTC": ["bitcoin", "btc", "xbt"],
+            "ETH": ["ethereum", "eth"],
+            "BNB": ["binance coin", "bnb"],
+            "SOL": ["solana", "sol"],
+            "ADA": ["cardano", "ada"],
+            "XRP": ["ripple", "xrp"],
+            "DOGE": ["dogecoin", "doge"],
+            "DOT": ["polkadot", "dot"],
+            "AVAX": ["avalanche", "avax"],
+            "MATIC": ["polygon", "matic"]
+        }
     
-    def get_sentiment_timeline(
-        self,
-        analyzed_news: List[Dict],
-        interval: str = '1H'
-    ) -> pd.DataFrame:
+    def analyze_sentiment(self, text: str) -> Dict[str, Any]:
         """
-        Crée une timeline des sentiments.
+        Analyse le sentiment d'un texte.
         
         Args:
-            analyzed_news: Liste des actualités analysées
-            interval: Intervalle de temps pour l'agrégation
+            text: Texte à analyser
             
         Returns:
-            DataFrame avec les sentiments agrégés par intervalle
+            Dictionnaire contenant le sentiment et le score
         """
-        # Création d'un DataFrame avec les données analysées
-        df = pd.DataFrame(analyzed_news)
-        df['published_at'] = pd.to_datetime(df['published_at'])
+        if not text or not isinstance(text, str):
+            return {"label": "neutral", "score": 0.5}
         
-        # Extraction des scores de sentiment
-        df['sentiment_score'] = df['sentiment'].apply(
-            lambda x: x.get('normalized_score', 0.0)
-            if isinstance(x, dict) else 0.0
+        # Nettoyage du texte
+        text = self._clean_text(text)
+        
+        # Si le texte est trop court après nettoyage
+        if len(text.split()) < 3:
+            return {"label": "neutral", "score": 0.5}
+        
+        # Analyse avec le modèle LLM si disponible
+        if self.sentiment_pipeline:
+            try:
+                # Tronquer le texte si nécessaire pour éviter les dépassements de mémoire
+                max_length = 512
+                if len(text) > max_length:
+                    text = text[:max_length]
+                
+                result = self.sentiment_pipeline(text)[0]
+                
+                # Normalisation des étiquettes
+                label = result["label"].lower()
+                if label in ["positive", "pos"]:
+                    label = "positive"
+                elif label in ["negative", "neg"]:
+                    label = "negative"
+                else:
+                    label = "neutral"
+                
+                return {"label": label, "score": result["score"]}
+            except Exception as e:
+                logger.error(f"Erreur lors de l'analyse de sentiment: {e}")
+                return self._fallback_sentiment_analysis(text)
+        else:
+            # Analyse de repli si le modèle n'est pas disponible
+            return self._fallback_sentiment_analysis(text)
+    
+    def extract_entities(self, text: str) -> List[Dict[str, Any]]:
+        """
+        Extrait les entités d'un texte.
+        
+        Args:
+            text: Texte à analyser
+            
+        Returns:
+            Liste des entités extraites avec leur type et position
+        """
+        if not text or not isinstance(text, str):
+            return []
+        
+        # Nettoyage du texte
+        text = self._clean_text(text)
+        
+        # Si le texte est trop court après nettoyage
+        if len(text.split()) < 3:
+            return []
+        
+        # Extraction avec le modèle LLM si disponible
+        if self.ner_pipeline:
+            try:
+                # Tronquer le texte si nécessaire
+                max_length = 512
+                if len(text) > max_length:
+                    text = text[:max_length]
+                
+                entities = self.ner_pipeline(text)
+                
+                # Filtrage et formatage des entités
+                formatted_entities = []
+                for entity in entities:
+                    formatted_entity = {
+                        "text": entity["word"],
+                        "type": entity["entity_group"],
+                        "score": entity["score"],
+                        "start": entity["start"],
+                        "end": entity["end"]
+                    }
+                    formatted_entities.append(formatted_entity)
+                
+                # Ajout des entités crypto spécifiques
+                crypto_entities = self._extract_crypto_entities(text)
+                formatted_entities.extend(crypto_entities)
+                
+                return formatted_entities
+            except Exception as e:
+                logger.error(f"Erreur lors de l'extraction d'entités: {e}")
+                return self._fallback_entity_extraction(text)
+        else:
+            # Extraction de repli si le modèle n'est pas disponible
+            return self._fallback_entity_extraction(text)
+    
+    def analyze_news(self, news: Union[Dict[str, Any], List[Dict[str, Any]]]) -> Union[Dict[str, Any], List[Dict[str, Any]]]:
+        """
+        Analyse une ou plusieurs actualités.
+        
+        Args:
+            news: Actualité ou liste d'actualités à analyser
+            
+        Returns:
+            Actualité(s) enrichie(s) avec le sentiment et les entités
+        """
+        if isinstance(news, list):
+            # Traitement d'une liste d'actualités
+            enriched_news = []
+            for item in news:
+                enriched_item = self._analyze_single_news(item)
+                enriched_news.append(enriched_item)
+            return enriched_news
+        else:
+            # Traitement d'une seule actualité
+            return self._analyze_single_news(news)
+    
+    def analyze_news_dataframe(self, df: pd.DataFrame, 
+                              title_col: str = "title", 
+                              body_col: Optional[str] = "body") -> pd.DataFrame:
+        """
+        Analyse un DataFrame d'actualités.
+        
+        Args:
+            df: DataFrame contenant les actualités
+            title_col: Nom de la colonne contenant les titres
+            body_col: Nom de la colonne contenant le corps des actualités (optionnel)
+            
+        Returns:
+            DataFrame enrichi avec le sentiment et les entités
+        """
+        if df.empty:
+            return df
+        
+        # Vérification des colonnes
+        if title_col not in df.columns:
+            logger.error(f"La colonne '{title_col}' n'existe pas dans le DataFrame")
+            return df
+        
+        # Création d'une copie pour éviter de modifier l'original
+        enriched_df = df.copy()
+        
+        # Analyse du sentiment des titres
+        enriched_df["title_sentiment"] = enriched_df[title_col].apply(
+            lambda x: self.analyze_sentiment(x)
         )
         
-        # Agrégation par intervalle
-        timeline = df.set_index('published_at').resample(interval).agg({
-            'sentiment_score': 'mean',
-            'title': 'count'
-        }).fillna(0)
+        # Extraction des labels et scores de sentiment des titres
+        enriched_df["title_sentiment_label"] = enriched_df["title_sentiment"].apply(
+            lambda x: x["label"] if isinstance(x, dict) and "label" in x else "neutral"
+        )
+        enriched_df["title_sentiment_score"] = enriched_df["title_sentiment"].apply(
+            lambda x: x["score"] if isinstance(x, dict) and "score" in x else 0.5
+        )
         
-        timeline.columns = ['average_sentiment', 'news_count']
+        # Extraction des entités des titres
+        enriched_df["title_entities"] = enriched_df[title_col].apply(
+            lambda x: self.extract_entities(x)
+        )
         
-        return timeline
-    
-    def get_top_news(
-        self,
-        analyzed_news: List[Dict],
-        n: int = 5,
-        by: str = 'impact'
-    ) -> List[Dict]:
-        """
-        Récupère les actualités les plus importantes.
-        
-        Args:
-            analyzed_news: Liste des actualités analysées
-            n: Nombre d'actualités à retourner
-            by: Critère de tri ('impact' ou 'sentiment')
-            
-        Returns:
-            Liste des actualités les plus importantes
-        """
-        # Conversion en DataFrame pour faciliter le tri
-        df = pd.DataFrame(analyzed_news)
-        
-        if by == 'impact':
-            # Tri par impact (combinaison de sentiment et confiance)
-            df['impact_score'] = df['sentiment'].apply(
-                lambda x: abs(x.get('normalized_score', 0.0)) * x.get('confidence', 0.0)
-                if isinstance(x, dict) else 0.0
+        # Si le corps des actualités est disponible, l'analyser également
+        if body_col and body_col in df.columns:
+            # Analyse du sentiment du corps
+            enriched_df["body_sentiment"] = enriched_df[body_col].apply(
+                lambda x: self.analyze_sentiment(x)
             )
-            sorted_df = df.nlargest(n, 'impact_score')
+            
+            # Extraction des labels et scores de sentiment du corps
+            enriched_df["body_sentiment_label"] = enriched_df["body_sentiment"].apply(
+                lambda x: x["label"] if isinstance(x, dict) and "label" in x else "neutral"
+            )
+            enriched_df["body_sentiment_score"] = enriched_df["body_sentiment"].apply(
+                lambda x: x["score"] if isinstance(x, dict) and "score" in x else 0.5
+            )
+            
+            # Extraction des entités du corps
+            enriched_df["body_entities"] = enriched_df[body_col].apply(
+                lambda x: self.extract_entities(x)
+            )
+            
+            # Calcul du sentiment global (moyenne pondérée titre/corps)
+            enriched_df["global_sentiment_score"] = 0.7 * enriched_df["title_sentiment_score"] + 0.3 * enriched_df["body_sentiment_score"]
+            
+            # Détermination du sentiment global
+            def get_global_label(row):
+                if row["global_sentiment_score"] > 0.6:
+                    return "positive"
+                elif row["global_sentiment_score"] < 0.4:
+                    return "negative"
+                else:
+                    return "neutral"
+            
+            enriched_df["global_sentiment_label"] = enriched_df.apply(get_global_label, axis=1)
         else:
-            # Tri par sentiment absolu
-            df['abs_sentiment'] = df['sentiment'].apply(
-                lambda x: abs(x.get('normalized_score', 0.0))
-                if isinstance(x, dict) else 0.0
-            )
-            sorted_df = df.nlargest(n, 'abs_sentiment')
+            # Si pas de corps, le sentiment du titre est le sentiment global
+            enriched_df["global_sentiment_score"] = enriched_df["title_sentiment_score"]
+            enriched_df["global_sentiment_label"] = enriched_df["title_sentiment_label"]
         
-        return sorted_df.to_dict('records')
+        return enriched_df
     
-    def analyze_market_impact(
-        self,
-        analyzed_news: List[Dict],
-        price_data: pd.DataFrame,
-        window: str = '1H'
-    ) -> List[Tuple[Dict, float]]:
+    def _analyze_single_news(self, news: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Analyse l'impact des actualités sur le prix.
+        Analyse une seule actualité.
         
         Args:
-            analyzed_news: Liste des actualités analysées
-            price_data: DataFrame avec les données de prix
-            window: Fenêtre de temps pour analyser l'impact
+            news: Actualité à analyser
             
         Returns:
-            Liste de tuples (actualité, impact sur le prix)
+            Actualité enrichie avec le sentiment et les entités
         """
-        impact_analysis = []
+        if not isinstance(news, dict):
+            logger.error(f"Format d'actualité invalide: {type(news)}")
+            return news
         
-        for news in analyzed_news:
-            try:
-                # Récupération de la date de publication
-                pub_date = pd.to_datetime(news['published_at'])
-                
-                # Calcul du prix avant et après la publication
-                pre_window = price_data.loc[
-                    (price_data.index >= pub_date - pd.Timedelta(window)) &
-                    (price_data.index < pub_date)
-                ]['close']
-                
-                post_window = price_data.loc[
-                    (price_data.index > pub_date) &
-                    (price_data.index <= pub_date + pd.Timedelta(window))
-                ]['close']
-                
-                if not pre_window.empty and not post_window.empty:
-                    # Calcul du changement de prix en pourcentage
-                    price_impact = (
-                        (post_window.iloc[-1] - pre_window.iloc[0]) /
-                        pre_window.iloc[0] * 100
-                    )
-                    
-                    impact_analysis.append((news, price_impact))
-                
-            except Exception as e:
-                logger.error(f"Erreur lors de l'analyse de l'impact: {e}")
-                continue
+        # Création d'une copie pour éviter de modifier l'original
+        enriched_news = news.copy()
         
-        return impact_analysis
+        # Analyse du titre si disponible
+        if "title" in news and news["title"]:
+            enriched_news["title_sentiment"] = self.analyze_sentiment(news["title"])
+            enriched_news["title_entities"] = self.extract_entities(news["title"])
+        
+        # Analyse du corps si disponible
+        if "body" in news and news["body"]:
+            enriched_news["body_sentiment"] = self.analyze_sentiment(news["body"])
+            enriched_news["body_entities"] = self.extract_entities(news["body"])
+            
+            # Calcul du sentiment global (moyenne pondérée titre/corps)
+            if "title_sentiment" in enriched_news:
+                title_score = enriched_news["title_sentiment"]["score"]
+                body_score = enriched_news["body_sentiment"]["score"]
+                global_score = 0.7 * title_score + 0.3 * body_score
+                
+                # Détermination du sentiment global
+                if global_score > 0.6:
+                    global_label = "positive"
+                elif global_score < 0.4:
+                    global_label = "negative"
+                else:
+                    global_label = "neutral"
+                
+                enriched_news["global_sentiment"] = {
+                    "label": global_label,
+                    "score": global_score
+                }
+            else:
+                enriched_news["global_sentiment"] = enriched_news["body_sentiment"]
+        else:
+            # Si pas de corps, le sentiment du titre est le sentiment global
+            if "title_sentiment" in enriched_news:
+                enriched_news["global_sentiment"] = enriched_news["title_sentiment"]
+        
+        return enriched_news
     
-    def get_market_summary(
-        self,
-        analyzed_news: List[Dict],
-        timeframe: str = '24H'
-    ) -> Dict:
+    def _clean_text(self, text: str) -> str:
         """
-        Génère un résumé du marché basé sur les actualités.
+        Nettoie un texte pour l'analyse.
         
         Args:
-            analyzed_news: Liste des actualités analysées
-            timeframe: Période de temps à analyser
+            text: Texte à nettoyer
             
         Returns:
-            Dictionnaire contenant le résumé du marché
+            Texte nettoyé
         """
-        # Filtrage des actualités par timeframe
-        cutoff = datetime.now() - pd.Timedelta(timeframe)
-        recent_news = [
-            news for news in analyzed_news
-            if pd.to_datetime(news['published_at']) > cutoff
+        if not isinstance(text, str):
+            return ""
+        
+        # Conversion en minuscules
+        text = text.lower()
+        
+        # Suppression des URLs
+        text = re.sub(r'https?://\S+|www\.\S+', '', text)
+        
+        # Suppression des caractères spéciaux mais conservation des points et virgules
+        text = re.sub(r'[^\w\s.,;]', '', text)
+        
+        # Suppression des espaces multiples
+        text = re.sub(r'\s+', ' ', text).strip()
+        
+        return text
+    
+    def _extract_crypto_entities(self, text: str) -> List[Dict[str, Any]]:
+        """
+        Extrait les entités crypto spécifiques d'un texte.
+        
+        Args:
+            text: Texte à analyser
+            
+        Returns:
+            Liste des entités crypto extraites
+        """
+        if not isinstance(text, str):
+            return []
+        
+        text = text.lower()
+        entities = []
+        
+        for symbol, keywords in self.crypto_entities.items():
+            for keyword in keywords:
+                # Recherche du mot entier
+                pattern = r'\b' + re.escape(keyword) + r'\b'
+                matches = re.finditer(pattern, text)
+                
+                for match in matches:
+                    entity = {
+                        "text": match.group(),
+                        "type": "CRYPTO",
+                        "symbol": symbol,
+                        "score": 1.0,
+                        "start": match.start(),
+                        "end": match.end()
+                    }
+                    entities.append(entity)
+        
+        return entities
+    
+    def _fallback_sentiment_analysis(self, text: str) -> Dict[str, Any]:
+        """
+        Analyse de sentiment de repli basée sur des règles simples.
+        
+        Args:
+            text: Texte à analyser
+            
+        Returns:
+            Dictionnaire contenant le sentiment et le score
+        """
+        # Liste de mots positifs et négatifs
+        positive_words = [
+            "bullish", "surge", "soar", "gain", "rally", "rise", "up", "high", "growth",
+            "positive", "good", "great", "excellent", "amazing", "success", "profit",
+            "win", "boom", "breakthrough", "opportunity", "potential", "promising"
         ]
         
-        # Agrégation des sentiments
-        sentiments = [
-            news['sentiment']
-            for news in recent_news
-            if isinstance(news.get('sentiment'), dict)
+        negative_words = [
+            "bearish", "crash", "plunge", "drop", "fall", "down", "low", "decline",
+            "negative", "bad", "poor", "terrible", "awful", "failure", "loss",
+            "lose", "bust", "risk", "danger", "threat", "problem", "concern", "worry"
         ]
         
-        aggregated_sentiment = self.sentiment_analyzer.aggregate_sentiment(sentiments)
+        # Comptage des mots positifs et négatifs
+        text_words = text.lower().split()
+        positive_count = sum(1 for word in text_words if word in positive_words)
+        negative_count = sum(1 for word in text_words if word in negative_words)
         
-        # Comptage des actualités par sentiment
-        sentiment_counts = {
-            'positive': sum(1 for s in sentiments if s.get('sentiment') == 'positive'),
-            'negative': sum(1 for s in sentiments if s.get('sentiment') == 'negative'),
-            'neutral': sum(1 for s in sentiments if s.get('sentiment') == 'neutral')
+        # Calcul du score de sentiment
+        total_count = positive_count + negative_count
+        if total_count == 0:
+            return {"label": "neutral", "score": 0.5}
+        
+        positive_ratio = positive_count / total_count
+        
+        # Détermination du sentiment
+        if positive_ratio > 0.6:
+            label = "positive"
+            score = 0.5 + (positive_ratio - 0.5)
+        elif positive_ratio < 0.4:
+            label = "negative"
+            score = 0.5 - (0.5 - positive_ratio)
+        else:
+            label = "neutral"
+            score = 0.5
+        
+        return {"label": label, "score": score}
+    
+    def _fallback_entity_extraction(self, text: str) -> List[Dict[str, Any]]:
+        """
+        Extraction d'entités de repli basée sur des règles simples.
+        
+        Args:
+            text: Texte à analyser
+            
+        Returns:
+            Liste des entités extraites
+        """
+        # Extraction des entités crypto
+        crypto_entities = self._extract_crypto_entities(text)
+        
+        # Extraction des montants d'argent
+        money_pattern = r'\$\s*\d+(?:[.,]\d+)?(?:\s*[kmbt])?|\d+(?:[.,]\d+)?\s*(?:dollars|usd|€|euros)'
+        money_matches = re.finditer(money_pattern, text.lower())
+        
+        for match in money_matches:
+            entity = {
+                "text": match.group(),
+                "type": "MONEY",
+                "score": 1.0,
+                "start": match.start(),
+                "end": match.end()
+            }
+            crypto_entities.append(entity)
+        
+        # Extraction des pourcentages
+        percentage_pattern = r'\d+(?:[.,]\d+)?\s*%'
+        percentage_matches = re.finditer(percentage_pattern, text.lower())
+        
+        for match in percentage_matches:
+            entity = {
+                "text": match.group(),
+                "type": "PERCENTAGE",
+                "score": 1.0,
+                "start": match.start(),
+                "end": match.end()
+            }
+            crypto_entities.append(entity)
+        
+        return crypto_entities
+
+
+# Exemple d'utilisation
+if __name__ == "__main__":
+    # Initialisation de l'analyseur
+    analyzer = NewsAnalyzer()
+    
+    # Exemple d'actualités
+    news_examples = [
+        {
+            "title": "Bitcoin Surges to $60,000 as Institutional Adoption Grows",
+            "body": "Bitcoin reached a new all-time high of $60,000 today as more institutional investors are entering the cryptocurrency market. Major companies like Tesla and MicroStrategy have added BTC to their balance sheets."
+        },
+        {
+            "title": "Ethereum Price Drops 10% Following Network Congestion",
+            "body": "Ethereum (ETH) experienced a significant price drop of 10% in the last 24 hours due to network congestion and high gas fees. Developers are working on solutions to address these scaling issues."
         }
-        
-        return {
-            'timeframe': timeframe,
-            'total_news': len(recent_news),
-            'sentiment_distribution': sentiment_counts,
-            'overall_sentiment': aggregated_sentiment,
-            'top_news': self.get_top_news(recent_news, n=3)
-        } 
+    ]
+    
+    # Analyse des actualités
+    enriched_news = analyzer.analyze_news(news_examples)
+    
+    # Affichage des résultats
+    for i, news in enumerate(enriched_news):
+        print(f"\nActualité {i+1}:")
+        print(f"Titre: {news['title']}")
+        print(f"Sentiment du titre: {news['title_sentiment']}")
+        print(f"Entités du titre: {news['title_entities']}")
+        print(f"Sentiment global: {news['global_sentiment']}") 
