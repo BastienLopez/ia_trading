@@ -299,7 +299,32 @@ def backtest():
 def tradingview():
     """Page TradingView"""
     logger.info("Accès à la page TradingView")
-    return render_template('tradingview.html')
+    
+    # Liste des symboles disponibles
+    symbols = [
+        {"symbol": "BTCUSDT", "name": "Bitcoin"},
+        {"symbol": "ETHUSDT", "name": "Ethereum"},
+        {"symbol": "BNBUSDT", "name": "Binance Coin"},
+        {"symbol": "SOLUSDT", "name": "Solana"},
+        {"symbol": "XRPUSDT", "name": "Ripple"},
+        {"symbol": "ADAUSDT", "name": "Cardano"},
+        {"symbol": "AVAXUSDT", "name": "Avalanche"},
+        {"symbol": "DOTUSDT", "name": "Polkadot"},
+        {"symbol": "MATICUSDT", "name": "Polygon"},
+        {"symbol": "LINKUSDT", "name": "Chainlink"},
+        {"symbol": "UNIUSDT", "name": "Uniswap"},
+        {"symbol": "AAVEUSDT", "name": "Aave"},
+        {"symbol": "ATOMUSDT", "name": "Cosmos"},
+        {"symbol": "DOGEUSDT", "name": "Dogecoin"},
+        {"symbol": "SHIBUSDT", "name": "Shiba Inu"}
+    ]
+    
+    return render_template('tradingview.html', symbols=symbols, default_symbol="BTCUSDT")
+
+@app.route('/technology')
+def technology():
+    """Page de présentation de la technologie"""
+    return render_template('technology.html')
 
 @app.route('/get-pine-script')
 def get_pine_script():

@@ -10,38 +10,55 @@
     </div>
 </div>
 
-<div class="row mb-4">
-    <div class="col-md-4">
-        <div class="card h-100 shadow-sm">
-            <div class="card-body text-center">
-                <i class="fas fa-chart-line fa-3x mb-3 text-primary"></i>
-                <h5 class="card-title">Tableau de bord</h5>
-                <p class="card-text">Visualisez en temps réel les performances de vos stratégies de trading et l'état de votre portefeuille.</p>
-                <a href="{{ url_for('dashboard') }}" class="btn btn-primary">Accéder</a>
+<!-- Section des fonctionnalités -->
+<section class="features py-5">
+    <div class="container">
+        <div class="row">
+            <div class="col-md-4">
+                <div class="card h-100 d-flex flex-column">
+                    <div class="card-body d-flex flex-column text-center">
+                        <div class="text-center mb-4">
+                            <i class="fas fa-chart-line fa-3x text-primary"></i>
+                            <h3 class="card-title mt-3 h4">Tableau de bord</h3>
+                        </div>
+                        <p class="card-text flex-grow-1 d-flex align-items-center justify-content-center">Visualisez en temps réel les performances de vos stratégies de trading et l'état de votre portefeuille.</p>
+                        <div class="text-center mt-auto">
+                            <a href="{{ url_for('dashboard') }}" class="btn btn-primary px-4">Accéder</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card h-100 d-flex flex-column">
+                    <div class="card-body d-flex flex-column text-center">
+                        <div class="text-center mb-4">
+                            <i class="fas fa-flask fa-3x text-success"></i>
+                            <h3 class="card-title mt-3 h4">Backtests</h3>
+                        </div>
+                        <p class="card-text flex-grow-1 d-flex align-items-center justify-content-center">Analysez les performances de l'agent IA sur des données historiques pour valider sa stratégie.</p>
+                        <div class="text-center mt-auto">
+                            <a href="{{ url_for('backtest') }}" class="btn btn-success px-4">Découvrir</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card h-100 d-flex flex-column">
+                    <div class="card-body d-flex flex-column text-center">
+                        <div class="text-center mb-4">
+                            <i class="fas fa-robot fa-3x text-primary"></i>
+                            <h3 class="card-title mt-3 h4">Technologie IA</h3>
+                        </div>
+                        <p class="card-text flex-grow-1 d-flex align-items-center justify-content-center">Notre plateforme utilise des modèles d'intelligence artificielle avancés pour analyser le marché et prendre des décisions de trading optimales.</p>
+                        <div class="text-center mt-auto">
+                            <a href="{{ url_for('technology') }}" class="btn btn-primary px-4">En savoir plus</a>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
-    <div class="col-md-4">
-        <div class="card h-100 shadow-sm">
-            <div class="card-body text-center">
-                <i class="fas fa-flask fa-3x mb-3 text-success"></i>
-                <h5 class="card-title">Backtests</h5>
-                <p class="card-text">Analysez les performances de l'agent IA sur des données historiques pour valider sa stratégie.</p>
-                <a href="{{ url_for('backtest') }}" class="btn btn-success">Découvrir</a>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-4">
-        <div class="card h-100 shadow-sm">
-            <div class="card-body text-center">
-                <i class="fas fa-robot fa-3x mb-3 text-info"></i>
-                <h5 class="card-title">Technologie IA</h5>
-                <p class="card-text">Notre système utilise l'apprentissage par renforcement pour optimiser ses décisions de trading.</p>
-                <a href="#technology" class="btn btn-info">En savoir plus</a>
-            </div>
-        </div>
-    </div>
-</div>
+</section>
 
 <div class="row mt-5">
     <div class="col-md-12">
@@ -103,35 +120,6 @@
                 </div>
             </div>
         </div>
-    </div>
-</div>
-
-<div class="row mt-5" id="technology">
-    <div class="col-md-12">
-        <h2 class="border-bottom pb-2">Notre technologie</h2>
-    </div>
-    <div class="col-md-6">
-        <h4>Apprentissage par renforcement</h4>
-        <p>
-            Notre agent de trading s'appuie sur l'apprentissage par renforcement (RL), une branche de l'intelligence artificielle où un agent apprend à prendre des décisions optimales en interagissant avec son environnement.
-        </p>
-        <p>
-            Nous utilisons l'algorithme PPO (Proximal Policy Optimization) pour entraîner notre agent à maximiser ses gains sur les marchés cryptographiques volatils.
-        </p>
-    </div>
-    <div class="col-md-6">
-        <h4>Indicateurs techniques avancés</h4>
-        <p>
-            L'agent analyse une multitude d'indicateurs techniques pour prendre ses décisions :
-        </p>
-        <ul>
-            <li>RSI (Relative Strength Index)</li>
-            <li>MACD (Moving Average Convergence Divergence)</li>
-            <li>Bandes de Bollinger</li>
-            <li>Moyennes mobiles exponentielles</li>
-            <li>Ichimoku Cloud</li>
-            <li>Et bien d'autres...</li>
-        </ul>
     </div>
 </div>
 {% endblock %}
@@ -272,4 +260,57 @@ document.addEventListener('DOMContentLoaded', function() {
         });
 });
 </script>
-{% endblock %} 
+{% endblock %}
+
+<style>
+.card {
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background-color: #2F3136;
+    transition: transform 0.2s;
+}
+
+.card:hover {
+    transform: translateY(-5px);
+}
+
+.card-title {
+    font-size: 1.5rem;
+    margin-bottom: 1rem;
+    color: #fff;
+}
+
+.card-text {
+    color: rgba(255, 255, 255, 0.8);
+    font-size: 1rem;
+    line-height: 1.5;
+    margin: 0;
+    padding: 0 1rem;
+}
+
+.btn {
+    min-width: 140px;
+    padding: 0.5rem 1.5rem;
+}
+
+.features .fa-3x {
+    margin-bottom: 1rem;
+}
+
+/* Ajustement des couleurs des icônes */
+.text-primary {
+    color: #007bff !important;
+}
+
+.text-success {
+    color: #28a745 !important;
+}
+
+/* Espacement uniforme */
+.card-body {
+    padding: 2rem;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    height: 100%;
+}
+</style> 

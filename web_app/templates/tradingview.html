@@ -147,7 +147,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (typeof TradingView !== 'undefined') {
             tvWidget = new TradingView.widget({
                 "autosize": true,
-                "symbol": symbol,
+                "symbol": "BINANCE:" + symbol,
                 "interval": "D",
                 "timezone": "Etc/UTC",
                 "theme": "dark",
@@ -157,9 +157,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 "enable_publishing": false,
                 "hide_top_toolbar": false,
                 "allow_symbol_change": true,
-                "hide_volume": true,
+                "hide_volume": false,
                 "studies": [
-                    "MACD@tv-basicstudies"
+                    "MACD@tv-basicstudies",
+                    "RSI@tv-basicstudies",
+                    "AwesomeOscillator@tv-basicstudies"
                 ],
                 "container_id": "tradingview_chart"
             });

@@ -1,0 +1,482 @@
+{% extends "base.html" %}
+
+{% block title %}Notre Technologie - Crypto Trading IA{% endblock %}
+
+{% block content %}
+<div class="container my-5">
+    <h1 class="text-center mb-5">Notre Technologie</h1>
+
+    <!-- Vue d'ensemble -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <h1 class="display-5 mb-4">Vue d'ensemble du projet</h1>
+            <div class="card shadow-sm">
+                <div class="card-body">
+                    <p class="lead mb-0">Notre plateforme de trading de cryptomonnaies combine l'intelligence artificielle, le machine learning et l'analyse technique pour optimiser les décisions d'investissement. En utilisant des technologies de pointe comme les LLM (Large Language Models) et l'apprentissage par renforcement, nous offrons une solution unique pour le trading automatisé.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Comment ça marche -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <h2 class="display-6 mb-4">Comment ça marche ?</h2>
+            
+            <!-- LLM Section -->
+            <div class="card shadow-sm mb-4">
+                <div class="card-header bg-dark text-white">
+                    <h3 class="h5 mb-0">Les Modèles de Langage (LLM)</h3>
+                </div>
+                <div class="card-body">
+                    <p>Les LLM (Large Language Models) sont des modèles d'intelligence artificielle capables de comprendre et d'analyser le langage naturel.</p>
+                    <p class="mb-3">Ils sont utilisés pour :</p>
+                    <ul class="list-unstyled">
+                        <li class="mb-2"><i class="fas fa-check text-success me-2"></i>Analyser les actualités et les sentiments du marché en temps réel</li>
+                        <li class="mb-2"><i class="fas fa-check text-success me-2"></i>Détecter les tendances émergentes dans les discussions sur les réseaux sociaux</li>
+                        <li class="mb-2"><i class="fas fa-check text-success me-2"></i>Évaluer l'impact potentiel des événements économiques sur les cryptomonnaies</li>
+                        <li class="mb-2"><i class="fas fa-check text-success me-2"></i>Générer des rapports d'analyse détaillés sur les mouvements du marché</li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Apprentissage par Renforcement Section -->
+            <div class="card shadow-sm mb-4">
+                <div class="card-header bg-dark text-white">
+                    <h3 class="h5 mb-0">L'Apprentissage par Renforcement</h3>
+                </div>
+                <div class="card-body">
+                    <p>L'apprentissage par renforcement est une technique d'IA où l'agent apprend à prendre des décisions optimales en interagissant avec son environnement.</p>
+                    <p class="mb-3">Il est utilisé pour :</p>
+                    <ul class="list-unstyled">
+                        <li class="mb-2"><i class="fas fa-check text-success me-2"></i>Optimiser les stratégies de trading en temps réel</li>
+                        <li class="mb-2"><i class="fas fa-check text-success me-2"></i>Apprendre des patterns de marché complexes</li>
+                        <li class="mb-2"><i class="fas fa-check text-success me-2"></i>Adapter les décisions aux conditions changeantes du marché</li>
+                        <li class="mb-2"><i class="fas fa-check text-success me-2"></i>Maximiser les rendements tout en minimisant les risques</li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Analyse Technique Section -->
+            <div class="card shadow-sm mb-4">
+                <div class="card-header bg-dark text-white">
+                    <h3 class="h5 mb-0">L'Analyse Technique</h3>
+                </div>
+                <div class="card-body">
+                    <p>L'analyse technique utilise des indicateurs mathématiques pour identifier les tendances et les opportunités de trading.</p>
+                    <p class="mb-3">Elle est utilisée pour :</p>
+                    <ul class="list-unstyled">
+                        <li class="mb-2"><i class="fas fa-check text-success me-2"></i>Identifier les tendances de prix à court et long terme</li>
+                        <li class="mb-2"><i class="fas fa-check text-success me-2"></i>Détecter les points d'entrée et de sortie optimaux</li>
+                        <li class="mb-2"><i class="fas fa-check text-success me-2"></i>Évaluer la force des mouvements de marché</li>
+                        <li class="mb-2"><i class="fas fa-check text-success me-2"></i>Générer des signaux de trading automatisés</li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Gestion des Risques Section -->
+            <div class="card shadow-sm">
+                <div class="card-header bg-dark text-white">
+                    <h3 class="h5 mb-0">La Gestion des Risques</h3>
+                </div>
+                <div class="card-body">
+                    <p>La gestion des risques est un aspect crucial de notre système de trading automatisé.</p>
+                    <p class="mb-3">Elle est utilisée pour :</p>
+                    <ul class="list-unstyled">
+                        <li class="mb-2"><i class="fas fa-check text-success me-2"></i>Limiter les pertes potentielles par trade</li>
+                        <li class="mb-2"><i class="fas fa-check text-success me-2"></i>Diversifier le portefeuille de manière optimale</li>
+                        <li class="mb-2"><i class="fas fa-check text-success me-2"></i>Ajuster la taille des positions en fonction de la volatilité</li>
+                        <li class="mb-2"><i class="fas fa-check text-success me-2"></i>Maintenir un ratio risque/récompense favorable</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Processus de trading -->
+    <section class="mb-5">
+        <h2 class="mb-4">Processus de Trading Automatisé</h2>
+        <div class="bg-light p-4 rounded">
+            <ol class="process-list">
+                <li class="mb-3">
+                    <strong>Collecte des données</strong>
+                    <p>Le système collecte en temps réel les données de prix, volumes, ordres, actualités et sentiments du marché.</p>
+                </li>
+                <li class="mb-3">
+                    <strong>Analyse multi-facteurs</strong>
+                    <p>Les données sont analysées par nos modèles IA qui combinent analyse technique, fondamentale et sentiment du marché.</p>
+                </li>
+                <li class="mb-3">
+                    <strong>Prise de décision</strong>
+                    <p>L'IA évalue les opportunités et les risques pour générer des signaux de trading optimaux.</p>
+                </li>
+                <li class="mb-3">
+                    <strong>Exécution et suivi</strong>
+                    <p>Les trades sont exécutés automatiquement avec une gestion rigoureuse des risques et un suivi en temps réel.</p>
+                </li>
+            </ol>
+        </div>
+    </section>
+
+    <!-- Architecture MOA/MOE -->
+    <section class="mb-5">
+        <h2 class="mb-4">Architecture du projet</h2>
+        
+        <h3 class="mb-3">Maîtrise d'Ouvrage (MOA)</h3>
+        <div class="mermaid mb-4">
+            graph TD
+                A[Investisseurs] --> B[Besoins]
+                B --> C[Analyse du marché]
+                B --> D[Trading automatisé]
+                B --> E[Suivi performance]
+                C --> F[Spécifications]
+                D --> F
+                E --> F
+                F --> G[Validation MOA]
+        </div>
+
+        <h3 class="mb-3">Maîtrise d'Œuvre (MOE)</h3>
+        <div class="mermaid mb-4">
+            graph LR
+                A[Équipe technique] --> B[Architecture]
+                B --> C[Frontend]
+                B --> D[Backend]
+                B --> E[IA/ML]
+                C --> F[Développement]
+                D --> F
+                E --> F
+                F --> G[Tests]
+                G --> H[Déploiement]
+        </div>
+    </section>
+
+    <!-- Architecture technique -->
+    <section class="mb-5">
+        <h2 class="mb-4">Architecture technique</h2>
+        <div class="mermaid mb-4">
+            graph TB
+                subgraph Frontend
+                    A[Interface Web] --> B[Dashboard]
+                    A --> C[Gestion Portfolio]
+                    A --> D[Analyses]
+                end
+                subgraph Backend
+                    E[API REST] --> F[Base de données]
+                    E --> G[Services]
+                    G --> H[Trading Engine]
+                    G --> I[Price Service]
+                end
+                subgraph AI/ML
+                    J[Modèles LLM] --> K[Analyse sentiment]
+                    J --> L[Prédictions]
+                    M[Algorithmes ML] --> N[Signaux trading]
+                end
+                A --> E
+                H --> J
+                H --> M
+        </div>
+    </section>
+
+    <!-- Flux de données -->
+    <section class="mb-5">
+        <h2 class="mb-4">Flux de données</h2>
+        <div class="mermaid mb-4">
+            sequenceDiagram
+                participant U as Utilisateur
+                participant F as Frontend
+                participant B as Backend
+                participant AI as IA/ML
+                participant API as APIs Externes
+                
+                U->>F: Connexion
+                F->>B: Authentification
+                B->>F: Token JWT
+                U->>F: Demande analyse
+                F->>B: Requête données
+                B->>API: Récupération prix
+                API->>B: Données marché
+                B->>AI: Analyse données
+                AI->>B: Prédictions
+                B->>F: Résultats
+                F->>U: Affichage dashboard
+        </div>
+    </section>
+
+    <!-- Technologies utilisées -->
+    <section class="mb-5">
+        <h2 class="mb-4">Technologies utilisées</h2>
+        <div class="row">
+            <div class="col-md-4">
+                <div class="card h-100">
+                    <div class="card-body">
+                        <h4 class="card-title">Frontend</h4>
+                        <ul class="list-unstyled">
+                            <li class="mb-2"><i class="fab fa-html5 text-warning me-2"></i>HTML5/CSS3</li>
+                            <li class="mb-2"><i class="fab fa-js text-warning me-2"></i>JavaScript</li>
+                            <li class="mb-2"><i class="fab fa-bootstrap text-purple me-2"></i>Bootstrap 5</li>
+                            <li class="mb-2"><i class="fas fa-chart-bar text-info me-2"></i>Chart.js</li>
+                            <li class="mb-2"><i class="fas fa-project-diagram text-success me-2"></i>Mermaid.js</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card h-100">
+                    <div class="card-body">
+                        <h4 class="card-title">Backend</h4>
+                        <ul class="list-unstyled">
+                            <li class="mb-2"><i class="fab fa-python text-primary me-2"></i>Python</li>
+                            <li class="mb-2"><i class="fas fa-server text-success me-2"></i>Flask</li>
+                            <li class="mb-2"><i class="fas fa-database text-info me-2"></i>SQLAlchemy</li>
+                            <li class="mb-2"><i class="fas fa-key text-warning me-2"></i>JWT</li>
+                            <li class="mb-2"><i class="fas fa-code text-danger me-2"></i>RESTful API</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card h-100">
+                    <div class="card-body">
+                        <h4 class="card-title">IA/ML</h4>
+                        <ul class="list-unstyled">
+                            <li class="mb-2"><i class="fas fa-brain text-primary me-2"></i>LangChain</li>
+                            <li class="mb-2"><i class="fas fa-robot text-success me-2"></i>Transformers</li>
+                            <li class="mb-2"><i class="fas fa-fire text-danger me-2"></i>PyTorch</li>
+                            <li class="mb-2"><i class="fas fa-cogs text-info me-2"></i>Scikit-learn</li>
+                            <li class="mb-2"><i class="fab fa-tensorflow text-warning me-2"></i>TensorFlow</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+</div>
+
+<!-- Inclusion de Mermaid.js -->
+<script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+<script>
+    // Détecte si le thème système est clair ou sombre
+    function updateTheme() {
+        const isDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        document.documentElement.setAttribute('data-bs-theme', isDarkMode ? 'dark' : 'light');
+    }
+
+    // Applique le thème initial
+    updateTheme();
+
+    // Écoute les changements de thème
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', updateTheme);
+
+    mermaid.initialize({
+        startOnLoad: true,
+        theme: document.documentElement.getAttribute('data-bs-theme') === 'dark' ? 'dark' : 'default',
+        securityLevel: 'loose',
+        themeVariables: document.documentElement.getAttribute('data-bs-theme') === 'dark' ? {
+            fontFamily: 'arial',
+            fontSize: '16px',
+            primaryColor: '#ff7f50',
+            primaryTextColor: '#fff',
+            primaryBorderColor: '#fff',
+            lineColor: '#F8B229',
+            secondaryColor: '#006100',
+            tertiaryColor: '#fff',
+            mainBkg: '#2F3136',
+            nodeBkg: '#1a1a1a',
+            textColor: '#fff',
+            border2: '#fff',
+            labelBackground: '#1a1a1a',
+            labelColor: '#fff',
+            labelTextColor: '#fff',
+            clusterBkg: '#2F3136',
+            clusterBorder: '#fff',
+            edgeLabelBackground: '#1a1a1a'
+        } : {
+            fontFamily: 'arial',
+            fontSize: '16px',
+            primaryColor: '#ff7f50',
+            primaryTextColor: '#333',
+            primaryBorderColor: '#333',
+            lineColor: '#F8B229',
+            secondaryColor: '#006100',
+            tertiaryColor: '#333',
+            mainBkg: '#ffffff',
+            nodeBkg: '#f8f9fa',
+            textColor: '#333',
+            border2: '#333',
+            labelBackground: '#f8f9fa',
+            labelColor: '#333',
+            labelTextColor: '#333',
+            clusterBkg: '#ffffff',
+            clusterBorder: '#333',
+            edgeLabelBackground: '#f8f9fa'
+        },
+        flowchart: {
+            htmlLabels: true,
+            curve: 'basis'
+        },
+        sequence: {
+            actorFontSize: 16,
+            noteFontSize: 14,
+            messageFontSize: 14,
+            boxTextColor: document.documentElement.getAttribute('data-bs-theme') === 'dark' ? '#fff' : '#333',
+            boxMargin: 10,
+            mirrorActors: true,
+            bottomMarginAdj: 10,
+            useMaxWidth: true,
+            rightAngles: false,
+            showSequenceNumbers: false,
+            actorMargin: 50,
+            messageMargin: 35,
+            noteMargin: 10,
+            messageAlign: 'center',
+            noteAlign: 'center',
+            diagramMarginX: 50,
+            diagramMarginY: 10,
+            boxTextMargin: 5
+        }
+    });
+</script>
+
+<style>
+/* Variables pour le thème sombre (par défaut) */
+:root {
+    --card-bg: #2F3136;
+    --card-border: rgba(255, 255, 255, 0.1);
+    --text-color: #ffffff;
+    --text-muted: rgba(255, 255, 255, 0.8);
+    --bg-light: #2F3136;
+    --heading-color: #ffffff;
+}
+
+/* Variables pour le thème clair */
+[data-bs-theme="light"] {
+    --card-bg: #ffffff;
+    --card-border: rgba(0, 0, 0, 0.125);
+    --text-color: #000000;
+    --text-muted: #666666;
+    --bg-light: #f8f9fa;
+    --heading-color: #000000;
+}
+
+.display-5, .display-6, h1, h2, h3, h4, h5, h6 {
+    color: var(--heading-color) !important;
+}
+
+.lead {
+    color: var(--text-color) !important;
+}
+
+p {
+    color: var(--text-color) !important;
+}
+
+.card {
+    background-color: var(--card-bg);
+    border: 1px solid var(--card-border);
+}
+
+.card-body {
+    color: var(--text-color);
+}
+
+.card-title {
+    color: var(--heading-color) !important;
+}
+
+.list-unstyled li {
+    color: var(--text-color) !important;
+}
+
+.process-list li {
+    color: var(--text-color) !important;
+}
+
+.process-list li p {
+    color: var(--text-muted) !important;
+}
+
+strong {
+    color: var(--heading-color) !important;
+}
+
+/* Ajustement des couleurs des icônes pour le thème clair */
+[data-bs-theme="light"] {
+    .text-warning {
+        color: #ff8f00 !important;
+    }
+    .text-purple {
+        color: #6200ea !important;
+    }
+    .text-info {
+        color: #0277bd !important;
+    }
+    .text-success {
+        color: #2e7d32 !important;
+    }
+    .text-primary {
+        color: #1565c0 !important;
+    }
+    .text-danger {
+        color: #c62828 !important;
+    }
+}
+
+/* Ajustement des couleurs des icônes pour le thème sombre */
+[data-bs-theme="dark"] {
+    .text-warning {
+        color: #ffd54f !important;
+    }
+    .text-purple {
+        color: #b388ff !important;
+    }
+    .text-info {
+        color: #4dd0e1 !important;
+    }
+    .text-success {
+        color: #4caf50 !important;
+    }
+    .text-primary {
+        color: #42a5f5 !important;
+    }
+    .text-danger {
+        color: #ef5350 !important;
+    }
+}
+
+/* Styles spécifiques pour les cartes */
+.card {
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+}
+
+/* Style pour les sections de processus */
+.process-list {
+    list-style-position: inside;
+    padding-left: 0;
+}
+
+/* Style pour les diagrammes Mermaid */
+.mermaid {
+    background-color: var(--card-bg);
+    padding: 20px;
+    border-radius: 8px;
+    margin-bottom: 30px;
+    border: 1px solid var(--card-border);
+}
+
+/* Style pour les en-têtes de carte sombres */
+.card-header.bg-dark h3 {
+    color: #ffffff !important;
+}
+
+/* Ajustement pour le fond clair */
+.bg-light {
+    background-color: var(--bg-light) !important;
+    color: var(--text-color) !important;
+}
+</style>
+{% endblock %} 
