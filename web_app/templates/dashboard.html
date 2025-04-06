@@ -40,19 +40,9 @@
         <h1 class="display-5 mb-4">Tableau de bord</h1>
     </div>
     <div class="col-md-4 text-end">
-        <div class="btn-group">
-            <button type="button" class="btn btn-outline-primary" id="refresh-data">
-                <i class="fas fa-sync-alt"></i> Actualiser
-            </button>
-            <button type="button" class="btn btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown">
-                <i class="fas fa-clock"></i> Période
-            </button>
-            <ul class="dropdown-menu">
-                <li><a class="dropdown-item period-selector" href="#" data-period="24h">24 heures</a></li>
-                <li><a class="dropdown-item period-selector" href="#" data-period="7d">7 jours</a></li>
-                <li><a class="dropdown-item period-selector" href="#" data-period="30d">30 jours</a></li>
-            </ul>
-        </div>
+        <button type="button" class="btn btn-outline-primary" id="refresh-data">
+            <i class="fas fa-sync-alt"></i> Actualiser
+        </button>
     </div>
 </div>
 
@@ -273,10 +263,14 @@
                         </div>
                         <div class="col-md-3">
                             <div class="mb-3">
-                                <label class="form-label">&nbsp;</label>
-                                <button type="submit" class="btn btn-primary w-100">Ajouter</button>
+                                <label for="price" class="form-label">Prix (optionnel)</label>
+                                <input type="number" class="form-control" id="price" step="any">
+                                <div class="form-text">Si non rempli, le prix actuel du marché sera utilisé</div>
                             </div>
                         </div>
+                    </div>
+                    <div class="mt-3">
+                        <button type="submit" class="btn btn-primary w-100">Ajouter</button>
                     </div>
                 </form>
             </div>
@@ -310,7 +304,6 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Variables pour stocker les données
     let currentTimeframe = '1h';
-    let currentPeriod = '7d';
     let marketData = null;
     let portfolioData = null;
     
@@ -333,6 +326,28 @@ document.addEventListener('DOMContentLoaded', function() {
     const winRate = document.getElementById('win-rate');
     const sharpe = document.getElementById('sharpe');
     const tradeHistory = document.getElementById('trade-history');
+    
+    // Mapping des symboles vers les noms complets
+    const cryptoNames = {
+        'BTC': 'Bitcoin (BTC)',
+        'ETH': 'Ethereum (ETH)',
+        'BNB': 'Binance Coin (BNB)',
+        'SOL': 'Solana (SOL)',
+        'XRP': 'Ripple (XRP)',
+        'ADA': 'Cardano (ADA)',
+        'AVAX': 'Avalanche (AVAX)',
+        'DOT': 'Polkadot (DOT)',
+        'MATIC': 'Polygon (MATIC)',
+        'LINK': 'Chainlink (LINK)',
+        'UNI': 'Uniswap (UNI)',
+        'AAVE': 'Aave (AAVE)',
+        'ATOM': 'Cosmos (ATOM)',
+        'DOGE': 'Dogecoin (DOGE)',
+        'SHIB': 'Shiba Inu (SHIB)',
+        'USDT': 'Tether (USDT)',
+        'USDC': 'USD Coin (USDC)',
+        'DAI': 'Dai (DAI)'
+    };
     
     // Fonction pour charger les données de marché
     function loadMarketData() {
@@ -463,7 +478,7 @@ document.addEventListener('DOMContentLoaded', function() {
             data.assets.forEach(asset => {
                 const row = document.createElement('tr');
                 row.innerHTML = `
-                    <td><strong>${asset.symbol}</strong></td>
+                    <td><strong>${cryptoNames[asset.symbol] || asset.symbol}</strong></td>
                     <td class="text-end">${asset.amount.toLocaleString('fr-FR', {minimumFractionDigits: 8, maximumFractionDigits: 8})}</td>
                     <td class="text-end">$${asset.current_price.toLocaleString('fr-FR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
                     <td class="text-end">$${asset.value_usd.toLocaleString('fr-FR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
@@ -593,7 +608,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         
         // Données pour le graphique
-        const labels = validAssets.map(asset => asset.symbol);
+        const labels = validAssets.map(asset => cryptoNames[asset.symbol] || asset.symbol);
         const data = validAssets.map(asset => asset.value_usd);
         const colors = [
             'rgba(54, 162, 235, 0.8)',  // Bleu pour BTC
@@ -752,36 +767,27 @@ document.addEventListener('DOMContentLoaded', function() {
         const tradeHistory = document.getElementById('trade-history');
         tradeHistory.innerHTML = '';
         
-        if (!transactions || transactions.length === 0) {
-            tradeHistory.innerHTML = '<p class="text-center">Aucune transaction</p>';
-            return;
-        }
-        
-        // Trier les transactions par date (les plus récentes en premier)
-        transactions.sort((a, b) => b.timestamp - a.timestamp);
-        
         transactions.forEach(trade => {
-            const date = new Date(trade.timestamp * 1000);
-            const formattedDate = date.toLocaleDateString('fr-FR') + ' ' + date.toLocaleTimeString('fr-FR');
-            
-            const tradeClass = trade.action === 'ACHETER' ? 'trade-buy' : 'trade-sell';
-            
             const tradeItem = document.createElement('div');
-            tradeItem.className = `trade-history-item ${tradeClass}`;
+            tradeItem.className = 'card mb-3';
             tradeItem.innerHTML = `
-                <div class="d-flex justify-content-between">
-                    <h6>${trade.action} ${trade.symbol}</h6>
-                    <div>
-                        <small class="text-muted">${formattedDate}</small>
-                        <button class="btn btn-sm btn-danger ms-2" onclick="deleteHistoryTransaction('${trade.timestamp}')">
-                            <i class="fas fa-trash"></i>
-                        </button>
+                <div class="card-body py-2">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div class="d-flex align-items-center">
+                            <h5 class="card-title mb-0 me-3">${cryptoNames[trade.symbol] || trade.symbol}</h5>
+                            <small class="text-muted me-4">${new Date(trade.date).toLocaleString('fr-FR')}</small>
+                            <div>Quantité: ${trade.amount.toLocaleString('fr-FR', {minimumFractionDigits: 8, maximumFractionDigits: 8})}</div>
+                        </div>
+                        <div class="d-flex align-items-center">
+                            <div class="me-4">${trade.action === 'ACHETER' ? 'Acheté à' : 'Vendu à'}: $${trade.price.toLocaleString('fr-FR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
+                            <span class="badge ${trade.action === 'ACHETER' ? 'bg-success' : 'bg-danger'} me-3">
+                                ${trade.action === 'ACHETER' ? 'ACHAT' : 'VENDU'}
+                            </span>
+                            <button class="btn btn-sm btn-danger" onclick="deleteHistoryTransaction('${trade.timestamp}')">
+                                Supprimer
+                            </button>
+                        </div>
                     </div>
-                </div>
-                <div class="d-flex justify-content-between">
-                    <div>Quantité: ${trade.amount.toLocaleString('fr-FR', {minimumFractionDigits: 8, maximumFractionDigits: 8})}</div>
-                    <div>Prix: $${trade.price.toLocaleString('fr-FR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
-                    <div>Valeur: $${(trade.amount * trade.price).toLocaleString('fr-FR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
                 </div>
             `;
             tradeHistory.appendChild(tradeItem);
@@ -862,15 +868,6 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Gestionnaires d'événements
     
-    // Changement de période
-    document.querySelectorAll('.period-selector').forEach(button => {
-        button.addEventListener('click', function(e) {
-            e.preventDefault();
-            currentPeriod = this.dataset.period;
-            loadMarketData();
-        });
-    });
-    
     // Changement de timeframe
     document.querySelectorAll('.timeframe-selector').forEach(button => {
         button.addEventListener('click', function(e) {
@@ -900,25 +897,47 @@ document.addEventListener('DOMContentLoaded', function() {
     }, 30000);
 
     // Fonctions pour gérer les transactions
-    function addTransaction(transaction) {
-        fetch('/api/transactions', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(transaction)
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.error) {
-                alert(data.error);
-            } else {
-                loadPortfolioData();  // Recharger toutes les données
+    async function addTransaction() {
+        try {
+            const symbol = document.getElementById('symbol').value;
+            const action = document.getElementById('action').value;
+            const amount = parseFloat(document.getElementById('amount').value);
+            const price = document.getElementById('price').value ? parseFloat(document.getElementById('price').value) : null;
+
+            if (!symbol || !action || !amount) {
+                showNotification('Veuillez remplir tous les champs obligatoires', 'error');
+                return;
             }
-        })
-        .catch(error => {
-            console.error('Erreur lors de l\'ajout de la transaction:', error);
-        });
+
+            const transaction = {
+                symbol: symbol,
+                action: action,
+                amount: amount,
+                price: price
+            };
+
+            const response = await fetch('/api/transactions', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(transaction)
+            });
+
+            const data = await response.json();
+            
+            if (response.ok) {
+                showNotification('Transaction ajoutée avec succès', 'success');
+                closeModal('transactionModal');
+                loadPortfolioData();
+                loadTransactionHistory();
+            } else {
+                throw new Error(data.error || 'Erreur lors de l\'ajout de la transaction');
+            }
+        } catch (error) {
+            console.error('Erreur:', error);
+            showNotification(error.message, 'error');
+        }
     }
 
     function editTransaction(transaction) {

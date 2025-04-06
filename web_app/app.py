@@ -9,6 +9,8 @@ from flask import Flask, render_template, request, jsonify, redirect, url_for
 from datetime import datetime, timedelta
 import random
 import math
+from web_app.config import Config
+from web_app.routes.transaction_routes import transaction_bp
 
 # Configuration du logging
 logging.basicConfig(
@@ -27,8 +29,7 @@ if not os.path.exists("logs"):
     logger.info("Répertoire de logs créé")
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev_key_very_secret')
-logger.info("Application Flask initialisée")
+app.config.from_object(Config)
 
 # Configuration
 API_URL = os.environ.get('API_URL', 'http://localhost:8000')
@@ -286,144 +287,19 @@ def index():
 def dashboard():
     """Tableau de bord principal"""
     logger.info("Accès au tableau de bord")
-    
-    # Simuler les données pour le tableau de bord
-    try:
-        # Données du portefeuille
-        portfolio_data = {
-            'total_value': round(random.uniform(5000, 15000), 2),
-            'daily_change_pct': round(random.uniform(-5, 5), 2),
-            'assets': [
-                {'symbol': 'BTC', 'amount': round(random.uniform(0.1, 0.5), 4), 'value_usd': round(random.uniform(3000, 8000), 2)},
-                {'symbol': 'ETH', 'amount': round(random.uniform(1, 5), 4), 'value_usd': round(random.uniform(2000, 5000), 2)},
-                {'symbol': 'USDT', 'amount': round(random.uniform(1000, 3000), 2), 'value_usd': round(random.uniform(1000, 3000), 2)}
-            ]
-        }
-        
-        # Données de performance
-        performance_data = {
-            'monthly_profit': round(random.uniform(-10, 20), 2),
-            'yearly_profit': round(random.uniform(-5, 30), 2),
-            'total_profit': round(random.uniform(0, 50), 2),
-            'win_rate': round(random.uniform(50, 80), 2),
-            'avg_win': round(random.uniform(2, 10), 2),
-            'avg_loss': round(random.uniform(-5, -1), 2)
-        }
-        
-        # Générer des données historiques pour le graphique
-        days = 30
-        price_history = []
-        start_price = random.uniform(25000, 35000)
-        
-        for i in range(days):
-            change = random.uniform(-0.05, 0.05)
-            start_price = start_price * (1 + change)
-            price_history.append({
-                'date': (datetime.now() - timedelta(days=days-i)).strftime('%Y-%m-%d'),
-                'price': round(start_price, 2)
-            })
-        
-        # Dernières prédictions
-        predictions = []
-        for i in range(5):
-            actions = ['ACHETER', 'VENDRE', 'ATTENDRE']
-            weights = [0.4, 0.3, 0.3]  # Pondération pour rendre certaines actions plus probables
-            action = random.choices(actions, weights=weights, k=1)[0]
-            confidence = random.uniform(0.6, 0.95)
-            
-            # Assigner une classe CSS en fonction de l'action
-            action_class = 'success' if action == 'ACHETER' else 'danger' if action == 'VENDRE' else 'warning'
-            
-            predictions.append({
-                'symbol': random.choice(['BTC/USDT', 'ETH/USDT', 'SOL/USDT']),
-                'timestamp': (datetime.now() - timedelta(hours=i*4)).strftime('%Y-%m-%d %H:%M'),
-                'action': action,
-                'action_class': action_class,
-                'confidence': round(confidence, 2)
-            })
-        
-        logger.debug("Données du tableau de bord générées avec succès")
-        return render_template(
-            'dashboard.html',
-            portfolio=portfolio_data,
-            performance=performance_data,
-            price_history=price_history,
-            predictions=predictions
-        )
-    except Exception as e:
-        logger.error(f"Erreur lors de la génération des données du tableau de bord: {e}", exc_info=True)
-        return render_template('dashboard.html', error=str(e))
+    return render_template('dashboard.html')
 
-@app.route('/backtest', methods=['GET', 'POST'])
+@app.route('/backtest')
 def backtest():
-    """Page de résultats de backtest"""
+    """Page de backtest"""
     logger.info("Accès à la page de backtest")
-    
-    if request.method == 'POST':
-        logger.info(f"Soumission du formulaire de backtest: {request.form}")
-        
-        # Récupérer les paramètres du formulaire
-        params = {
-            'symbol': request.form.get('symbol', 'BTC/USDT'),
-            'timeframe': request.form.get('timeframe', '1h'),
-            'days': int(request.form.get('days', 30)),
-            'exchange': request.form.get('exchange', 'binance')
-        }
-        
-        # Appeler l'API simulée
-        results = simulate_api_response('/backtest', params)
-        
-        # Générer des données pour le graphique
-        chart_data = []
-        initial_value = 10000
-        current_value = initial_value
-        
-        # Créer des données de performance quotidiennes
-        for i in range(params['days']):
-            # Simuler la fluctuation quotidienne
-            daily_change = random.uniform(-2, 3) if i % 3 != 0 else random.uniform(-4, 5)
-            current_value = current_value * (1 + daily_change/100)
-            
-            # Ajouter à nos données de graphique
-            chart_data.append({
-                'date': (datetime.now() - timedelta(days=params['days']-i)).strftime('%Y-%m-%d'),
-                'portfolio_value': round(current_value, 2),
-                'benchmark_value': round(initial_value * (1 + results['buy_hold_pct']/100 * i/params['days']), 2)
-            })
-        
-        # Générer des données de transactions
-        trades = []
-        for i in range(min(10, results['num_trades'])):
-            trade_type = random.choice(['achat', 'vente'])
-            profit = random.uniform(-3, 5) if trade_type == 'vente' else 0
-            trades.append({
-                'date': (datetime.now() - timedelta(days=random.randint(1, params['days']))).strftime('%Y-%m-%d %H:%M'),
-                'type': trade_type,
-                'price': round(random.uniform(20000, 40000), 2),
-                'amount': round(random.uniform(0.001, 0.1), 6),
-                'profit_pct': round(profit, 2),
-                'profit_class': 'text-success' if profit > 0 else 'text-danger' if profit < 0 else ''
-            })
-        
-        logger.debug("Données de backtest générées avec succès")
-        return render_template('backtest.html', results=results, chart_data=chart_data, trades=trades, params=params)
-    
     return render_template('backtest.html')
 
 @app.route('/tradingview')
 def tradingview():
-    # Liste des symboles disponibles
-    symbols = [
-        {"symbol": "BINANCE:BTCUSDT", "name": "Bitcoin"},
-        {"symbol": "BINANCE:ETHUSDT", "name": "Ethereum"},
-        {"symbol": "BINANCE:XRPUSDT", "name": "Ripple"},
-        {"symbol": "BINANCE:BNBUSDT", "name": "Binance Coin"},
-        {"symbol": "BINANCE:ADAUSDT", "name": "Cardano"}
-    ]
-    
-    default_symbol = "BINANCE:BTCUSDT"
-    
-    return render_template('tradingview.html', symbols=symbols, default_symbol=default_symbol)
+    """Page TradingView"""
+    logger.info("Accès à la page TradingView")
+    return render_template('tradingview.html')
 
 @app.route('/get-pine-script')
 def get_pine_script():
