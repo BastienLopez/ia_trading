@@ -1,0 +1,26 @@
+# LLM Dependencies
+langchain==0.1.12
+transformers==4.37.2
+torch==2.2.0
+sentencepiece==0.2.0
+accelerate==0.27.2
+
+# ML Dependencies
+scikit-learn==1.4.1.post1
+tensorflow==2.15.0
+ta-lib==0.4.28
+
+# Data Processing
+pandas==2.2.1
+numpy==1.26.4
+python-binance==1.0.19
+ccxt==4.2.15
+
+# Utils
+python-dotenv==1.0.1
+requests==2.31.0
+beautifulsoup4==4.12.3
+tweepy==4.14.0
+pytest==8.0.2
+black==24.2.0
+isort==5.13.2 
