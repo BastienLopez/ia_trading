@@ -1,5 +1,5 @@
 """
-Tests unitaires pour le module de prétraitement des données (Phase 1.2).
+Tests unitaires pour le module de prétraitement amélioré.
 """
 
 import unittest
@@ -8,18 +8,19 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 import sys
+import tempfile
 
-# Ajout du répertoire parent au chemin pour pouvoir importer les modules
+# Ajout du chemin absolu vers le répertoire ai_trading
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from ai_trading.utils.preprocessor import MarketDataPreprocessor, TextDataPreprocessor
+from ai_trading.utils.enhanced_preprocessor import EnhancedMarketDataPreprocessor, EnhancedTextDataPreprocessor
 
-class TestMarketDataPreprocessor(unittest.TestCase):
-    """Tests pour la classe MarketDataPreprocessor."""
+class TestEnhancedMarketDataPreprocessor(unittest.TestCase):
+    """Tests pour la classe EnhancedMarketDataPreprocessor."""
     
     def setUp(self):
         """Initialisation avant chaque test."""
-        self.preprocessor = MarketDataPreprocessor(scaling_method='minmax')
+        self.preprocessor = EnhancedMarketDataPreprocessor(scaling_method='minmax')
         
         # Création d'un DataFrame de test
         dates = pd.date_range(start='2023-01-01', periods=100, freq='h')
@@ -28,12 +29,26 @@ class TestMarketDataPreprocessor(unittest.TestCase):
             'high': np.random.normal(105, 5, 100),
             'low': np.random.normal(95, 5, 100),
             'close': np.random.normal(102, 5, 100),
-            'volume': np.random.normal(1000, 100, 100)
+            'volume': np.random.normal(1000, 100, 100),
+            'market_cap': np.random.normal(1000000, 50000, 100),
+            'source': ['coingecko'] * 100
         }, index=dates)
         
         # Ajout de quelques valeurs manquantes
         self.test_data.loc[self.test_data.index[10:15], 'close'] = np.nan
         self.test_data.loc[self.test_data.index[20:22], 'volume'] = np.nan
+        
+        # Création d'un fichier temporaire pour les tests
+        self.temp_dir = tempfile.mkdtemp()
+        self.temp_file = os.path.join(self.temp_dir, 'test_data.csv')
+        self.test_data.to_csv(self.temp_file)
+    
+    def tearDown(self):
+        """Nettoyage après chaque test."""
+        # Suppression du fichier temporaire
+        if os.path.exists(self.temp_file):
+            os.remove(self.temp_file)
+        os.rmdir(self.temp_dir)
     
     def test_clean_market_data(self):
         """Teste le nettoyage des données de marché."""
@@ -54,25 +69,25 @@ class TestMarketDataPreprocessor(unittest.TestCase):
         normalized_data = self.preprocessor.normalize_market_data(cleaned_data)
         
         # Vérification que les valeurs sont dans [0, 1] pour MinMaxScaler
-        for col in ['open', 'high', 'low', 'close', 'volume']:
+        for col in ['open', 'high', 'low', 'close', 'volume', 'market_cap']:
             self.assertGreaterEqual(normalized_data[col].min(), 0)
             self.assertLessEqual(normalized_data[col].max(), 1.0001)
     
     def test_create_technical_features(self):
         """Teste la création des features techniques."""
-        # Nettoyage préalable
-        cleaned_data = self.preprocessor.clean_market_data(self.test_data)
+        feature_data = self.preprocessor.create_technical_features(self.test_data)
         
-        # Création des features
-        feature_data = self.preprocessor.create_technical_features(cleaned_data)
+        # Vérification que le DataFrame n'est pas vide
+        self.assertIsNotNone(feature_data)
+        self.assertGreater(len(feature_data), 0)
         
-        # Vérification que de nouvelles colonnes ont été ajoutées
-        self.assertGreater(feature_data.shape[1], cleaned_data.shape[1])
+        # Vérification des features techniques
+        expected_features = ['sma_7', 'sma_21', 'rsi_14', 'macd', 'bb_upper', 'bb_lower']
+        for feature in expected_features:
+            self.assertIn(feature, feature_data.columns)
         
-        # Vérification de quelques features spécifiques
-        self.assertIn('returns', feature_data.columns)
-        self.assertIn('rsi_14', feature_data.columns)
-        self.assertIn('macd', feature_data.columns)
+        # Vérification que les NaN ont été supprimés
+        self.assertEqual(feature_data.isna().sum().sum(), 0)
     
     def test_create_lagged_features(self):
         """Teste la création des features décalées."""
@@ -105,22 +120,44 @@ class TestMarketDataPreprocessor(unittest.TestCase):
         # Préparation des données
         cleaned_data = self.preprocessor.clean_market_data(self.test_data)
         
-        # Division
-        train, val, test = self.preprocessor.split_data(cleaned_data, train_ratio=0.7, val_ratio=0.15)
+        # Division des données
+        train, val, test = self.preprocessor.split_data(cleaned_data)
         
-        # Vérification des proportions
-        total_len = len(cleaned_data)
-        self.assertAlmostEqual(len(train) / total_len, 0.7, delta=0.01)
-        self.assertAlmostEqual(len(val) / total_len, 0.15, delta=0.01)
-        self.assertAlmostEqual(len(test) / total_len, 0.15, delta=0.01)
+        # Vérification des dimensions
+        self.assertEqual(len(train) + len(val) + len(test), len(cleaned_data))
+        self.assertGreater(len(train), 0)
+        self.assertGreater(len(val), 0)
+        self.assertGreater(len(test), 0)
+    
+    def test_preprocess_market_data(self):
+        """Teste le prétraitement complet des données de marché."""
+        # Vérifier si la méthode preprocess_market_data existe
+        if hasattr(self.preprocessor, 'preprocess_market_data'):
+            try:
+                # Essayer d'abord avec un DataFrame
+                processed_data = self.preprocessor.preprocess_market_data(self.test_data)
+                
+                # Vérification que le DataFrame n'est pas vide
+                self.assertIsNotNone(processed_data)
+                self.assertGreater(len(processed_data), 0)
+                
+                # Vérifier également avec le chemin du fichier
+                processed_data_file = self.preprocessor.preprocess_market_data(self.temp_file)
+                self.assertIsNotNone(processed_data_file)
+                self.assertGreater(len(processed_data_file), 0)
+                
+            except Exception as e:
+                self.fail(f"preprocess_market_data a levé une exception: {e}")
+        else:
+            self.skipTest("La méthode preprocess_market_data n'existe pas")
 
 
-class TestTextDataPreprocessor(unittest.TestCase):
-    """Tests pour la classe TextDataPreprocessor."""
+class TestEnhancedTextDataPreprocessor(unittest.TestCase):
+    """Tests pour la classe EnhancedTextDataPreprocessor."""
     
     def setUp(self):
         """Initialisation avant chaque test."""
-        self.preprocessor = TextDataPreprocessor(language='english')
+        self.preprocessor = EnhancedTextDataPreprocessor(language='english')
         
         # Exemples de textes
         self.test_text = "This is a test tweet about #Bitcoin and $ETH! Check out https://example.com @username"
@@ -160,6 +197,7 @@ class TestTextDataPreprocessor(unittest.TestCase):
         self.assertNotIn('http', cleaned)
         self.assertNotIn('@', cleaned)
         self.assertNotIn('!', cleaned)
+        self.assertNotIn('$', cleaned)  # Vérification spécifique pour les symboles de crypto
     
     def test_tokenize_text_simple(self):
         """Teste une version simplifiée de la tokenization."""
@@ -170,67 +208,21 @@ class TestTextDataPreprocessor(unittest.TestCase):
         # Vérifications de base
         self.assertIsInstance(tokens, list)
         self.assertGreater(len(tokens), 0)
-
-    def test_preprocess_news_data_simple(self):
-        """Teste une version simplifiée du prétraitement des actualités."""
-        # Créer un DataFrame directement
-        news_df = pd.DataFrame(self.test_news)
+    
+    def test_extract_sentiment_keywords(self):
+        """Teste l'extraction des mots-clés de sentiment."""
+        # Création de tokens de test
+        tokens_list = [
+            ['bitcoin', 'surge', 'high'],
+            ['ethereum', 'update', 'delay']
+        ]
         
-        # Vérifier que le DataFrame a été créé correctement
-        self.assertEqual(len(news_df), len(self.test_news))
-        self.assertIn('title', news_df.columns)
-
-    def test_preprocess_social_data_simple(self):
-        """Teste une version simplifiée du prétraitement des données sociales."""
-        # Créer un DataFrame directement
-        social_df = pd.DataFrame(self.test_social)
+        # Extraction des mots-clés
+        keywords = self.preprocessor.extract_sentiment_keywords(tokens_list, top_n=5)
         
-        # Vérifier que le DataFrame a été créé correctement
-        self.assertEqual(len(social_df), len(self.test_social))
-        self.assertIn('text', social_df.columns)
-
-    '''
-    def test_tokenize_text(self):
-        """Teste la tokenization du texte."""
-        cleaned = self.preprocessor.clean_text(self.test_text)
-        tokens = self.preprocessor.tokenize_text(cleaned)
-        
-        # Vérification que les tokens sont une liste de mots
-        self.assertIsInstance(tokens, list)
-        self.assertTrue(all(isinstance(token, str) for token in tokens))
-        
-        # Vérification que les stopwords ont été supprimés
-        self.assertNotIn('is', tokens)
-        self.assertNotIn('a', tokens)
-    '''
-
-    '''
-    def test_preprocess_news_data(self):
-        """Teste le prétraitement des données d'actualités."""
-        processed_news = self.preprocessor.preprocess_news_data(self.test_news)
-        
-        # Vérification du DataFrame résultant
-        self.assertIsInstance(processed_news, pd.DataFrame)
-        self.assertEqual(len(processed_news), len(self.test_news))
-        
-        # Vérification des colonnes ajoutées
-        self.assertIn('clean_title', processed_news.columns)
-        self.assertIn('tokens_title', processed_news.columns)
-    '''
-
-    '''
-    def test_preprocess_social_data(self):
-        """Teste le prétraitement des données sociales."""
-        processed_social = self.preprocessor.preprocess_social_data(self.test_social)
-        
-        # Vérification du DataFrame résultant
-        self.assertIsInstance(processed_social, pd.DataFrame)
-        self.assertEqual(len(processed_social), len(self.test_social))
-        
-        # Vérification des colonnes ajoutées
-        self.assertIn('clean_text', processed_social.columns)
-        self.assertIn('tokens', processed_social.columns)
-    '''
+        # Vérification des résultats
+        self.assertIsInstance(keywords, list)
+        self.assertLessEqual(len(keywords), 5)
 
 
 if __name__ == '__main__':

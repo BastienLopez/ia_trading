@@ -28,79 +28,98 @@ ai_trading/
 │       ├── signal_generator.py   # Générateur de signaux
 │       ├── technical_analysis.py # Indicateurs techniques
 │       └── ml_model.py          # Modèle ML pour les signaux
-└── utils/
-    ├── data_collector.py        # Collecte de données
-    ├── preprocessor.py          # Prétraitement des données
-    └── model_evaluator.py       # Évaluation des modèles
+├── utils/
+│   ├── enhanced_data_collector.py # Collecte de données multi-sources
+│   └── enhanced_preprocessor.py   # Prétraitement avancé des données
+├── examples/
+│   └── enhanced_data_pipeline.py  # Exemple de pipeline de données complet
+└── tests/
+    ├── test_enhanced_collector.py # Tests pour le collecteur de données
+    └── test_enhanced_preprocessor.py # Tests pour le préprocesseur
 ```
 
 ## État d'avancement
 
 ### Phase 1: Collecte et Prétraitement des Données ✅
-- ✅ 1.1 Implémentation de `utils/data_collector.py` et `utils/minimal_data_collector.py`
-  - Connexion aux APIs de cryptomonnaies
-  - Collecte des données de prix et volumes
+- ✅ 1.1 Implémentation de `utils/enhanced_data_collector.py`
+  - Connexion à plusieurs APIs de cryptomonnaies (CoinGecko, CoinCap, CryptoCompare)
+  - Collecte des données de prix, volumes et capitalisation
+  - Récupération de l'indice Fear & Greed
   - Scraping des actualités et réseaux sociaux
-- ✅ 1.2 Implémentation de `utils/preprocessor.py`
-  - Nettoyage des données
-  - Normalisation
-  - Création des features
+- ✅ 1.2 Implémentation de `utils/enhanced_preprocessor.py`
+  - Nettoyage des données multi-sources
+  - Normalisation avancée
+  - Création de features techniques étendues
+  - Prétraitement des données textuelles
 
 ### Phase 2: Analyse de Sentiment (LLM) 🔄
-1. Implémenter `llm/sentiment_analysis/sentiment_model.py`
-   - Intégration d'un modèle LLM (ex: BERT, GPT)
-   - Fine-tuning pour l'analyse de sentiment crypto
+- 🔄 2.1 Implémentation de `llm/sentiment_analysis/news_analyzer.py`
+  - Analyse des actualités crypto
+  - Extraction des entités et sentiments
+- 🔄 2.2 Implémentation de `llm/sentiment_analysis/social_analyzer.py`
+  - Analyse des tweets et posts Reddit
+  - Détection des tendances et sentiments
 
-2. Implémenter `llm/sentiment_analysis/news_analyzer.py`
-   - Analyse des actualités crypto
-   - Extraction des informations pertinentes
+### Phase 3: Prédictions de Marché (LLM) 📅
+- 📅 3.1 Implémentation de `llm/predictions/market_predictor.py`
+  - Génération de prédictions basées sur les données de marché et le sentiment
+- 📅 3.2 Implémentation de `llm/predictions/prediction_model.py`
+  - Modèle de prédiction combinant données techniques et sentiment
 
-3. Implémenter `llm/sentiment_analysis/social_analyzer.py`
-   - Analyse des réseaux sociaux
-   - Détection des tendances et sentiments
+### Phase 4: Signaux de Trading (ML) 📅
+- 📅 4.1 Implémentation de `ml/trading_signals/signal_generator.py`
+  - Génération de signaux d'achat/vente
+- 📅 4.2 Implémentation de `ml/trading_signals/ml_model.py`
+  - Modèle ML pour la prédiction des signaux
 
-### Phase 3: Prédictions (LLM)
-1. Implémenter `llm/predictions/prediction_model.py`
-   - Modèle de prédiction basé sur LLM
-   - Intégration des données historiques
+## Installation
 
-2. Implémenter `llm/predictions/market_predictor.py`
-   - Génération de prédictions de marché
-   - Combinaison des signaux de sentiment
+```bash
+# Cloner le dépôt
+git clone https://github.com/votre-username/ai-trading.git
+cd ai-trading
 
-### Phase 4: Signaux de Trading (ML)
-1. Implémenter `ml/trading_signals/technical_analysis.py`
-   - Calcul des indicateurs techniques
-   - Génération des features pour ML
-
-2. Implémenter `ml/trading_signals/ml_model.py`
-   - Modèle ML pour la génération de signaux
-   - Optimisation des hyperparamètres
-
-3. Implémenter `ml/trading_signals/signal_generator.py`
-   - Combinaison des signaux LLM et ML
-   - Génération des signaux finaux
-
-### Phase 5: Évaluation et Optimisation
-1. Implémenter `utils/model_evaluator.py`
-   - Métriques d'évaluation
-   - Backtesting des stratégies
-   - Optimisation des modèles
+# Installer les dépendances
+pip install -r requirements.txt
+```
 
 ## Comment exécuter les tests
 
-Pour vérifier que les modules de la Phase 1 fonctionnent correctement, exécutez les tests unitaires :
-
 ```bash
-# Installation des dépendances
-pip install pandas numpy scikit-learn nltk pycoingecko tweepy requests python-dotenv
-
 # Exécution des tests pour le collecteur de données
-python -m tests.test_data_collector
+python -m ai_trading.tests.test_enhanced_collector
 
 # Exécution des tests pour le préprocesseur
-python -m tests.test_preprocessor
+python -m ai_trading.tests.test_enhanced_preprocessor
 ```
+
+## Comment exécuter les exemples
+
+Le projet inclut des exemples pratiques pour vous aider à comprendre comment utiliser les différents modules :
+
+### Pipeline de données complet
+
+L'exemple `enhanced_data_pipeline.py` montre comment enchaîner les différentes étapes du traitement des données :
+- Collecte des données de marché et d'actualités pour plusieurs cryptomonnaies
+- Prétraitement des données collectées
+- Visualisation des résultats
+
+Pour exécuter cet exemple :
+
+```bash
+python -m ai_trading.examples.enhanced_data_pipeline
+```
+
+Cet exemple va :
+1. Collecter des données pour Bitcoin, Ethereum et Solana
+2. Prétraiter ces données (nettoyage, features techniques, normalisation)
+3. Générer des visualisations des prix
+4. Sauvegarder tous les résultats dans les dossiers `data/raw` et `data/processed`
+
+Vous pouvez modifier le script pour :
+- Ajouter d'autres cryptomonnaies à analyser
+- Changer la période de collecte des données
+- Utiliser différentes méthodes de prétraitement
 
 ## Technologies utilisées
 
@@ -131,4 +150,18 @@ python -m tests.test_preprocessor
 - Implémenter une gestion robuste des erreurs
 - Documenter chaque composant
 - Maintenir des tests unitaires
-- Suivre les bonnes pratiques de versionnage (git) 
+- Suivre les bonnes pratiques de versionnage (git)
+
+## Modules de collecte et prétraitement des données
+
+### Collecteurs de données
+- **minimal_data_collector.py** : Version simple utilisant principalement l'API CoinGecko
+- **enhanced_data_collector.py** : Version avancée utilisant plusieurs sources (CoinGecko, CoinCap, CryptoCompare, etc.)
+
+### Préprocesseurs
+- **preprocessor.py** : Préprocesseur de base pour les données de marché et textuelles
+- **enhanced_preprocessor.py** : Préprocesseur avancé avec plus de features techniques et une meilleure gestion des données multi-sources
+
+### Quand utiliser quelle version ?
+- **Version minimale** : Pour les tests, l'apprentissage, ou quand la simplicité est prioritaire
+- **Version améliorée** : Pour la production, quand la robustesse et les fonctionnalités avancées sont nécessaires 
