@@ -706,39 +706,91 @@ def handle_transactions():
             return jsonify(data["transactions"])
             
         elif request.method == 'POST':
-            transaction = request.json
-            logger.info(f"Nouvelle transaction reçue: {json.dumps(transaction, indent=2)}")
-            
-            # Valider les données
-            required_fields = ['symbol', 'action', 'amount']
-            if not all(field in transaction for field in required_fields):
-                logger.error(f"Données manquantes dans la transaction: {transaction}")
-                return jsonify({"error": "Données manquantes"}), 400
-            
-            # Récupérer le prix actuel depuis CoinGecko
-            current_prices = get_real_crypto_prices()
-            if not current_prices or transaction['symbol'] not in current_prices:
-                logger.error(f"Impossible de récupérer le prix pour {transaction['symbol']}")
-                return jsonify({"error": f"Impossible de récupérer le prix pour {transaction['symbol']}"}), 400
-            
-            # Ajouter la transaction avec le prix actuel
-            current_price = float(current_prices[transaction['symbol']])
-            amount = float(transaction['amount'])
-            
-            transaction["timestamp"] = datetime.now().timestamp()
-            transaction["price"] = current_price
-            transaction["value"] = amount * current_price
-            transaction["date"] = datetime.now().isoformat()
-            
-            logger.info(f"Prix actuel de {transaction['symbol']}: ${current_price}")
-            logger.info(f"Valeur de la transaction: {amount} * ${current_price} = ${transaction['value']}")
-            
-            data["transactions"].append(transaction)
-            save_data(data)
-            update_portfolio()
-            
-            logger.info(f"Transaction ajoutée avec succès. Nouvelles données: {json.dumps(data, indent=2)}")
-            return jsonify({"success": True})
+            try:
+                transaction = request.json
+                logger.info(f"Nouvelle transaction reçue: {json.dumps(transaction, indent=2)}")
+                
+                # Valider les données
+                required_fields = ['symbol', 'action', 'amount']
+                missing_fields = [field for field in required_fields if field not in transaction]
+                if missing_fields:
+                    error_msg = f"Champs manquants: {', '.join(missing_fields)}"
+                    logger.error(f"Données manquantes dans la transaction: {error_msg}")
+                    return jsonify({"error": error_msg}), 400
+                
+                # Valider le format des données
+                try:
+                    amount = float(transaction['amount'])
+                    if amount <= 0:
+                        raise ValueError("Le montant doit être positif")
+                except ValueError as e:
+                    logger.error(f"Montant invalide: {transaction['amount']}")
+                    return jsonify({"error": f"Montant invalide: {str(e)}"}), 400
+                
+                # Récupérer le prix actuel depuis CoinGecko
+                current_prices = get_real_crypto_prices()
+                
+                # Si CoinGecko n'est pas disponible, utiliser le dernier prix connu ou une valeur par défaut
+                if not current_prices:
+                    logger.warning("Impossible de récupérer les prix depuis CoinGecko, utilisation du dernier prix connu")
+                    # Chercher le dernier prix connu pour ce symbole
+                    last_price = None
+                    for t in reversed(data['transactions']):
+                        if t['symbol'] == transaction['symbol']:
+                            last_price = t['price']
+                            break
+                    
+                    if last_price is None:
+                        # Si aucun prix n'est trouvé, utiliser une valeur par défaut
+                        default_prices = {
+                            'BTC': 50000,
+                            'ETH': 3000,
+                            'BNB': 400,
+                            'SOL': 100,
+                            'XRP': 0.5,
+                            'ADA': 0.5,
+                            'AVAX': 30,
+                            'DOT': 7,
+                            'MATIC': 1,
+                            'LINK': 15,
+                            'UNI': 7,
+                            'AAVE': 100,
+                            'ATOM': 10,
+                            'DOGE': 0.1,
+                            'SHIB': 0.00001,
+                            'USDT': 1,
+                            'USDC': 1,
+                            'DAI': 1
+                        }
+                        last_price = default_prices.get(transaction['symbol'], 1)
+                        logger.warning(f"Utilisation du prix par défaut pour {transaction['symbol']}: {last_price}")
+                    
+                    current_price = last_price
+                else:
+                    if transaction['symbol'] not in current_prices:
+                        logger.error(f"Symbole non supporté: {transaction['symbol']}")
+                        return jsonify({"error": f"Symbole non supporté: {transaction['symbol']}"}), 400
+                    current_price = float(current_prices[transaction['symbol']])
+                
+                # Ajouter la transaction avec le prix actuel
+                transaction["timestamp"] = datetime.now().timestamp()
+                transaction["price"] = current_price
+                transaction["value"] = amount * current_price
+                transaction["date"] = datetime.now().isoformat()
+                
+                logger.info(f"Prix utilisé pour {transaction['symbol']}: ${current_price}")
+                logger.info(f"Valeur de la transaction: {amount} * ${current_price} = ${transaction['value']}")
+                
+                data["transactions"].append(transaction)
+                save_data(data)
+                update_portfolio()
+                
+                logger.info(f"Transaction ajoutée avec succès. Nouvelles données: {json.dumps(data, indent=2)}")
+                return jsonify({"success": True})
+                
+            except Exception as e:
+                logger.error(f"Erreur lors du traitement de la transaction: {str(e)}")
+                return jsonify({"error": f"Erreur lors du traitement de la transaction: {str(e)}"}), 500
             
         elif request.method == 'PUT':
             updated_transaction = request.json
@@ -775,17 +827,34 @@ def handle_transactions():
             return jsonify({"success": True})
             
         elif request.method == 'DELETE':
-            transaction_id = request.json.get("id")
-            if transaction_id is None:
-                logger.error("ID de transaction manquant")
-                return jsonify({"error": "ID de transaction manquant"}), 400
-            
-            data["transactions"] = [t for t in data["transactions"] if t["timestamp"] != transaction_id]
-            save_data(data)
-            update_portfolio()
-            
-            logger.info(f"Transaction supprimée avec succès. Nouvelles données: {json.dumps(data, indent=2)}")
-            return jsonify({"success": True})
+            try:
+                delete_data = request.json
+                if not delete_data or 'timestamp' not in delete_data:
+                    logger.error("Données de suppression invalides")
+                    return jsonify({"error": "Timestamp manquant"}), 400
+                
+                timestamp = float(delete_data['timestamp'])
+                logger.info(f"Tentative de suppression de la transaction avec timestamp: {timestamp}")
+                
+                # Trouver et supprimer la transaction
+                initial_length = len(data['transactions'])
+                data['transactions'] = [t for t in data['transactions'] if t['timestamp'] != timestamp]
+                
+                if len(data['transactions']) == initial_length:
+                    logger.error(f"Transaction non trouvée avec timestamp: {timestamp}")
+                    return jsonify({"error": "Transaction non trouvée"}), 404
+                
+                # Sauvegarder les données mises à jour
+                save_data(data)
+                logger.info("Transaction supprimée avec succès")
+                return jsonify({"success": True})
+                
+            except ValueError as e:
+                logger.error(f"Erreur de format: {str(e)}")
+                return jsonify({"error": "Format de timestamp invalide"}), 400
+            except Exception as e:
+                logger.error(f"Erreur lors de la suppression: {str(e)}")
+                return jsonify({"error": str(e)}), 500
             
     except Exception as e:
         logger.error(f"Erreur lors de la gestion des transactions: {str(e)}")

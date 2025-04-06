@@ -788,39 +788,77 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
     
-    // Fonction pour supprimer une transaction de l'historique
-    function deleteHistoryTransaction(timestamp) {
-        if (confirm('Êtes-vous sûr de vouloir supprimer cette transaction ?')) {
-            fetch('/api/transactions', {
-                method: 'DELETE',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ timestamp: timestamp })
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.error) {
-                    showAlert(data.error, 'danger');
-                } else {
-                    showAlert('Transaction supprimée avec succès', 'success');
-                    // Recharger toutes les données
-                    loadPortfolioData();
-                    loadTransactions();
-                    // Recharger l'historique des transactions
-                    fetch('/api/transactions')
-                        .then(response => response.json())
-                        .then(data => {
-                            updateTradeHistory(data);
-                        });
-                }
-            })
-            .catch(error => {
-                console.error('Erreur lors de la suppression de la transaction:', error);
-                showAlert('Erreur lors de la suppression de la transaction', 'danger');
-            });
-        }
+    // Fonction pour afficher les notifications
+    function showNotification(message, type) {
+        const alertDiv = document.createElement('div');
+        alertDiv.className = `alert alert-${type} alert-dismissible fade show position-fixed top-0 end-0 m-3`;
+        alertDiv.style.zIndex = '9999';
+        alertDiv.role = 'alert';
+        alertDiv.innerHTML = `
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        `;
+        
+        document.body.appendChild(alertDiv);
+        
+        // Supprimer automatiquement l'alerte après 3 secondes
+        setTimeout(() => {
+            alertDiv.remove();
+        }, 3000);
     }
+
+    // Définir la fonction globalement
+    window.deleteHistoryTransaction = function(timestamp) {
+        // Créer une notification de confirmation
+        const confirmDiv = document.createElement('div');
+        confirmDiv.className = 'alert alert-warning alert-dismissible fade show position-fixed top-50 start-50 translate-middle';
+        confirmDiv.style.zIndex = '9999';
+        confirmDiv.style.maxWidth = '400px';
+        confirmDiv.innerHTML = `
+            <div class="d-flex flex-column">
+                <h6 class="mb-3">Confirmer la suppression</h6>
+                <p class="mb-3">Êtes-vous sûr de vouloir supprimer cette transaction ?</p>
+                <div class="d-flex justify-content-end gap-2">
+                    <button type="button" class="btn btn-secondary btn-sm" onclick="this.closest('.alert').remove()">Annuler</button>
+                    <button type="button" class="btn btn-danger btn-sm" onclick="confirmDelete('${timestamp}')">Supprimer</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(confirmDiv);
+    };
+
+    // Fonction pour confirmer la suppression
+    window.confirmDelete = function(timestamp) {
+        // Supprimer la notification de confirmation
+        document.querySelector('.alert-warning').remove();
+
+        fetch('/api/transactions', {
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ timestamp: parseFloat(timestamp) })
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Erreur lors de la suppression');
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data.success) {
+                // Recharger les données après la suppression
+                loadPortfolioData();
+                showNotification('Transaction supprimée avec succès', 'success');
+            } else {
+                throw new Error(data.error || 'Erreur lors de la suppression');
+            }
+        })
+        .catch(error => {
+            console.error('Erreur:', error);
+            showNotification(error.message, 'error');
+        });
+    };
     
     // Gestionnaires d'événements
     

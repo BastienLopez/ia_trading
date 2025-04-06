@@ -3,67 +3,76 @@
         {
             "symbol": "BTC",
             "action": "ACHETER",
-            "amount": 0.5,
-            "timestamp": 1743767599.111149,
-            "price": 82232.0,
-            "value": 41116.0,
-            "date": "2025-04-04T13:53:19.111149"
+            "amount": 0.0215,
+            "timestamp": 1743926143.247237,
+            "price": 83079.0,
+            "value": 1786.1985,
+            "date": "2025-04-06T09:55:43.247237"
         },
         {
             "symbol": "ETH",
             "action": "ACHETER",
-            "amount": 20,
-            "timestamp": 1743768204.596081,
-            "price": 1784.75,
-            "value": 35695.0,
-            "date": "2025-04-04T14:03:24.596081"
+            "amount": 16,
+            "timestamp": 1743926150.539262,
+            "price": 1799.45,
+            "value": 28791.2,
+            "date": "2025-04-06T09:55:50.539262"
         },
         {
-            "symbol": "SHIB",
+            "symbol": "SOL",
             "action": "ACHETER",
-            "amount": 12,
-            "timestamp": 1743924992.763449,
-            "price": 1.212e-05,
-            "value": 0.00014544,
-            "date": "2025-04-06T09:36:32.763449"
+            "amount": 261,
+            "timestamp": 1743926171.161873,
+            "price": 100,
+            "value": 26100.0,
+            "date": "2025-04-06T09:56:11.161873"
         },
         {
-            "symbol": "UNI",
+            "symbol": "BTC",
             "action": "ACHETER",
-            "amount": 1,
-            "timestamp": 1743925072.651934,
-            "price": 5.81,
-            "value": 5.81,
-            "date": "2025-04-06T09:37:52.651934"
+            "amount": 2,
+            "timestamp": 1743926191.656634,
+            "price": 83079.0,
+            "value": 166158.0,
+            "date": "2025-04-06T09:56:31.656634"
+        },
+        {
+            "symbol": "USDC",
+            "action": "ACHETER",
+            "amount": 2000,
+            "timestamp": 1743926205.402143,
+            "price": 1,
+            "value": 2000.0,
+            "date": "2025-04-06T09:56:45.402143"
         }
     ],
     "portfolio": {
-        "current_value": 77443.91,
+        "current_value": 229832.13,
         "starting_value": 0,
         "assets": [
             {
                 "symbol": "BTC",
-                "amount": 0.5,
-                "value_usd": 41506.5,
-                "current_price": 83013.0
+                "amount": 2.0215,
+                "value_usd": 167938.13,
+                "current_price": 83076.0
+            },
+            {
+                "symbol": "SOL",
+                "amount": 261.0,
+                "value_usd": 31100.76,
+                "current_price": 119.16
             },
             {
                 "symbol": "ETH",
-                "amount": 20.0,
-                "value_usd": 35931.6,
-                "current_price": 1796.58
+                "amount": 16.0,
+                "value_usd": 28793.44,
+                "current_price": 1799.59
             },
             {
-                "symbol": "UNI",
-                "amount": 1.0,
-                "value_usd": 5.81,
-                "current_price": 5.81
-            },
-            {
-                "symbol": "SHIB",
-                "amount": 12.0,
-                "value_usd": 0.0,
-                "current_price": 1.211e-05
+                "symbol": "USDC",
+                "amount": 2000.0,
+                "value_usd": 1999.8,
+                "current_price": 0.999898
             }
         ]
     }
