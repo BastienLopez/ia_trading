@@ -17,8 +17,23 @@ from newsapi import NewsApiClient
 from pycoingecko import CoinGeckoAPI
 from requests import Session
 from requests.exceptions import RequestException
+import ccxt
+from dotenv import load_dotenv
+import numpy as np
 
-logger = logging.getLogger(__name__)
+# Configuration du logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler("data_collection.log"),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger("DataCollector")
+
+# Chargement des variables d'environnement
+load_dotenv()
 
 class CryptoDataCollector:
     """Collecte les données de prix et volumes des cryptomonnaies."""
@@ -439,4 +454,214 @@ class SocialMediaCollector:
             
         except Exception as e:
             logger.error(f"Erreur lors de la récupération des tweets: {e}")
-            raise 
+            raise
+
+class DataCollector:
+    """
+    Classe pour collecter des données de différentes sources:
+    - Données de marché (prix, volumes) via API Binance
+    - Actualités crypto via API de news
+    - Données des réseaux sociaux via Twitter API
+    """
+    
+    def __init__(self):
+        """Initialisation des connexions API"""
+        # Initialisation de l'API Binance
+        self.binance = self._init_binance()
+        
+        # Initialisation de l'API Twitter
+        self.twitter = self._init_twitter()
+        
+        logger.info("DataCollector initialisé avec succès")
+    
+    def _init_binance(self):
+        """Initialise la connexion à l'API Binance"""
+        try:
+            binance = ccxt.binance({
+                'apiKey': os.getenv('BINANCE_API_KEY'),
+                'secret': os.getenv('BINANCE_API_SECRET'),
+                'enableRateLimit': True,
+            })
+            logger.info("Connexion à l'API Binance établie")
+            return binance
+        except Exception as e:
+            logger.error(f"Erreur lors de l'initialisation de l'API Binance: {e}")
+            return None
+    
+    def _init_twitter(self):
+        """Initialise la connexion à l'API Twitter"""
+        try:
+            auth = tweepy.OAuth1UserHandler(
+                os.getenv('TWITTER_API_KEY'),
+                os.getenv('TWITTER_API_SECRET'),
+                os.getenv('TWITTER_ACCESS_TOKEN'),
+                os.getenv('TWITTER_ACCESS_TOKEN_SECRET')
+            )
+            api = tweepy.API(auth)
+            logger.info("Connexion à l'API Twitter établie")
+            return api
+        except Exception as e:
+            logger.error(f"Erreur lors de l'initialisation de l'API Twitter: {e}")
+            return None
+    
+    def get_market_data(self, symbol, timeframe='1h', limit=1000):
+        """
+        Récupère les données de marché pour un symbole donné
+        
+        Args:
+            symbol (str): Paire de trading (ex: 'BTC/USDT')
+            timeframe (str): Intervalle de temps (ex: '1h', '1d')
+            limit (int): Nombre de bougies à récupérer
+            
+        Returns:
+            pandas.DataFrame: DataFrame contenant les données OHLCV
+        """
+        try:
+            if self.binance is None:
+                logger.error("L'API Binance n'est pas initialisée")
+                return None
+                
+            logger.info(f"Récupération des données de marché pour {symbol} ({timeframe})")
+            ohlcv = self.binance.fetch_ohlcv(symbol, timeframe, limit=limit)
+            
+            df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+            df.set_index('timestamp', inplace=True)
+            
+            logger.info(f"Données récupérées: {len(df)} entrées")
+            return df
+        except Exception as e:
+            logger.error(f"Erreur lors de la récupération des données de marché: {e}")
+            return None
+    
+    def get_crypto_news(self, coin='bitcoin', days=7):
+        """
+        Récupère les actualités crypto via une API de news
+        
+        Args:
+            coin (str): Nom de la crypto-monnaie
+            days (int): Nombre de jours d'historique
+            
+        Returns:
+            list: Liste d'articles
+        """
+        try:
+            # Exemple avec CryptoCompare News API (gratuit)
+            url = f"https://min-api.cryptocompare.com/data/v2/news/?categories={coin}"
+            response = requests.get(url)
+            
+            if response.status_code == 200:
+                news_data = response.json()
+                articles = news_data.get('Data', [])
+                
+                # Filtrer par date
+                cutoff_date = datetime.now() - timedelta(days=days)
+                filtered_articles = []
+                
+                for article in articles:
+                    published_on = datetime.fromtimestamp(article.get('published_on', 0))
+                    if published_on >= cutoff_date:
+                        filtered_articles.append({
+                            'title': article.get('title'),
+                            'url': article.get('url'),
+                            'body': article.get('body'),
+                            'published_on': published_on,
+                            'source': article.get('source')
+                        })
+                
+                logger.info(f"Actualités récupérées: {len(filtered_articles)} articles")
+                return filtered_articles
+            else:
+                logger.error(f"Erreur API News: {response.status_code}")
+                return []
+        except Exception as e:
+            logger.error(f"Erreur lors de la récupération des actualités: {e}")
+            return []
+    
+    def get_social_data(self, query, count=100):
+        """
+        Récupère les données des réseaux sociaux (Twitter)
+        
+        Args:
+            query (str): Terme de recherche (ex: '#bitcoin')
+            count (int): Nombre de tweets à récupérer
+            
+        Returns:
+            list: Liste de tweets
+        """
+        try:
+            if self.twitter is None:
+                logger.error("L'API Twitter n'est pas initialisée")
+                return []
+                
+            logger.info(f"Récupération des tweets pour '{query}'")
+            tweets = self.twitter.search_tweets(q=query, count=count, tweet_mode='extended')
+            
+            tweet_data = []
+            for tweet in tweets:
+                tweet_data.append({
+                    'id': tweet.id,
+                    'text': tweet.full_text,
+                    'created_at': tweet.created_at,
+                    'user': tweet.user.screen_name,
+                    'retweet_count': tweet.retweet_count,
+                    'favorite_count': tweet.favorite_count
+                })
+            
+            logger.info(f"Tweets récupérés: {len(tweet_data)}")
+            return tweet_data
+        except Exception as e:
+            logger.error(f"Erreur lors de la récupération des tweets: {e}")
+            return []
+    
+    def save_data(self, data, filename, format='csv'):
+        """
+        Sauvegarde les données dans un fichier
+        
+        Args:
+            data: Données à sauvegarder (DataFrame ou liste)
+            filename (str): Nom du fichier
+            format (str): Format de sauvegarde ('csv' ou 'json')
+        """
+        try:
+            # Créer le dossier data s'il n'existe pas
+            os.makedirs('data', exist_ok=True)
+            
+            filepath = f"data/{filename}"
+            
+            if isinstance(data, pd.DataFrame):
+                if format.lower() == 'csv':
+                    data.to_csv(filepath)
+                elif format.lower() == 'json':
+                    data.to_json(filepath)
+            elif isinstance(data, list):
+                if format.lower() == 'csv':
+                    pd.DataFrame(data).to_csv(filepath)
+                elif format.lower() == 'json':
+                    import json
+                    with open(filepath, 'w') as f:
+                        json.dump(data, f)
+            
+            logger.info(f"Données sauvegardées dans {filepath}")
+        except Exception as e:
+            logger.error(f"Erreur lors de la sauvegarde des données: {e}")
+
+
+# Exemple d'utilisation
+if __name__ == "__main__":
+    collector = DataCollector()
+    
+    # Récupérer les données de marché
+    btc_data = collector.get_market_data('BTC/USDT', '1h', 168)  # 1 semaine de données horaires
+    if btc_data is not None:
+        collector.save_data(btc_data, 'btc_market_data.csv')
+    
+    # Récupérer les actualités
+    news = collector.get_crypto_news('bitcoin', 3)  # Actualités des 3 derniers jours
+    if news:
+        collector.save_data(news, 'bitcoin_news.json', 'json')
+    
+    # Récupérer les tweets
+    tweets = collector.get_social_data('#bitcoin OR #crypto', 50)
+    if tweets:
+        collector.save_data(tweets, 'bitcoin_tweets.json', 'json') 

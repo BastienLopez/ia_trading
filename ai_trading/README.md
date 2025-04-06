@@ -34,20 +34,19 @@ ai_trading/
     └── model_evaluator.py       # Évaluation des modèles
 ```
 
-## Ordre d'implémentation
+## État d'avancement
 
-### Phase 1: Collecte et Prétraitement des Données
-1. Implémenter `utils/data_collector.py`
-   - Connexion aux APIs de cryptomonnaies
-   - Collecte des données de prix et volumes
-   - Scraping des actualités et réseaux sociaux
+### Phase 1: Collecte et Prétraitement des Données ✅
+- ✅ 1.1 Implémentation de `utils/data_collector.py` et `utils/minimal_data_collector.py`
+  - Connexion aux APIs de cryptomonnaies
+  - Collecte des données de prix et volumes
+  - Scraping des actualités et réseaux sociaux
+- ✅ 1.2 Implémentation de `utils/preprocessor.py`
+  - Nettoyage des données
+  - Normalisation
+  - Création des features
 
-2. Implémenter `utils/preprocessor.py`
-   - Nettoyage des données
-   - Normalisation
-   - Création des features
-
-### Phase 2: Analyse de Sentiment (LLM)
+### Phase 2: Analyse de Sentiment (LLM) 🔄
 1. Implémenter `llm/sentiment_analysis/sentiment_model.py`
    - Intégration d'un modèle LLM (ex: BERT, GPT)
    - Fine-tuning pour l'analyse de sentiment crypto
@@ -88,7 +87,22 @@ ai_trading/
    - Backtesting des stratégies
    - Optimisation des modèles
 
-## Technologies à utiliser
+## Comment exécuter les tests
+
+Pour vérifier que les modules de la Phase 1 fonctionnent correctement, exécutez les tests unitaires :
+
+```bash
+# Installation des dépendances
+pip install pandas numpy scikit-learn nltk pycoingecko tweepy requests python-dotenv
+
+# Exécution des tests pour le collecteur de données
+python -m tests.test_data_collector
+
+# Exécution des tests pour le préprocesseur
+python -m tests.test_preprocessor
+```
+
+## Technologies utilisées
 
 ### LLM
 - LangChain pour l'orchestration des LLM
@@ -107,11 +121,9 @@ ai_trading/
 
 ## Prochaines étapes
 
-1. Mettre en place l'environnement de développement
-2. Créer les dossiers et fichiers de base
-3. Commencer par la collecte de données (Phase 1)
-4. Implémenter progressivement chaque phase
-5. Tester et optimiser chaque composant
+1. Commencer l'implémentation de la Phase 2 (Analyse de sentiment)
+2. Collecter des données d'entraînement pour les modèles de sentiment
+3. Intégrer les modèles LLM pour l'analyse des actualités et réseaux sociaux
 
 ## Notes importantes
 
