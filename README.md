@@ -60,14 +60,33 @@ python -m ai_trading.train --backtest --symbol BTC/USDT --timeframe 1h --days 60
 
 ## Tests
 
-Pour exécuter les tests :
+### Tests Frontend
+Les tests du frontend sont organisés dans le dossier `tests/web_app/` et couvrent :
 
+- Routes et API endpoints (`test_routes.py`)
+  - Test des routes principales (/, /dashboard)
+  - Test des opérations CRUD sur les transactions
+
+- Service de prix (`test_price_service.py`)
+  - Test de récupération des prix en temps réel
+  - Test de gestion des erreurs API
+  - Test de récupération par symbole
+
+- Service de transactions (`test_transaction_service.py`)
+  - Test d'ajout de transactions (prix auto/manuel)
+  - Test de récupération des transactions
+  - Test de suppression de transactions
+
+Pour lancer tous les tests :
 ```bash
-# Tous les tests
-python -m pytest
+# Tests frontend uniquement
+pytest tests/web_app/ -v
 
-# Tests avec couverture
-python -m pytest --cov=ai_trading --cov-report=term-missing
+# Tests backend uniquement
+pytest tests/ai_trading/ -v
+
+# Tous les tests avec couverture
+pytest --cov=web_app --cov=ai_trading --cov-report=term-missing
 ```
 
 ## Documentation

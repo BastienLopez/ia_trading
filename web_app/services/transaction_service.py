@@ -7,32 +7,30 @@ from web_app.config import Config
 logger = logging.getLogger(__name__)
 
 class TransactionService:
-    @staticmethod
-    def load_data():
-        """Charge les données depuis le fichier JSON"""
-        try:
-            if os.path.exists(Config.DATA_FILE):
-                with open(Config.DATA_FILE, 'r') as f:
-                    data = json.load(f)
-                    if "transactions" not in data:
-                        data["transactions"] = []
-                    if "portfolio" not in data:
-                        data["portfolio"] = {"current_value": 0, "starting_value": 0, "assets": []}
-                    return data
-            return {"transactions": [], "portfolio": {"current_value": 0, "starting_value": 0, "assets": []}}
-        except Exception as e:
-            logger.error(f"Erreur lors du chargement des données: {str(e)}")
-            return {"transactions": [], "portfolio": {"current_value": 0, "starting_value": 0, "assets": []}}
+    def __init__(self, price_service):
+        self.price_service = price_service
+        self.data_dir = 'data'
+        self.transactions_file = os.path.join(self.data_dir, 'transactions.json')
+        
+        # Créer le dossier data s'il n'existe pas
+        if not os.path.exists(self.data_dir):
+            os.makedirs(self.data_dir)
+            
+        self.load_transactions()
 
-    @staticmethod
-    def save_data(data):
-        """Sauvegarde les données dans le fichier JSON"""
+    def load_transactions(self):
+        """Charge les transactions depuis le fichier JSON"""
         try:
-            with open(Config.DATA_FILE, 'w') as f:
-                json.dump(data, f, indent=4)
-        except Exception as e:
-            logger.error(f"Erreur lors de la sauvegarde des données: {str(e)}")
-            raise
+            with open(self.transactions_file, 'r') as f:
+                self.transactions = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            self.transactions = []
+            self.save_transactions()
+
+    def save_transactions(self):
+        """Sauvegarde les transactions dans le fichier JSON"""
+        with open(self.transactions_file, 'w') as f:
+            json.dump(self.transactions, f, indent=2)
 
     @staticmethod
     def validate_transaction(transaction):
@@ -52,34 +50,69 @@ class TransactionService:
         if transaction['symbol'] not in Config.SUPPORTED_CRYPTOS:
             raise ValueError(f"Symbole non supporté: {transaction['symbol']}")
 
-    @staticmethod
-    def add_transaction(transaction, current_price):
+    def add_transaction(self, transaction_data):
         """Ajoute une nouvelle transaction"""
-        data = TransactionService.load_data()
-        
-        # Utiliser le prix fourni ou le prix actuel du marché
-        price = transaction.get('price', current_price)
-        
-        transaction["timestamp"] = datetime.now().timestamp()
-        transaction["price"] = price
-        transaction["value"] = float(transaction['amount']) * price
-        transaction["date"] = datetime.now().isoformat()
-        
-        data["transactions"].append(transaction)
-        TransactionService.save_data(data)
-        
-        return transaction
+        try:
+            symbol = transaction_data['symbol']
+            action = transaction_data['action']
+            amount = float(transaction_data['amount'])
+            
+            # Utiliser le prix fourni ou récupérer le prix actuel
+            if transaction_data.get('price'):
+                price = float(transaction_data['price'])
+            else:
+                price = self.price_service.get_price_for_symbol(symbol)
+                if price is None:
+                    return {'success': False, 'error': f"Impossible de récupérer le prix pour {symbol}"}
 
-    @staticmethod
-    def delete_transaction(timestamp):
-        """Supprime une transaction"""
-        data = TransactionService.load_data()
+            timestamp = datetime.now().isoformat()
+            
+            transaction = {
+                'timestamp': timestamp,
+                'symbol': symbol,
+                'action': action,
+                'amount': amount,
+                'price': price
+            }
+            
+            self.transactions.append(transaction)
+            self.save_transactions()
+            
+            return {
+                'success': True,
+                'transaction': transaction
+            }
+            
+        except KeyError as e:
+            return {
+                'success': False,
+                'error': f"Champ manquant: {str(e)}"
+            }
+        except ValueError as e:
+            return {
+                'success': False,
+                'error': f"Erreur de format: {str(e)}"
+            }
+        except Exception as e:
+            return {
+                'success': False,
+                'error': f"Erreur inattendue: {str(e)}"
+            }
+
+    def get_transactions(self):
+        """Récupère toutes les transactions"""
+        return self.transactions
+
+    def delete_transaction(self, timestamp):
+        """Supprime une transaction par son timestamp"""
+        initial_length = len(self.transactions)
+        self.transactions = [t for t in self.transactions if t['timestamp'] != timestamp]
         
-        initial_length = len(data['transactions'])
-        data['transactions'] = [t for t in data['transactions'] if t['timestamp'] != timestamp]
-        
-        if len(data['transactions']) == initial_length:
-            raise ValueError("Transaction non trouvée")
-        
-        TransactionService.save_data(data)
-        return True 
+        if len(self.transactions) < initial_length:
+            self.save_transactions()
+            return {'success': True}
+        else:
+            return {
+                'success': False,
+                'error': "Transaction non trouvée"
+            } 

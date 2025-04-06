@@ -3,60 +3,81 @@ import logging
 import json
 from web_app.config import Config
 
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class PriceService:
-    @staticmethod
-    def get_real_crypto_prices():
+    def __init__(self):
+        self.base_url = "https://api.coingecko.com/api/v3"
+        self.crypto_ids = {
+            'BTC': 'bitcoin',
+            'ETH': 'ethereum',
+            'BNB': 'binancecoin',
+            'SOL': 'solana',
+            'XRP': 'ripple',
+            'ADA': 'cardano',
+            'AVAX': 'avalanche-2',
+            'DOT': 'polkadot',
+            'MATIC': 'matic-network',
+            'LINK': 'chainlink',
+            'UNI': 'uniswap',
+            'AAVE': 'aave',
+            'ATOM': 'cosmos',
+            'DOGE': 'dogecoin',
+            'SHIB': 'shiba-inu',
+            'USDT': 'tether',
+            'USDC': 'usd-coin',
+            'DAI': 'dai'
+        }
+
+    def get_real_crypto_prices(self, symbols=None):
         """Récupère les prix réels des cryptomonnaies depuis CoinGecko"""
+        logger.info("Récupération des prix depuis CoinGecko...")
+        
+        if symbols is None:
+            ids = list(self.crypto_ids.values())
+        else:
+            ids = [self.crypto_ids[symbol] for symbol in symbols if symbol in self.crypto_ids]
+        
+        if not ids:
+            return None
+
+        url = f"{self.base_url}/simple/price"
+        params = {
+            'ids': ','.join(ids),
+            'vs_currencies': 'usd'
+        }
+        
+        logger.info(f"URL CoinGecko: {url}?ids={params['ids']}&vs_currencies={params['vs_currencies']}")
+        
         try:
-            logger.info("Récupération des prix depuis CoinGecko...")
-            
-            # Construire la liste des IDs pour la requête
-            crypto_ids = ",".join(Config.COINGECKO_IDS.values())
-            
-            # Faire la requête à CoinGecko
-            url = f"https://api.coingecko.com/api/v3/simple/price?ids={crypto_ids}&vs_currencies=usd"
-            logger.info(f"URL CoinGecko: {url}")
-            
-            response = requests.get(url)
+            response = requests.get(url, params=params)
             logger.info(f"Status code: {response.status_code}")
             
             if response.status_code == 200:
-                coingecko_data = response.json()
-                logger.info(f"Données brutes de CoinGecko: {json.dumps(coingecko_data, indent=2)}")
+                data = response.json()
+                logger.info(f"Données brutes de CoinGecko: {data}")
                 
+                # Convertir les données en format {symbol: price}
                 prices = {}
-                for symbol, coin_id in Config.COINGECKO_IDS.items():
-                    if coin_id in coingecko_data:
-                        current_price = coingecko_data[coin_id]["usd"]
-                        prices[symbol] = current_price
-                        logger.info(f"Prix {symbol}: ${current_price:,.2f}")
+                for symbol, coin_id in self.crypto_ids.items():
+                    if coin_id in data:
+                        price = data[coin_id]['usd']
+                        prices[symbol] = price
+                        logger.info(f"Prix {symbol}: ${price:,.2f}")
                 
                 return prices
             else:
-                logger.error(f"Erreur CoinGecko API: {response.status_code}")
-                logger.error(f"Réponse: {response.text}")
+                logger.error(f"Erreur lors de la récupération des prix: {response.status_code}")
                 return None
                 
         except Exception as e:
             logger.error(f"Erreur lors de la récupération des prix: {str(e)}")
             return None
 
-    @staticmethod
-    def get_price_for_symbol(symbol, transactions=None):
-        """Récupère le prix pour un symbole donné"""
-        # Essayer d'abord de récupérer le prix depuis CoinGecko
-        current_prices = PriceService.get_real_crypto_prices()
-        
-        if current_prices and symbol in current_prices:
-            return float(current_prices[symbol])
-        
-        # Si CoinGecko n'est pas disponible, chercher le dernier prix connu
-        if transactions:
-            for t in reversed(transactions):
-                if t['symbol'] == symbol:
-                    return t['price']
-        
-        # Si aucun prix n'est trouvé, utiliser la valeur par défaut
-        return Config.DEFAULT_PRICES.get(symbol, 1) 
+    def get_price_for_symbol(self, symbol):
+        """Récupère le prix pour un symbole spécifique"""
+        prices = self.get_real_crypto_prices([symbol])
+        if prices and symbol in prices:
+            return prices[symbol]
+        return None 
