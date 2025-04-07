@@ -809,6 +809,21 @@ def delete_transaction():
         logger.error(f"Erreur lors de la suppression de la transaction: {str(e)}")
         return jsonify({"error": "Erreur lors de la suppression de la transaction"}), 500
 
+@app.route('/api/ema-metrics')
+def get_ema_metrics():
+    """Renvoie les dernières métriques EMA"""
+    market_data = get_market_data()
+    processed_data = DataProcessor().process(market_data)
+    
+    return jsonify({
+        'timestamps': processed_data.index.strftime('%Y-%m-%d %H:%M').tolist(),
+        'ema_5': processed_data['ema_5'].tail(100).tolist(),
+        'ema_30': processed_data['ema_30'].tail(100).tolist(),
+        'ema_50': processed_data['ema_50'].tail(100).tolist(),
+        'ribbon_width': processed_data['ema_ribbon_width'].tail(100).tolist(),
+        'gradient': processed_data['ema_gradient'].tail(100).tolist()
+    })
+
 @app.errorhandler(404)
 def page_not_found(e):
     """Gestionnaire pour les erreurs 404"""

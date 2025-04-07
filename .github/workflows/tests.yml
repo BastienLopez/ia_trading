@@ -1,43 +1,53 @@
-name: Tests
+name: AI Trading Tests
 
-on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
+on: [push, pull_request]
 
 jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: [3.8, 3.9]
-
+        python-version: ["3.9", "3.10", "3.11"]
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
     
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v2
+      uses: actions/setup-python@v4
       with:
         python-version: ${{ matrix.python-version }}
     
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install pytest pytest-mock requests flask
-        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-    
-    - name: Run AI Trading tests
+        pip install -r requirements.txt
+        python -m nltk.downloader punkt wordnet
+        
+    - name: Run unit tests
       run: |
-        pytest tests/ai_trading/ -v
-      env:
-        CRYPTO_API_KEY: ${{ secrets.CRYPTO_API_KEY }}
-        CRYPTO_API_SECRET: ${{ secrets.CRYPTO_API_SECRET }}
+        pytest ai_trading/tests/test_enhanced_collector.py -v
+        pytest ai_trading/tests/test_enhanced_preprocessor.py -v
+        pytest ai_trading/tests/test_enhanced_news_analyzer.py -v
+        pytest ai_trading/tests/test_social_analyzer.py -v
+        pytest ai_trading/tests/test_sentiment_integration.py -v
     
-    - name: Run Web App tests
+    - name: Run coverage report
       run: |
-        pytest tests/web_app/ -v
-      env:
-        CRYPTO_API_KEY: ${{ secrets.CRYPTO_API_KEY }}
-        CRYPTO_API_SECRET: ${{ secrets.CRYPTO_API_SECRET }}
-        FLASK_ENV: testing 
+        pytest --cov=ai_trading --cov-report=xml
+    
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        file: ./coverage.xml
+        flags: unittests
+        name: codecov-umbrella
+    
+    - name: Check code formatting
+      run: |
+        pip install black
+        black --check ai_trading/
+    
+    - name: Lint with flake8
+      run: |
+        pip install flake8
+        flake8 ai_trading/ 

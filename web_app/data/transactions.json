@@ -74,20 +74,20 @@
         }
     ],
     "portfolio": {
-        "current_value": 338174.48,
+        "current_value": 312788.64,
         "starting_value": 0,
         "assets": [
             {
                 "symbol": "BTC",
                 "amount": 4.0,
-                "value_usd": 331032.0,
-                "current_price": 82758.0
+                "value_usd": 306784.0,
+                "current_price": 76696.0
             },
             {
                 "symbol": "ETH",
                 "amount": 4.0,
-                "value_usd": 7142.48,
-                "current_price": 1785.62
+                "value_usd": 6004.64,
+                "current_price": 1501.16
             }
         ]
     }

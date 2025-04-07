@@ -36,6 +36,7 @@ vp_lookback = input.int(20, "Volume Profile Lookback", minval=1)
 show_ichimoku = input.bool(true, "Afficher Ichimoku Cloud", group="Affichage")
 show_bb = input.bool(true, "Afficher Bollinger Bands", group="Affichage")
 show_minor_signals = input.bool(false, "Afficher signaux mineurs", group="Affichage")
+show_ema_ribbon = input.bool(true, "Afficher EMA Ribbon", group="Affichage")
 
 // === CALCUL DES INDICATEURS ===
 // Indicateurs existants
@@ -197,4 +198,35 @@ alertcondition(medium_buy_signal or strong_buy_signal or medium_sell_signal or s
 
 // Alerte spécifique MACD
 alertcondition(macd_bullish, title="MACD Crossover Haussier", message="MACD croise au-dessus de la ligne de signal sur {{ticker}} - {{interval}}")
-alertcondition(macd_bearish, title="MACD Crossover Baissier", message="MACD croise en-dessous de la ligne de signal sur {{ticker}} - {{interval}}") 
+alertcondition(macd_bearish, title="MACD Crossover Baissier", message="MACD croise en-dessous de la ligne de signal sur {{ticker}} - {{interval}}")
+
+// Paramètres EMA Ribbon
+int emaPeriod1 = input.int(5, "EMA Période 1", minval=1)
+int emaPeriod2 = input.int(10, "EMA Période 2", minval=1)
+int emaPeriod3 = input.int(15, "EMA Période 3", minval=1)
+int emaPeriod4 = input.int(20, "EMA Période 4", minval=1)
+int emaPeriod5 = input.int(25, "EMA Période 5", minval=1)
+int emaPeriod6 = input.int(30, "EMA Période 6", minval=1)
+
+// Calcul des EMA
+ema1 = ta.ema(close, emaPeriod1)
+ema2 = ta.ema(close, emaPeriod2)
+ema3 = ta.ema(close, emaPeriod3)
+ema4 = ta.ema(close, emaPeriod4)
+ema5 = ta.ema(close, emaPeriod5)
+ema6 = ta.ema(close, emaPeriod6)
+
+// Fonction de couleur pour le gradient
+emaColor(period) => color.from_gradient(period, emaPeriod1, emaPeriod6, color.rgb(255, 0, 0), color.rgb(0, 255, 0))
+
+// Affichage du Ribbon
+plot(show_ema_ribbon ? ema1 : na, "EMA 5", color=emaColor(emaPeriod1), linewidth=2)
+plot(show_ema_ribbon ? ema2 : na, "EMA 10", color=emaColor(emaPeriod2), linewidth=2)
+plot(show_ema_ribbon ? ema3 : na, "EMA 15", color=emaColor(emaPeriod3), linewidth=2)
+plot(show_ema_ribbon ? ema4 : na, "EMA 20", color=emaColor(emaPeriod4), linewidth=2)
+plot(show_ema_ribbon ? ema5 : na, "EMA 25", color=emaColor(emaPeriod5), linewidth=2)
+plot(show_ema_ribbon ? ema6 : na, "EMA 30", color=emaColor(emaPeriod6), linewidth=2)
+
+// Exemple avec l'EMA 50 existante
+ema50 = ta.ema(close, 50)
+plot(show_ema_ribbon ? ema50 : na, "EMA 50", color=color.blue, linewidth=2) 

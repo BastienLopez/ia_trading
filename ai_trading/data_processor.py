@@ -4,6 +4,7 @@ import ccxt
 import ta
 from datetime import datetime, timedelta
 import os
+from ai_trading.config import EMA_RIBBON_PERIODS
 
 class DataProcessor:
     """
@@ -67,10 +68,13 @@ class DataProcessor:
         df = pd.read_csv(filepath, index_col='timestamp', parse_dates=True)
         return df
     
-    def add_indicators(self, df):
-        """
-        Ajoute les indicateurs techniques au DataFrame
-        """
+    def add_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Ajoute les indicateurs techniques au DataFrame."""
+        required_columns = {'open', 'high', 'low', 'close', 'volume'}
+        missing = required_columns - set(df.columns)
+        if missing:
+            raise ValueError(f"Colonnes manquantes pour les indicateurs: {missing}")
+        
         print("Ajout des indicateurs techniques...")
         
         # RSI
@@ -138,4 +142,22 @@ class DataProcessor:
         if 'rsi' not in df.columns:
             df = self.add_indicators(df)
             
+        return df 
+
+    def add_ema_features(self, df: pd.DataFrame, periods=EMA_RIBBON_PERIODS) -> pd.DataFrame:
+        """Ajoute les EMA configurées au DataFrame."""
+        for period in periods:
+            df[f'ema_{period}'] = df['close'].ewm(span=period, adjust=False).mean()
+        
+        # Calcul de la largeur du ruban EMA (différence entre EMA court et long)
+        df['ema_ribbon_width'] = df['ema_5'] - df['ema_50']
+        
+        # Calcul du gradient entre EMA5 et EMA30
+        df['ema_gradient'] = (df['ema_5'] - df['ema_30']) / df['ema_30']
+        return df 
+
+    def process(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Processus complet de traitement des données."""
+        df = self.add_indicators(df)
+        df = self.add_ema_features(df)
         return df 

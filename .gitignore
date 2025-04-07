@@ -2,45 +2,6 @@
 __pycache__/
 *.py[cod]
 *$py.class
-.pytest_cache/
-.coverage
-htmlcov/
-
-# Environnement
-.env
-.venv
-env/
-venv/
-ENV/
-
-# IDE
-.idea/
-.vscode/
-*.swp
-*.swo
-
-# Logs
-*.log
-logs/
-web_app.log
-
-# Base de données
-*.db
-*.sqlite3
-
-# Fichiers système
-.DS_Store
-Thumbs.db
-
-# Fichiers de données temporaires
-data/*.json
-!data/example.json
-
-# Fichiers d'environnement
-.env.local
-.env.*.local
-
-# Python
 *.so
 .Python
 build/
@@ -58,79 +19,66 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+.cache/
+.hypothesis/
 
-# Jupyter Notebook
-.ipynb_checkpoints
-
-# Models and data
-models/*.zip
-models/*.pkl
-data/*.csv
-*.pt
+# Tests
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+*.cover
+.pytest_cache/
 test_data/
 
-# PyCharm
-.idea/
+# Environnements virtuels
+venv/
+env/
+ENV/
+.env
+.venv
+ai_trading/.env.example
 
-# VSCode
-.vscode/
 
-# Logs
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# IDE
+# IDE et éditeurs
 .idea/
 .vscode/
 *.swp
 *.swo
 *~
+.project
+.pydevproject
 
-# OS
-.DS_Store
-Thumbs.db
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb
 
-# Database
-*.sqlite
+# Logs et données
+*.log
+logs/
+web_app.log
+data/*.json
+!data/example.json
+data/*.csv
+models/*.zip
+models/*.pkl
+*.pt
+
+# Base de données
 *.db
+*.sqlite
+*.sqlite3
 instance/
+postgres_data/
 
-# System files
+# Docker
+docker-compose.override.yml
+
+# Système
+.DS_Store
 .DS_Store?
 ._*
 .Spotlight-V100
 .Trashes
-ehthumbs.db
-
-# Docker volumes
-postgres_data/
-
-# Couverture de code
-.coverage
-htmlcov/
-coverage.xml
-*.cover
-.hypothesis/
-
-# Tests
-.coverage.*
-test_data/
-
-# Éditeurs
-.idea/
-.vscode/
-*.swp
-*.swo
-
-# Cache
-.cache/
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-.Python
-
-# Virtual Environments
-venv/
-ENV/ 
+Thumbs.db
+ehthumbs.db 
