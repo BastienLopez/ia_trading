@@ -26,9 +26,9 @@ isort ai_trading/
 
 # 3. Formatage du code
 black ai_trading/
-
+flake8 ai_trading/    
 # 4. Correction des f-strings sans placeholders
 python fix_fstrings_simple.py ai_trading
 
 # 5. Vérification finale du style
-flake8 ai_trading/                                     
+                                 
