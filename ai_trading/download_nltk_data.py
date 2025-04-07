@@ -1,5 +1,6 @@
-import nltk
 import ssl
+
+import nltk
 
 try:
     _create_unverified_https_context = ssl._create_unverified_context
@@ -10,9 +11,9 @@ else:
 
 # Téléchargement des ressources NLTK nécessaires
 print("Téléchargement de punkt...")
-nltk.download('punkt')
+nltk.download("punkt")
 print("Téléchargement de stopwords...")
-nltk.download('stopwords')
+nltk.download("stopwords")
 print("Téléchargement de wordnet...")
-nltk.download('wordnet')
-print("Ressources NLTK téléchargées avec succès!") 
+nltk.download("wordnet")
+print("Ressources NLTK téléchargées avec succès!")
