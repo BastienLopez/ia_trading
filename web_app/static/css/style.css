@@ -395,4 +395,64 @@ canvas {
         margin: 10px auto;
         display: block;
     }
+}
+
+/* EMA Section */
+.ema-metrics {
+    background: #f8f9fa;
+    border-radius: 8px;
+    padding: 20px;
+}
+
+.metric-item {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 15px;
+    padding: 10px;
+    background: white;
+    border-radius: 5px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+.metric-label {
+    font-weight: 500;
+    color: #6c757d;
+}
+
+.metric-value {
+    font-weight: 600;
+    color: #212529;
+}
+
+#emaChart {
+    max-height: 400px;
+}
+
+/* Ajouter ces styles existants */
+.crypto-card {
+    transition: transform 0.3s ease;
+}
+.crypto-card:hover {
+    transform: translateY(-5px);
+}
+.indicator-value {
+    font-size: 1.1rem;
+    font-weight: 500;
+}
+.price-movement-up {
+    color: #28a745;
+}
+.price-movement-down {
+    color: #dc3545;
+}
+.trade-history-item {
+    border-left: 3px solid #007bff;
+    padding-left: 15px;
+    margin-bottom: 15px;
+}
+.trade-buy {
+    border-left-color: #28a745;
+}
+.trade-sell {
+    border-left-color: #dc3545;
 } 

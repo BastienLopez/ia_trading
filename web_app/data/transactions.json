@@ -1,15 +1,6 @@
 {
     "transactions": [
         {
-            "symbol": "BTC",
-            "action": "ACHETER",
-            "amount": 1.0,
-            "price": 83067.0,
-            "timestamp": 1743933271.0883,
-            "value": 83067.0,
-            "date": "2025-04-06T11:54:31.088300"
-        },
-        {
             "symbol": "ETH",
             "action": "ACHETER",
             "amount": 1.0,
@@ -71,23 +62,41 @@
             "timestamp": 1743933562.33563,
             "value": 1790.21,
             "date": "2025-04-06T11:59:22.335630"
+        },
+        {
+            "symbol": "BTC",
+            "action": "ACHETER",
+            "amount": 1.0,
+            "price": 77186.0,
+            "timestamp": 1744031158.385065,
+            "value": 77186.0,
+            "date": "2025-04-07T15:05:58.385065"
+        },
+        {
+            "symbol": "ETH",
+            "action": "ACHETER",
+            "amount": 1.0,
+            "price": 1516.77,
+            "timestamp": 1744031158.507052,
+            "value": 1516.77,
+            "date": "2025-04-07T15:05:58.507052"
         }
     ],
     "portfolio": {
-        "current_value": 338174.48,
+        "current_value": 393513.85,
         "starting_value": 0,
         "assets": [
             {
                 "symbol": "BTC",
-                "amount": 4.0,
-                "value_usd": 331032.0,
-                "current_price": 82758.0
+                "amount": 5.0,
+                "value_usd": 385930.0,
+                "current_price": 77186.0
             },
             {
                 "symbol": "ETH",
-                "amount": 4.0,
-                "value_usd": 7142.48,
-                "current_price": 1785.62
+                "amount": 5.0,
+                "value_usd": 7583.85,
+                "current_price": 1516.77
             }
         ]
     }

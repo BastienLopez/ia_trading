@@ -3,35 +3,6 @@
 {% block title %}Tableau de bord - Crypto Trading IA{% endblock %}
 
 {% block extra_css %}
-<style>
-    .crypto-card {
-        transition: transform 0.3s ease;
-    }
-    .crypto-card:hover {
-        transform: translateY(-5px);
-    }
-    .indicator-value {
-        font-size: 1.1rem;
-        font-weight: 500;
-    }
-    .price-movement-up {
-        color: #28a745;
-    }
-    .price-movement-down {
-        color: #dc3545;
-    }
-    .trade-history-item {
-        border-left: 3px solid #007bff;
-        padding-left: 15px;
-        margin-bottom: 15px;
-    }
-    .trade-buy {
-        border-left-color: #28a745;
-    }
-    .trade-sell {
-        border-left-color: #dc3545;
-    }
-</style>
 {% endblock %}
 
 {% block content %}
@@ -288,6 +259,40 @@
             <div class="card-body">
                 <div id="trade-history">
                     <p class="text-center">Chargement de l'historique...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Après la section des transactions -->
+<div class="row mt-4">
+    <div class="col-md-12">
+        <div class="card shadow-sm">
+            <div class="card-header bg-warning text-dark">
+                <h5 class="mb-0">Analyse des tendances (EMA)</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-8">
+                        <canvas id="emaChart" height="150"></canvas>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="ema-metrics">
+                            <div class="metric-item">
+                                <span class="metric-label">Largeur du ruban</span>
+                                <span class="metric-value" id="ribbonWidth">-</span>
+                            </div>
+                            <div class="metric-item">
+                                <span class="metric-label">Gradient EMA5/30</span>
+                                <span class="metric-value" id="emaGradient">-</span>
+                            </div>
+                            <div class="metric-item">
+                                <span class="metric-label">Position relative</span>
+                                <span class="metric-value" id="emaPosition">-</span>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>

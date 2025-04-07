@@ -1,26 +1,51 @@
-FROM python:3.10-slim
+# Base image
+FROM python:3.9-slim-buster
 
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE 1
+ENV PYTHONUNBUFFERED 1
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    wget \
+    gcc \
+    g++ \
+    make \
+    python3-dev \
+    libffi-dev \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install TA-Lib dependencies
+RUN wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz && \
+    tar -xvzf ta-lib-0.4.0-src.tar.gz && \
+    cd ta-lib/ && \
+    ./configure --prefix=/usr && \
+    make && \
+    make install && \
+    cd .. && \
+    rm -rf ta-lib-0.4.0-src.tar.gz ta-lib/
+
+# Set work directory
 WORKDIR /app
 
-# Copier les fichiers de dépendances
+# Install Python dependencies
 COPY requirements.txt .
+RUN pip install --upgrade pip && \
+    pip install -r requirements.txt
 
-# Installer les dépendances
-RUN pip install --no-cache-dir -r requirements.txt
+# Copy project
+COPY . .
 
-# Créer les répertoires nécessaires
-RUN mkdir -p logs
+# Create necessary directories
+RUN mkdir -p data logs
 
-# Copier le code source
-COPY ai_trading/ ai_trading/
-COPY tradingview/ tradingview/
-COPY .env .
-
-# Exposer le port pour l'API
+# Expose port
 EXPOSE 8000
 
-# Commande par défaut : démarrer l'API
-CMD ["python", "-m", "ai_trading.api"]
+# Run the application
+CMD ["uvicorn", "ai_trading.api:app", "--host", "0.0.0.0", "--port", "8000"]
 
 # Autres commandes possibles en fonction de l'utilisation :
 # Pour entraîner un modèle : 
