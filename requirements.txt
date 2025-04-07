@@ -15,11 +15,11 @@ starlette==0.38.6
 httpx==0.27.0
 
 # Bibliothèques d'analyse de données
-numpy==1.26.2
-pandas==2.1.4
-matplotlib==3.8.4
-scikit-learn==1.4.0
-scipy==1.15.2
+numpy>=1.24.2
+pandas>=1.5.3
+matplotlib>=3.7.0
+scikit-learn>=1.2.2
+scipy>=1.10.0
 ta==0.11.0
 joblib==1.4.2
 threadpoolctl==3.6.0
@@ -30,7 +30,7 @@ ccxt==4.4.72
 # Apprentissage par renforcement
 gymnasium==1.1.1
 stable-baselines3==2.6.0
-torch==2.3.1
+torch>=2.0.1
 cloudpickle==3.1.1
 
 # Tests
@@ -46,17 +46,17 @@ typing_extensions==4.12.2
 pillow==10.3.0
 
 # Analyse de données et ML
-numpy==1.26.2
-pandas==2.1.4
-scikit-learn==1.4.0
-scipy==1.15.2
-tensorflow==2.15.0
+numpy>=1.24.2
+pandas>=1.5.3
+scikit-learn>=1.2.2
+scipy>=1.10.0
+tensorflow>=2.12.0
 xgboost==1.7.6
 lightgbm==4.1.0
-torch==2.3.1
-transformers==4.30.0
+torch>=2.0.1
+transformers>=4.28.1
 sentence-transformers==2.2.2
-nltk==3.6.0
+nltk>=3.8.1
 emoji==0.6.0
 
 # API et collecte de données
@@ -72,8 +72,8 @@ ccxt==4.4.72
 #ta-lib==0.4.28  # Commenter ou supprimer la ligne
 
 # Visualisation
-matplotlib==3.8.4
-seaborn==0.13.2
+matplotlib>=3.7.0
+seaborn>=0.12.2
 
 # Développement et tests
 pytest==8.2.0
@@ -81,3 +81,8 @@ pytest-cov==6.1.0
 jupyter==1.0.0
 python-dotenv==1.0.1
 tqdm==4.66.1
+
+# New packages
+huggingface-hub>=0.14.1
+xformers>=0.0.22
+python-dateutil>=2.8.2

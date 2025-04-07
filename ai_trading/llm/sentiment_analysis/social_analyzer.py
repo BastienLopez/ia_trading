@@ -36,12 +36,22 @@ class SocialAnalyzer(EnhancedNewsAnalyzer):
         # Configurations spécifiques aux plateformes
         self.platform_config = {
             'twitter': {
-                'text_field': 'full_text',
-                'metrics': ['retweet_count', 'favorite_count', 'reply_count']
+                'metrics': [
+                    'retweet_count', 
+                    'favorite_count', 
+                    'reply_count',
+                    'user.followers_count'  # Champ déplié
+                ],
+                'text_field': 'full_text'
             },
             'reddit': {
-                'text_field': 'body',
-                'metrics': ['score', 'num_comments', 'upvote_ratio']
+                'metrics': [
+                    'score', 
+                    'num_comments', 
+                    'upvote_ratio',
+                    'author.comment_karma'  # Champ déplié
+                ],
+                'text_field': 'selftext'
             }
         }
         
@@ -55,8 +65,19 @@ class SocialAnalyzer(EnhancedNewsAnalyzer):
         # Nettoyage et prétraitement
         df = self._preprocess_social_data(posts)
         
-        # Analyse de sentiment
-        df = self.analyze_news_dataframe(df)
+        # Analyse de sentiment conditionnelle
+        if not df.empty and 'clean_text' in df.columns:
+            df = self.analyze_news_dataframe(df)
+            # Renommage des colonnes de sentiment pour Reddit
+            if self.platform == 'reddit':
+                df = df.rename(columns={
+                    'global_sentiment_label': 'sentiment_label',
+                    'global_sentiment_score': 'sentiment_score'
+                })
+        else:
+            logger.warning("Données insuffisantes pour l'analyse de sentiment")
+            df['sentiment_label'] = 'neutral'
+            df['sentiment_score'] = 0.0
         
         # Calcul des métriques d'engagement
         df = self._calculate_engagement_metrics(df)
@@ -65,20 +86,48 @@ class SocialAnalyzer(EnhancedNewsAnalyzer):
     
     def _preprocess_social_data(self, posts: List[Dict]) -> pd.DataFrame:
         """Prétraitement spécifique aux données sociales."""
-        df = pd.DataFrame(posts)
-        config = self.platform_config[self.platform]
+        # Ajout du dépliage des champs imbriqués
+        if self.platform == 'twitter':
+            posts = [{
+                **post,
+                'user.followers_count': post.get('user', {}).get('followers_count', 0)
+            } for post in posts]
+        elif self.platform == 'reddit':
+            posts = [{
+                **post,
+                'author.comment_karma': post.get('author', {}).get('comment_karma', 0)
+            } for post in posts]
+        
+        df = pd.json_normalize(posts)  # Déplie les structures imbriquées
+        
+        # Vérification des colonnes requises
+        required_columns = {
+            'twitter': ['full_text', 'retweet_count', 'favorite_count', 'reply_count'],
+            'reddit': ['title', 'selftext', 'score', 'upvote_ratio', 'num_comments']
+        }
+        
+        missing = [col for col in required_columns[self.platform] if col not in df.columns]
+        if missing:
+            logger.error(f"Colonnes manquantes pour {self.platform}: {missing}")
+            return pd.DataFrame()  # Retourne un DataFrame vide au lieu de lever une exception
+        
+        # Prétraitement spécifique à la plateforme
+        if self.platform == 'twitter':
+            df['text'] = df['full_text']
+        elif self.platform == 'reddit':
+            df['text'] = df['title'] + ' ' + df['selftext']
         
         # Nettoyage du texte
-        df['clean_text'] = df[config['text_field']].apply(
+        df['clean_text'] = df['text'].apply(
             lambda x: self.text_preprocessor.clean_text(x)
         )
         
         # Extraction des hashtags/mentions (Twitter)
         if self.platform == 'twitter':
-            df['hashtags'] = df[config['text_field']].apply(
+            df['hashtags'] = df['text'].apply(
                 lambda x: self._extract_hashtags(x)
             )
-            df['mentions'] = df[config['text_field']].apply(
+            df['mentions'] = df['text'].apply(
                 lambda x: self._extract_mentions(x)
             )
         
@@ -89,25 +138,27 @@ class SocialAnalyzer(EnhancedNewsAnalyzer):
         return df
     
     def _calculate_engagement_metrics(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Calcule les scores d'engagement viral."""
-        config = self.platform_config[self.platform]
+        if df.empty:
+            return df
         
-        # Vérification des colonnes requises
-        required_columns = config['metrics'] + [config['text_field']]
-        missing = [col for col in required_columns if col not in df.columns]
-        if missing:
-            raise ValueError(f"Colonnes manquantes: {missing}")
+        existing_metrics = [m for m in self.platform_config[self.platform]['metrics'] if m in df.columns]
         
-        for metric in config['metrics']:
-            if metric in df.columns:
-                # Gestion de la division par zéro
-                if df[metric].max() == df[metric].min():
-                    df[f'{metric}_norm'] = 0.5
-                else:
-                    df[f'{metric}_norm'] = (df[metric] - df[metric].min()) / (df[metric].max() - df[metric].min())
+        for metric in existing_metrics:
+            # Remplissage des valeurs manquantes et conversion en numérique
+            df[metric] = pd.to_numeric(df[metric].fillna(0), errors='coerce').fillna(0)
+            
+            # Calcul de la normalisation seulement si la plage est valide
+            if (df[metric].max() - df[metric].min()) > 0:
+                df[f'{metric}_norm'] = (df[metric] - df[metric].min()) / (df[metric].max() - df[metric].min())
+            else:
+                df[f'{metric}_norm'] = 0.5  # Valeur neutre quand pas de variation
         
-        # Score d'engagement composite
-        df['engagement_score'] = df[[f'{m}_norm' for m in config['metrics']]].mean(axis=1)
+        # Calcul du score d'engagement avec vérification des colonnes
+        norm_columns = [f'{m}_norm' for m in existing_metrics if f'{m}_norm' in df.columns]
+        if norm_columns:
+            df['engagement_score'] = df[norm_columns].mean(axis=1)
+        else:
+            df['engagement_score'] = 0.0
         
         return df
     
