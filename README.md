@@ -1,49 +1,103 @@
-# Crypto Trading IA
+# AI Trading Platform
 
-Plateforme d'intelligence artificielle pour le trading de cryptomonnaies utilisant l'analyse de sentiment et l'apprentissage profond.
+Une plateforme d'analyse et de trading de cryptomonnaies utilisant l'intelligence artificielle, l'analyse de sentiment et l'apprentissage par renforcement.
 
-## Fonctionnalités
+## Structure du projet
 
-- Analyse de sentiment des actualités et réseaux sociaux
-- Modèles de prédiction de prix
-- Interface web de visualisation
-- API REST pour l'intégration
+```
+ai_trading/
+├── llm/                      # Modules d'analyse par Large Language Models
+│   └── sentiment_analysis/   # Analyse de sentiment des news et réseaux sociaux
+├── tests/                    # Tests unitaires du package AI Trading
+├── utils/                    # Utilitaires de collecte et prétraitement
+│   ├── enhanced_data_collector.py  # Collecte multi-sources
+│   └── enhanced_preprocessor.py    # Prétraitement avancé
+├── api.py                    # API FastAPI
+├── config.py                 # Configuration globale
+├── data_processor.py         # Traitement des données
+├── rl_agent.py               # Agent d'apprentissage par renforcement
+└── train.py                  # Script d'entraînement
+
+tests/
+└── web_app/                  # Tests de l'interface web
+    ├── test_routes.py        # Tests des routes API
+    ├── test_price_service.py # Tests du service de prix
+    └── test_transaction_service.py # Tests du service de transactions
+
+web_app/                      # Interface utilisateur web
+```
 
 ## Installation
 
-1. Cloner le dépôt
+### Avec Docker (recommandé)
+
 ```bash
-git clone https://github.com/votre-utilisateur/crypto-trading-ia.git
-cd crypto-trading-ia
+# Cloner le dépôt
+git clone https://github.com/votre-username/crypto-ai-trading.git
+cd crypto-ai-trading
+
+# Construire et démarrer les conteneurs
+docker-compose build
+docker-compose up -d
 ```
 
-2. Installer les dépendances
+### Installation manuelle
+
 ```bash
+# Cloner le dépôt
+git clone https://github.com/votre-username/crypto-ai-trading.git
+cd crypto-ai-trading
+
+# Créer un environnement virtuel
+python -m venv venv
+source venv/bin/activate  # Sur Windows: venv\Scripts\activate
+
+# Installer les dépendances
 pip install -r requirements.txt
-python -m nltk.downloader punkt stopwords wordnet
+
+# Télécharger les données NLTK
+python -m nltk.downloader punkt wordnet
 ```
 
-3. Configurer les variables d'environnement (.env)
+## Utilisation
 
-4. Démarrer avec Docker
+### Collecte de données
+
+```python
+from ai_trading.utils.enhanced_data_collector import EnhancedDataCollector
+
+collector = EnhancedDataCollector()
+btc_data = collector.get_crypto_prices_coingecko(coin_id='bitcoin', days=30)
+news = collector.get_crypto_news(limit=10)
+```
+
+### Analyse de sentiment
+
+```python
+from ai_trading.llm.sentiment_analysis.enhanced_news_analyzer import EnhancedNewsAnalyzer
+
+analyzer = EnhancedNewsAnalyzer()
+sentiment = analyzer.analyze_news(news_list)
+```
+
+### Exécution des tests
+
 ```bash
-docker-compose up --build
+# Exécuter tous les tests
+pytest
+
+# Exécuter des tests spécifiques
+pytest ai_trading/tests/test_enhanced_collector.py -v
+pytest tests/web_app/test_routes.py -v
 ```
 
-## Architecture
+## Développement
 
-```
-.
-├── ai_trading/          # Code principal
-├── web_app/             # Application Flask
-├── tests/               # Tests unitaires
-├── docker-compose.yml
-├── Dockerfile
-└── requirements.txt
-```
+### Structure des tests
 
-## Contribution
+- `ai_trading/tests/` - Tests unitaires des modules AI Trading
+- `tests/web_app/` - Tests de l'interface web
 
-1. Créer une branche
-2. Ajouter les tests correspondants
-3. Soumettre une Pull Request
+### CI/CD
+
+Le projet utilise GitHub Actions pour l'intégration continue. Voir `.github/workflows/tests.yml`.

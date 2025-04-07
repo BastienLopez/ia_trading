@@ -58,9 +58,9 @@ class EnhancedMarketDataPreprocessor:
             # Conversion des types pour éviter les warnings
             for col in df_clean.select_dtypes(include=['object']).columns:
                 try:
-                    df_clean[col] = pd.to_numeric(df_clean[col], errors='ignore')
-                except:
-                    pass
+                    df_clean[col] = pd.to_numeric(df_clean[col])
+                except (ValueError, TypeError):
+                    pass  # Garder la valeur d'origine si la conversion échoue
             
             # Inférence des types d'objets avant interpolation (pour éviter le FutureWarning)
             df_clean = df_clean.infer_objects(copy=False)
@@ -174,8 +174,9 @@ class EnhancedMarketDataPreprocessor:
         df_tech = df.copy()
         
         try:
-            # Calcul des rendements
-            df_tech['returns'] = df_tech['close'].pct_change(fill_method='pad')
+            # Remplir d'abord les valeurs NA
+            df_tech['close'] = df_tech['close'].fillna(method='pad')
+            df_tech['returns'] = df_tech['close'].pct_change()
             
             # Moyennes mobiles
             df_tech['sma_7'] = df_tech['close'].rolling(window=7).mean()
