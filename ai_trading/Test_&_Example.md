@@ -26,3 +26,4 @@ isort ai_trading/
 
 # 3. Formatage du code
 black ai_trading/                                 
+
