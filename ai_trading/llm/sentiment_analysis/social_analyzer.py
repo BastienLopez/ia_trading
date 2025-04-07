@@ -1,334 +1,229 @@
 """
-Module d'analyse des réseaux sociaux pour le trading crypto.
+Analyse de sentiment pour les réseaux sociaux (Twitter, Reddit).
+Combine l'analyse LLM avec des métriques sociales (engagements, viralité).
 """
 
+import os
+import pandas as pd
+from typing import List, Dict, Optional
 import logging
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple
-
-import pandas as pd
+from collections import Counter
+import matplotlib.pyplot as plt
+import re  # Ajout de l'import manquant pour les regex
 import numpy as np
 
-from .sentiment_model import SentimentAnalyzer
+from ai_trading.utils.enhanced_preprocessor import EnhancedTextDataPreprocessor
+from ai_trading.llm.sentiment_analysis.enhanced_news_analyzer import EnhancedNewsAnalyzer
+from ai_trading.llm.sentiment_analysis.sentiment_tools import SentimentCache
 
 logger = logging.getLogger(__name__)
 
-class SocialAnalyzer:
-    """Classe pour l'analyse des données des réseaux sociaux."""
+class SocialAnalyzer(EnhancedNewsAnalyzer):
+    """Analyseur de sentiment spécialisé pour les réseaux sociaux."""
     
-    def __init__(self):
-        """Initialisation de l'analyseur de réseaux sociaux."""
-        self.sentiment_analyzer = SentimentAnalyzer()
-        
-    def analyze_posts(
-        self,
-        social_data: pd.DataFrame,
-        detailed: bool = False
-    ) -> List[Dict]:
+    def __init__(self, platform: str = 'twitter', **kwargs):
         """
-        Analyse les posts des réseaux sociaux.
-        
         Args:
-            social_data: DataFrame contenant les posts
-            detailed: Si True, effectue une analyse détaillée
-            
-        Returns:
-            Liste des analyses de posts
+            platform: 'twitter' ou 'reddit'
+            **kwargs: Arguments hérités d'EnhancedNewsAnalyzer
         """
-        analyzed_posts = []
+        super().__init__(**kwargs)
+        self.platform = platform
+        self.text_preprocessor = EnhancedTextDataPreprocessor()
+        self.engagement_metrics = self._get_platform_metrics(platform)
         
-        for _, post in social_data.iterrows():
-            try:
-                # Analyse du sentiment
-                if detailed:
-                    sentiment = self.sentiment_analyzer.analyze_detailed(post['text'])
-                else:
-                    sentiment = self.sentiment_analyzer.analyze_quick(post['text'])[0]
-                
-                # Calcul du score d'engagement
-                engagement_score = self._calculate_engagement_score(
-                    post['retweets'],
-                    post['likes']
-                )
-                
-                # Création de l'entrée analysée
-                analyzed_entry = {
-                    'text': post['text'],
-                    'user': post['user'],
-                    'created_at': post['created_at'],
-                    'engagement_score': engagement_score,
-                    'sentiment': sentiment,
-                    'metrics': {
-                        'retweets': post['retweets'],
-                        'likes': post['likes']
-                    }
-                }
-                
-                analyzed_posts.append(analyzed_entry)
-                
-            except Exception as e:
-                logger.error(f"Erreur lors de l'analyse du post: {e}")
-                continue
+        # Configurations spécifiques aux plateformes
+        self.platform_config = {
+            'twitter': {
+                'text_field': 'full_text',
+                'metrics': ['retweet_count', 'favorite_count', 'reply_count']
+            },
+            'reddit': {
+                'text_field': 'body',
+                'metrics': ['score', 'num_comments', 'upvote_ratio']
+            }
+        }
         
-        return analyzed_posts
+        if platform not in self.platform_config:
+            raise ValueError(f"Plateforme non supportée: {platform}. Choisissez entre {list(self.platform_config.keys())}")
     
-    def _calculate_engagement_score(
-        self,
-        retweets: int,
-        likes: int,
-        retweet_weight: float = 1.5,
-        like_weight: float = 1.0
-    ) -> float:
-        """
-        Calcule le score d'engagement pour un post.
+    def analyze_social_posts(self, posts: List[Dict]) -> pd.DataFrame:
+        """Analyse un batch de posts sociaux."""
+        logger.info(f"Analyse de {len(posts)} posts {self.platform}")
         
-        Args:
-            retweets: Nombre de retweets
-            likes: Nombre de likes
-            retweet_weight: Poids des retweets
-            like_weight: Poids des likes
-            
-        Returns:
-            Score d'engagement normalisé
-        """
-        return (retweet_weight * retweets + like_weight * likes) / (retweet_weight + like_weight)
+        # Nettoyage et prétraitement
+        df = self._preprocess_social_data(posts)
+        
+        # Analyse de sentiment
+        df = self.analyze_news_dataframe(df)
+        
+        # Calcul des métriques d'engagement
+        df = self._calculate_engagement_metrics(df)
+        
+        return df
     
-    def get_sentiment_timeline(
-        self,
-        analyzed_posts: List[Dict],
-        interval: str = '1H',
-        weighted_by_engagement: bool = True
-    ) -> pd.DataFrame:
-        """
-        Crée une timeline des sentiments.
+    def _preprocess_social_data(self, posts: List[Dict]) -> pd.DataFrame:
+        """Prétraitement spécifique aux données sociales."""
+        df = pd.DataFrame(posts)
+        config = self.platform_config[self.platform]
         
-        Args:
-            analyzed_posts: Liste des posts analysés
-            interval: Intervalle de temps pour l'agrégation
-            weighted_by_engagement: Si True, pondère les sentiments par l'engagement
-            
-        Returns:
-            DataFrame avec les sentiments agrégés par intervalle
-        """
-        # Création d'un DataFrame avec les données analysées
-        df = pd.DataFrame(analyzed_posts)
-        df['created_at'] = pd.to_datetime(df['created_at'])
-        
-        # Extraction des scores de sentiment
-        df['sentiment_score'] = df['sentiment'].apply(
-            lambda x: x.get('normalized_score', 0.0)
-            if isinstance(x, dict) else 0.0
+        # Nettoyage du texte
+        df['clean_text'] = df[config['text_field']].apply(
+            lambda x: self.text_preprocessor.clean_text(x)
         )
         
-        if weighted_by_engagement:
-            # Pondération des sentiments par l'engagement
-            df['weighted_sentiment'] = df['sentiment_score'] * df['engagement_score']
-            df['total_engagement'] = df['engagement_score']
-            
-            # Agrégation par intervalle
-            timeline = df.set_index('created_at').resample(interval).agg({
-                'weighted_sentiment': 'sum',
-                'total_engagement': 'sum',
-                'text': 'count'
-            }).fillna(0)
-            
-            # Calcul du sentiment moyen pondéré
-            timeline['average_sentiment'] = (
-                timeline['weighted_sentiment'] /
-                timeline['total_engagement'].replace(0, 1)
+        # Extraction des hashtags/mentions (Twitter)
+        if self.platform == 'twitter':
+            df['hashtags'] = df[config['text_field']].apply(
+                lambda x: self._extract_hashtags(x)
             )
-            timeline['post_count'] = timeline['text']
-            timeline = timeline[['average_sentiment', 'post_count', 'total_engagement']]
-            
-        else:
-            # Agrégation simple par intervalle
-            timeline = df.set_index('created_at').resample(interval).agg({
-                'sentiment_score': 'mean',
-                'text': 'count',
-                'engagement_score': 'sum'
-            }).fillna(0)
-            
-            timeline.columns = ['average_sentiment', 'post_count', 'total_engagement']
+            df['mentions'] = df[config['text_field']].apply(
+                lambda x: self._extract_mentions(x)
+            )
         
-        return timeline
+        # Conversion des dates
+        if 'created_at' in df.columns:
+            df['created_at'] = pd.to_datetime(df['created_at'])
+        
+        return df
     
-    def get_trending_topics(
-        self,
-        analyzed_posts: List[Dict],
-        n_topics: int = 5,
-        min_occurrences: int = 3
-    ) -> List[Dict]:
-        """
-        Identifie les sujets tendance dans les posts.
+    def _calculate_engagement_metrics(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Calcule les scores d'engagement viral."""
+        config = self.platform_config[self.platform]
         
-        Args:
-            analyzed_posts: Liste des posts analysés
-            n_topics: Nombre de sujets à retourner
-            min_occurrences: Nombre minimum d'occurrences pour un sujet
-            
-        Returns:
-            Liste des sujets tendance avec leurs métriques
-        """
-        # Extraction des hashtags et mentions
-        topics = []
-        for post in analyzed_posts:
-            text = post['text'].lower()
-            # Extraction des hashtags
-            hashtags = [
-                word for word in text.split()
-                if word.startswith('#')
-            ]
-            # Extraction des mentions
-            mentions = [
-                word for word in text.split()
-                if word.startswith('@')
-            ]
-            
-            topics.extend(hashtags + mentions)
+        # Vérification des colonnes requises
+        required_columns = config['metrics'] + [config['text_field']]
+        missing = [col for col in required_columns if col not in df.columns]
+        if missing:
+            raise ValueError(f"Colonnes manquantes: {missing}")
         
-        # Comptage des occurrences
-        topic_counts = pd.Series(topics).value_counts()
-        
-        # Filtrage des sujets avec suffisamment d'occurrences
-        trending_topics = []
-        for topic, count in topic_counts.items():
-            if count >= min_occurrences:
-                # Calcul du sentiment moyen pour ce sujet
-                topic_posts = [
-                    post for post in analyzed_posts
-                    if topic.lower() in post['text'].lower()
-                ]
-                
-                topic_sentiments = [
-                    post['sentiment'].get('normalized_score', 0.0)
-                    for post in topic_posts
-                    if isinstance(post.get('sentiment'), dict)
-                ]
-                
-                if topic_sentiments:
-                    avg_sentiment = sum(topic_sentiments) / len(topic_sentiments)
+        for metric in config['metrics']:
+            if metric in df.columns:
+                # Gestion de la division par zéro
+                if df[metric].max() == df[metric].min():
+                    df[f'{metric}_norm'] = 0.5
                 else:
-                    avg_sentiment = 0.0
-                
-                trending_topics.append({
-                    'topic': topic,
-                    'occurrences': count,
-                    'average_sentiment': avg_sentiment,
-                    'example_posts': topic_posts[:3]  # Quelques exemples de posts
-                })
-                
-                if len(trending_topics) >= n_topics:
-                    break
+                    df[f'{metric}_norm'] = (df[metric] - df[metric].min()) / (df[metric].max() - df[metric].min())
         
-        return trending_topics
+        # Score d'engagement composite
+        df['engagement_score'] = df[[f'{m}_norm' for m in config['metrics']]].mean(axis=1)
+        
+        return df
     
-    def get_influencer_analysis(
-        self,
-        analyzed_posts: List[Dict],
-        min_posts: int = 2
-    ) -> List[Dict]:
-        """
-        Analyse les utilisateurs les plus influents.
-        
-        Args:
-            analyzed_posts: Liste des posts analysés
-            min_posts: Nombre minimum de posts pour être considéré
-            
-        Returns:
-            Liste des utilisateurs influents avec leurs métriques
-        """
-        # Groupement par utilisateur
-        user_posts = {}
-        for post in analyzed_posts:
-            user = post['user']
-            if user not in user_posts:
-                user_posts[user] = []
-            user_posts[user].append(post)
-        
-        # Analyse des métriques par utilisateur
-        influencers = []
-        for user, posts in user_posts.items():
-            if len(posts) >= min_posts:
-                # Calcul des métriques
-                total_engagement = sum(post['engagement_score'] for post in posts)
-                avg_engagement = total_engagement / len(posts)
-                
-                sentiments = [
-                    post['sentiment'].get('normalized_score', 0.0)
-                    for post in posts
-                    if isinstance(post.get('sentiment'), dict)
-                ]
-                
-                avg_sentiment = (
-                    sum(sentiments) / len(sentiments)
-                    if sentiments else 0.0
-                )
-                
-                influencers.append({
-                    'user': user,
-                    'post_count': len(posts),
-                    'total_engagement': total_engagement,
-                    'average_engagement': avg_engagement,
-                    'average_sentiment': avg_sentiment,
-                    'recent_posts': sorted(
-                        posts,
-                        key=lambda x: x['created_at'],
-                        reverse=True
-                    )[:3]  # 3 posts les plus récents
-                })
-        
-        # Tri par engagement total
-        influencers.sort(key=lambda x: x['total_engagement'], reverse=True)
-        
-        return influencers
+    def _extract_hashtags(self, text: str) -> List[str]:
+        """Extrait les hashtags d'un tweet."""
+        return re.findall(r'#(\w+)', text.lower())
     
-    def get_social_summary(
-        self,
-        analyzed_posts: List[Dict],
-        timeframe: str = '24H'
-    ) -> Dict:
-        """
-        Génère un résumé de l'activité sociale.
+    def _extract_mentions(self, text: str) -> List[str]:
+        """Extrait les mentions @ d'un tweet."""
+        return re.findall(r'@(\w+)', text.lower())
+    
+    def generate_social_report(self, df: pd.DataFrame) -> Dict:
+        """Génère un rapport complet pour les données sociales."""
+        report = super().generate_sentiment_report(df)
         
-        Args:
-            analyzed_posts: Liste des posts analysés
-            timeframe: Période de temps à analyser
-            
-        Returns:
-            Dictionnaire contenant le résumé de l'activité
-        """
-        # Filtrage des posts par timeframe
-        cutoff = datetime.now() - pd.Timedelta(timeframe)
-        recent_posts = [
-            post for post in analyzed_posts
-            if pd.to_datetime(post['created_at']) > cutoff
-        ]
+        # Métriques spécifiques aux réseaux sociaux
+        report.update({
+            'top_hashtags': dict(Counter([h for sublist in df['hashtags'] for h in sublist]).most_common(10)),
+            'engagement_stats': {
+                'mean': df['engagement_score'].mean(),
+                'max': df['engagement_score'].max(),
+                'min': df['engagement_score'].min()
+            },
+            'viral_posts': self._identify_viral_posts(df)
+        })
         
-        # Agrégation des sentiments
-        sentiments = [
-            post['sentiment']
-            for post in recent_posts
-            if isinstance(post.get('sentiment'), dict)
-        ]
+        return report
+    
+    def _identify_viral_posts(self, df: pd.DataFrame, threshold: float = 0.8) -> List[Dict]:
+        """Identifie les posts viraux basés sur le score d'engagement."""
+        viral = df[df['engagement_score'] >= threshold]
+        return viral.to_dict('records')
+    
+    def generate_engagement_plot(self, df: pd.DataFrame, filename: str) -> None:
+        """Génère un graphique d'engagement temporel."""
+        plt.figure(figsize=(12, 6))
         
-        aggregated_sentiment = self.sentiment_analyzer.aggregate_sentiment(sentiments)
-        
-        # Calcul des métriques globales
-        total_engagement = sum(post['engagement_score'] for post in recent_posts)
-        avg_engagement = total_engagement / len(recent_posts) if recent_posts else 0
-        
-        # Identification des sujets tendance
-        trending = self.get_trending_topics(recent_posts, n_topics=3)
-        
-        # Identification des influenceurs principaux
-        top_influencers = self.get_influencer_analysis(recent_posts)[:3]
-        
+        if 'created_at' in df.columns and 'engagement_score' in df.columns:
+            df.set_index('created_at').sort_index()['engagement_score'].plot(
+                title='Évolution de l\'engagement',
+                ylabel='Score d\'engagement',
+                xlabel='Date'
+            )
+            plt.tight_layout()
+            plt.savefig(filename)
+            plt.close()
+        else:
+            logger.warning("Données insuffisantes pour générer le graphique d'engagement")
+    
+    def _get_platform_metrics(self, platform: str) -> List[str]:
+        """Retourne les métriques clés selon la plateforme."""
         return {
-            'timeframe': timeframe,
-            'total_posts': len(recent_posts),
-            'total_engagement': total_engagement,
-            'average_engagement': avg_engagement,
-            'sentiment_summary': aggregated_sentiment,
-            'trending_topics': trending,
-            'top_influencers': top_influencers
-        } 
+            'twitter': ['retweet_count', 'favorite_count', 'reply_count'],
+            'reddit': ['score', 'num_comments', 'upvote_ratio']
+        }[platform]
+    
+    def calculate_virality(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Calcule des métriques de viralité avancées."""
+        return df.assign(
+            engagement_score=lambda x: self._normalize_metrics(x),
+            viral_risk=lambda x: self._calculate_viral_risk(x)
+        )
+    
+    def _enhance_with_engagement(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Enrichit les données avec des métriques d'engagement."""
+        df['engagement'] = df.apply(
+            lambda x: self._compute_composite_engagement(x), 
+            axis=1
+        )
+        df['time_decay'] = df['published_at'].apply(
+            lambda x: self._compute_time_decay(x)
+        )
+        return df
+    
+    def _compute_composite_engagement(self, row: pd.Series) -> float:
+        """Calcule un score d'engagement composite."""
+        weights = {
+            'twitter': {'retweets': 0.4, 'likes': 0.3, 'replies': 0.3},
+            'reddit': {'upvotes': 0.6, 'comments': 0.4}
+        }
+        return sum(
+            row[metric] * weight 
+            for metric, weight in weights[self.platform].items()
+        )
+    
+    def _compute_time_decay(self, post_date: str) -> float:
+        """Calcule un facteur de dépréciation temporelle."""
+        delta = datetime.now() - pd.to_datetime(post_date)
+        return np.exp(-delta.days / 7)  # Décroissance exponentielle sur 1 semaine
+    
+    def _normalize_metrics(self, df: pd.DataFrame) -> pd.Series:
+        """Normalise les métriques entre 0 et 1."""
+        return (
+            df[self.engagement_metrics]
+            .apply(lambda x: (x - x.min()) / (x.max() - x.min()))
+            .mean(axis=1)
+        )
+    
+    def _calculate_viral_risk(self, df: pd.DataFrame) -> pd.Series:
+        """Calcule un indice de risque viral."""
+        return (
+            df['engagement_score'] * 
+            (1 - df['time_decay']) * 
+            df['sentiment_score'].abs()
+        )
+
+# Exemple d'utilisation
+if __name__ == "__main__":
+    # Analyse de tweets
+    twitter_analyzer = SocialAnalyzer(platform='twitter')
+    sample_tweets = [...]  # Données de test
+    analyzed_tweets = twitter_analyzer.analyze_social_posts(sample_tweets)
+    twitter_report = twitter_analyzer.generate_social_report(analyzed_tweets)
+    
+    # Analyse de posts Reddit
+    reddit_analyzer = SocialAnalyzer(platform='reddit')
+    sample_reddit = [...]  # Données de test
+    analyzed_reddit = reddit_analyzer.analyze_social_posts(sample_reddit)
+    reddit_report = reddit_analyzer.generate_social_report(analyzed_reddit) 

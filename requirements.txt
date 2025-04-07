@@ -45,37 +45,39 @@ tqdm==4.66.1
 typing_extensions==4.12.2
 pillow==10.3.0
 
-# Bibliothèques de base pour la manipulation des données
-pandas>=1.3.0
-numpy>=1.20.0
+# Analyse de données et ML
+numpy==1.26.2
+pandas==2.1.4
+scikit-learn==1.4.0
+scipy==1.15.2
+tensorflow==2.15.0
+xgboost==1.7.6
+lightgbm==4.1.0
+torch==2.3.1
+transformers==4.30.0
+sentence-transformers==2.2.2
+nltk==3.6.0
+emoji==0.6.0
 
-# Bibliothèques pour la collecte de données
-requests>=2.25.0
-pycoingecko>=2.2.0
-python-dotenv>=0.19.0
-beautifulsoup4>=4.9.0
-tweepy>=4.0.0
+# API et collecte de données
+requests==2.31.0
+pycoingecko==2.2.0
+tweepy==4.14.0
+praw==7.7.0
+newsapi-python==0.2.7
+beautifulsoup4==4.12.3
 
-# Bibliothèques pour le prétraitement des données
-scikit-learn>=1.0.0
-nltk>=3.6.0
+# Trading et analyse technique
+ccxt==4.4.72
+#ta-lib==0.4.28  # Commenter ou supprimer la ligne
 
-# Bibliothèques pour les modèles LLM
-transformers>=4.15.0
-langchain>=0.0.1
-torch>=1.10.0
+# Visualisation
+matplotlib==3.8.4
+seaborn==0.13.2
 
-# Bibliothèques pour les modèles ML
-tensorflow>=2.8.0
-keras>=2.8.0
-
-# Bibliothèques pour l'analyse technique
-ta>=0.10.0  # Technical Analysis library
-
-# Bibliothèques pour la visualisation
-matplotlib>=3.5.0
-seaborn>=0.11.0
-
-# Bibliothèques pour le développement
-pytest>=6.2.0
-jupyter>=1.0.0
+# Développement et tests
+pytest==8.2.0
+pytest-cov==6.1.0
+jupyter==1.0.0
+python-dotenv==1.0.1
+tqdm==4.66.1

@@ -30,7 +30,7 @@ class NewsAnalyzer:
     
     def __init__(self, sentiment_model: str = "finiteautomata/bertweet-base-sentiment-analysis",
                  entity_model: str = "dslim/bert-base-NER",
-                 use_gpu: bool = False):
+                 use_gpu: bool = False, **kwargs):
         """
         Initialise l'analyseur d'actualités.
         
@@ -39,52 +39,56 @@ class NewsAnalyzer:
             entity_model: Modèle à utiliser pour la reconnaissance d'entités
             use_gpu: Si True, utilise le GPU pour l'inférence
         """
-        self.sentiment_model_name = sentiment_model
-        self.entity_model_name = entity_model
-        self.use_gpu = use_gpu and TRANSFORMERS_AVAILABLE
-        self.device = 0 if self.use_gpu else -1
-        
-        # Initialisation des modèles
-        if TRANSFORMERS_AVAILABLE:
-            try:
-                logger.info(f"Chargement du modèle de sentiment: {sentiment_model}")
-                self.sentiment_pipeline = pipeline(
-                    "sentiment-analysis",
-                    model=sentiment_model,
-                    device=self.device
-                )
-                
-                logger.info(f"Chargement du modèle de reconnaissance d'entités: {entity_model}")
-                self.ner_pipeline = pipeline(
-                    "ner",
-                    model=entity_model,
-                    aggregation_strategy="simple",
-                    device=self.device
-                )
-                
-                logger.info("Modèles chargés avec succès")
-            except Exception as e:
-                logger.error(f"Erreur lors du chargement des modèles: {e}")
+        try:
+            self.sentiment_model_name = sentiment_model
+            self.entity_model_name = entity_model
+            self.use_gpu = use_gpu and TRANSFORMERS_AVAILABLE
+            self.device = 0 if self.use_gpu else -1
+            
+            # Initialisation des modèles
+            if TRANSFORMERS_AVAILABLE:
+                try:
+                    logger.info(f"Chargement du modèle de sentiment: {sentiment_model}")
+                    self.sentiment_pipeline = pipeline(
+                        "sentiment-analysis",
+                        model=sentiment_model,
+                        device=self.device
+                    )
+                    
+                    logger.info(f"Chargement du modèle de reconnaissance d'entités: {entity_model}")
+                    self.ner_pipeline = pipeline(
+                        "ner",
+                        model=entity_model,
+                        aggregation_strategy="simple",
+                        device=self.device
+                    )
+                    
+                    logger.info("Modèles chargés avec succès")
+                except Exception as e:
+                    logger.error(f"Erreur lors du chargement des modèles: {e}")
+                    self.sentiment_pipeline = None
+                    self.ner_pipeline = None
+            else:
+                logger.warning("Fonctionnement en mode dégradé sans modèles LLM")
                 self.sentiment_pipeline = None
                 self.ner_pipeline = None
-        else:
-            logger.warning("Fonctionnement en mode dégradé sans modèles LLM")
-            self.sentiment_pipeline = None
-            self.ner_pipeline = None
-        
-        # Liste des entités crypto à rechercher
-        self.crypto_entities = {
-            "BTC": ["bitcoin", "btc", "xbt"],
-            "ETH": ["ethereum", "eth"],
-            "BNB": ["binance coin", "bnb"],
-            "SOL": ["solana", "sol"],
-            "ADA": ["cardano", "ada"],
-            "XRP": ["ripple", "xrp"],
-            "DOGE": ["dogecoin", "doge"],
-            "DOT": ["polkadot", "dot"],
-            "AVAX": ["avalanche", "avax"],
-            "MATIC": ["polygon", "matic"]
-        }
+            
+            # Liste des entités crypto à rechercher
+            self.crypto_entities = {
+                "BTC": ["bitcoin", "btc", "xbt"],
+                "ETH": ["ethereum", "eth"],
+                "BNB": ["binance coin", "bnb"],
+                "SOL": ["solana", "sol"],
+                "ADA": ["cardano", "ada"],
+                "XRP": ["ripple", "xrp"],
+                "DOGE": ["dogecoin", "doge"],
+                "DOT": ["polkadot", "dot"],
+                "AVAX": ["avalanche", "avax"],
+                "MATIC": ["polygon", "matic"]
+            }
+        except ImportError as e:
+            logger.error(f"Erreur critique de dépendance : {e}")
+            raise RuntimeError("Veuillez installer les dépendances avec 'pip install tf-keras'") from e
     
     def analyze_sentiment(self, text: str) -> Dict[str, Any]:
         """
@@ -133,25 +137,25 @@ class NewsAnalyzer:
             # Analyse de repli si le modèle n'est pas disponible
             return self._fallback_sentiment_analysis(text)
     
-    def extract_entities(self, text: str) -> List[Dict[str, Any]]:
+    def extract_entities(self, text: str) -> Dict[str, List]:
         """
-        Extrait les entités d'un texte.
+        Extrait les entités d'un texte et retourne un dictionnaire.
         
         Args:
             text: Texte à analyser
             
         Returns:
-            Liste des entités extraites avec leur type et position
+            Dictionnaire contenant les entités extraites
         """
         if not text or not isinstance(text, str):
-            return []
+            return {"crypto_entities": [], "money_entities": [], "percentage_entities": []}
         
         # Nettoyage du texte
         text = self._clean_text(text)
         
         # Si le texte est trop court après nettoyage
         if len(text.split()) < 3:
-            return []
+            return {"crypto_entities": [], "money_entities": [], "percentage_entities": []}
         
         # Extraction avec le modèle LLM si disponible
         if self.ner_pipeline:
@@ -179,7 +183,41 @@ class NewsAnalyzer:
                 crypto_entities = self._extract_crypto_entities(text)
                 formatted_entities.extend(crypto_entities)
                 
-                return formatted_entities
+                # Extraction des montants d'argent
+                money_pattern = r'\$\s*\d{1,3}(?:[.,]\d{3})*(?:[.,]\d+)?|\d+(?:[.,]\d+)?\s*(?:dollars|usd|€|euros)'
+                money_matches = re.finditer(money_pattern, text.lower())
+                
+                money_entities = []
+                for match in money_matches:
+                    entity = {
+                        "text": match.group(),
+                        "type": "MONEY",
+                        "score": 1.0,
+                        "start": match.start(),
+                        "end": match.end()
+                    }
+                    money_entities.append(entity)
+                
+                # Extraction des pourcentages
+                percentage_pattern = r'\d+(?:[.,]\d+)?\s*%'
+                percentage_matches = re.finditer(percentage_pattern, text.lower())
+                
+                percentage_entities = []
+                for match in percentage_matches:
+                    entity = {
+                        "text": match.group(),
+                        "type": "PERCENTAGE",
+                        "score": 1.0,
+                        "start": match.start(),
+                        "end": match.end()
+                    }
+                    percentage_entities.append(entity)
+                
+                return {
+                    'crypto_entities': crypto_entities,
+                    'money_entities': money_entities,
+                    'percentage_entities': percentage_entities
+                }
             except Exception as e:
                 logger.error(f"Erreur lors de l'extraction d'entités: {e}")
                 return self._fallback_entity_extraction(text)
@@ -187,26 +225,24 @@ class NewsAnalyzer:
             # Extraction de repli si le modèle n'est pas disponible
             return self._fallback_entity_extraction(text)
     
-    def analyze_news(self, news: Union[Dict[str, Any], List[Dict[str, Any]]]) -> Union[Dict[str, Any], List[Dict[str, Any]]]:
-        """
-        Analyse une ou plusieurs actualités.
-        
-        Args:
-            news: Actualité ou liste d'actualités à analyser
+    def analyze_news(self, news_data: List[Dict]) -> pd.DataFrame:
+        results = []
+        for news in news_data:
+            title_sentiment = self.analyze_sentiment(news.get("title", ""))
+            body_sentiment = self.analyze_sentiment(news.get("body", ""))
             
-        Returns:
-            Actualité(s) enrichie(s) avec le sentiment et les entités
-        """
-        if isinstance(news, list):
-            # Traitement d'une liste d'actualités
-            enriched_news = []
-            for item in news:
-                enriched_item = self._analyze_single_news(item)
-                enriched_news.append(enriched_item)
-            return enriched_news
-        else:
-            # Traitement d'une seule actualité
-            return self._analyze_single_news(news)
+            # Calcul du sentiment global
+            global_score = (title_sentiment['score'] + body_sentiment['score']) / 2
+            global_label = "positive" if global_score > 0.5 else "negative" if global_score < 0.5 else "neutral"
+            
+            results.append({
+                **news,
+                "title_sentiment": title_sentiment,
+                "body_sentiment": body_sentiment,
+                "global_sentiment": {"label": global_label, "score": global_score}
+            })
+        
+        return pd.DataFrame(results)
     
     def analyze_news_dataframe(self, df: pd.DataFrame, 
                               title_col: str = "title", 
@@ -455,7 +491,7 @@ class NewsAnalyzer:
         
         return {"label": label, "score": score}
     
-    def _fallback_entity_extraction(self, text: str) -> List[Dict[str, Any]]:
+    def _fallback_entity_extraction(self, text: str) -> Dict[str, List]:
         """
         Extraction d'entités de repli basée sur des règles simples.
         
@@ -463,15 +499,16 @@ class NewsAnalyzer:
             text: Texte à analyser
             
         Returns:
-            Liste des entités extraites
+            Dictionnaire contenant les entités extraites
         """
         # Extraction des entités crypto
         crypto_entities = self._extract_crypto_entities(text)
         
         # Extraction des montants d'argent
-        money_pattern = r'\$\s*\d+(?:[.,]\d+)?(?:\s*[kmbt])?|\d+(?:[.,]\d+)?\s*(?:dollars|usd|€|euros)'
+        money_pattern = r'\$\s*\d{1,3}(?:[.,]\d{3})*(?:[.,]\d+)?|\d+(?:[.,]\d+)?\s*(?:dollars|usd|€|euros)'
         money_matches = re.finditer(money_pattern, text.lower())
         
+        money_entities = []
         for match in money_matches:
             entity = {
                 "text": match.group(),
@@ -480,12 +517,13 @@ class NewsAnalyzer:
                 "start": match.start(),
                 "end": match.end()
             }
-            crypto_entities.append(entity)
+            money_entities.append(entity)
         
         # Extraction des pourcentages
         percentage_pattern = r'\d+(?:[.,]\d+)?\s*%'
         percentage_matches = re.finditer(percentage_pattern, text.lower())
         
+        percentage_entities = []
         for match in percentage_matches:
             entity = {
                 "text": match.group(),
@@ -494,9 +532,13 @@ class NewsAnalyzer:
                 "start": match.start(),
                 "end": match.end()
             }
-            crypto_entities.append(entity)
+            percentage_entities.append(entity)
         
-        return crypto_entities
+        return {
+            'crypto_entities': crypto_entities,
+            'money_entities': money_entities,
+            'percentage_entities': percentage_entities
+        }
 
 
 # Exemple d'utilisation

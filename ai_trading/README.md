@@ -231,3 +231,42 @@ conda install -c anaconda tk
 ```
 
 Les modules fonctionneront même sans ces dépendances, mais avec des fonctionnalités réduites. 
+
+## Analyse des réseaux sociaux
+
+### SocialAnalyzer
+- `social_analyzer.py` - Analyse des tweets et posts Reddit
+- Fonctionnalités :
+  - Validation des données d'entrée
+  - Détection des hashtags/mentions (Twitter)
+  - Calcul d'engagement viral
+  - Visualisations temporelles
+  - Identification des posts viraux
+  - Intégration avec les modèles de sentiment
+
+### Bonnes pratiques
+- **Vérifier les données d'entrée** : Les posts doivent contenir les champs requis
+- **Gérer le timezone** : Convertir les dates en UTC pour l'analyse temporelle
+- **Surveiller les limites d'API** : Respecter les quotas des plateformes sociales
+
+### Utilisation
+```python
+from ai_trading.llm.sentiment_analysis.social_analyzer import SocialAnalyzer
+
+# Analyse de tweets
+twitter_analyzer = SocialAnalyzer(platform='twitter')
+analyzed_tweets = twitter_analyzer.analyze_social_posts(tweets_df)
+
+# Génération de rapport
+report = twitter_analyzer.generate_social_report(analyzed_tweets)
+```
+
+### Tests
+```bash
+python -m ai_trading.tests.test_social_analyzer
+```
+
+### Exemples
+```bash
+python -m ai_trading.examples.social_sentiment_example
+``` 

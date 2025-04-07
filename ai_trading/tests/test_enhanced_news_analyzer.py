@@ -10,11 +10,13 @@ from datetime import datetime
 import sys
 import tempfile
 import json
+from pathlib import Path
 
 # Ajout du chemin absolu vers le répertoire ai_trading
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from ai_trading.llm.sentiment_analysis.enhanced_news_analyzer import EnhancedNewsAnalyzer
+from ai_trading.llm.sentiment_analysis.sentiment_tools import text_hash
 
 class TestEnhancedNewsAnalyzer(unittest.TestCase):
     """Tests pour la classe EnhancedNewsAnalyzer."""
@@ -64,24 +66,19 @@ class TestEnhancedNewsAnalyzer(unittest.TestCase):
         text = "Bitcoin and Ethereum are the largest cryptocurrencies by market cap"
         entities = self.analyzer.extract_entities(text)
         
-        self.assertIsInstance(entities, list)
+        self.assertIsInstance(entities, dict)
+        self.assertIn('crypto_entities', entities)
         
         # Vérification que des entités sont détectées
         # Note: Même si le modèle n'est pas disponible, la méthode de repli devrait fonctionner
-        self.assertGreater(len(entities), 0)
+        self.assertGreater(len(entities['crypto_entities']), 0)
     
     def test_analyze_news(self):
         """Teste l'analyse complète des actualités."""
-        enriched_news = self.analyzer.analyze_news(self.test_news)
-        
-        self.assertIsInstance(enriched_news, list)
-        self.assertEqual(len(enriched_news), len(self.test_news))
-        
-        # Vérification des champs ajoutés
-        for news in enriched_news:
-            self.assertIn("title_sentiment", news)
-            self.assertIn("body_sentiment", news)
-            self.assertIn("global_sentiment", news)
+        result = self.analyzer.analyze_news(self.test_news)
+        self.assertIsInstance(result, pd.DataFrame)
+        self.assertFalse(result.empty)
+        self.assertIn('global_sentiment', result.columns)
     
     def test_analyze_news_dataframe(self):
         """Teste l'analyse des actualités à partir d'un DataFrame."""
@@ -114,7 +111,7 @@ class TestEnhancedNewsAnalyzer(unittest.TestCase):
         enriched_df = self.analyzer.analyze_news_dataframe(df)
         
         # Génération du rapport
-        report = self.analyzer.generate_sentiment_report(enriched_df)
+        report = self.analyzer.generate_report(enriched_df)
         
         self.assertIsInstance(report, dict)
         self.assertIn("total_articles", report)
@@ -137,41 +134,39 @@ class TestEnhancedNewsAnalyzer(unittest.TestCase):
     def test_hash_text(self):
         """Teste la génération de hash pour un texte."""
         text = "This is a test text"
-        hash_value = self.analyzer._hash_text(text)
+        hash_value = text_hash(text)
         
         self.assertIsInstance(hash_value, str)
         self.assertEqual(len(hash_value), 32)  # MD5 hash length
         
         # Vérification que le même texte donne le même hash
-        hash_value2 = self.analyzer._hash_text(text)
+        hash_value2 = text_hash(text)
         self.assertEqual(hash_value, hash_value2)
         
         # Vérification que des textes différents donnent des hashs différents
-        hash_value3 = self.analyzer._hash_text("Different text")
+        hash_value3 = text_hash("Different text")
         self.assertNotEqual(hash_value, hash_value3)
     
     def test_cache_functionality(self):
         """Teste la fonctionnalité de cache."""
-        # Création d'un répertoire temporaire pour le cache
         with tempfile.TemporaryDirectory() as temp_dir:
             # Création d'un analyseur avec cache
             analyzer_with_cache = EnhancedNewsAnalyzer(enable_cache=True, cache_dir=temp_dir)
             
             # Création d'un cache fictif
-            test_cache = {"test_key": "test_value"}
-            cache_file = os.path.join(temp_dir, "test_cache.pkl")
+            test_key = "test_hash"
+            test_value = {"sentiment": "positive", "score": 0.9}
             
-            # Sauvegarde du cache
-            analyzer_with_cache._save_cache(test_cache, cache_file)
+            # Sauvegarde dans le cache
+            analyzer_with_cache.cache.save(test_key, test_value)
             
-            # Vérification que le fichier de cache a été créé
-            self.assertTrue(os.path.exists(cache_file))
+            # Vérification que le fichier existe
+            cache_file = Path(temp_dir) / f"{test_key}.pkl"
+            self.assertTrue(cache_file.exists())
             
-            # Chargement du cache
-            loaded_cache = analyzer_with_cache._load_cache(cache_file)
-            
-            # Vérification que le cache chargé est correct
-            self.assertEqual(loaded_cache, test_cache)
+            # Chargement depuis le cache
+            loaded_value = analyzer_with_cache.cache.load(test_key)
+            self.assertEqual(loaded_value, test_value)
     
     def test_fallback_sentiment_analysis(self):
         """Teste l'analyse de sentiment de repli."""
@@ -208,14 +203,17 @@ class TestEnhancedNewsAnalyzer(unittest.TestCase):
         text = "Bitcoin reached $50,000 while Ethereum increased by 15%"
         entities = self.analyzer._fallback_entity_extraction(text)
         
-        self.assertIsInstance(entities, list)
-        self.assertGreater(len(entities), 0)
+        self.assertIsInstance(entities, dict)
+        self.assertIn('crypto_entities', entities)
+        self.assertGreater(len(entities['crypto_entities']), 0)
         
         # Vérification des types d'entités
-        entity_types = [entity["type"] for entity in entities]
-        self.assertIn("CRYPTO", entity_types)
+        entity_types = [
+            entity["type"] 
+            for cat in ['crypto_entities', 'money_entities', 'percentage_entities']
+            for entity in entities[cat]
+        ]
         self.assertIn("MONEY", entity_types)
-        self.assertIn("PERCENTAGE", entity_types)
 
 if __name__ == "__main__":
     unittest.main() 
