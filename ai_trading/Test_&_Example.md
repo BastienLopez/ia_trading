@@ -12,4 +12,6 @@ pytest ai_trading/tests/test_enhanced_collector.py -v
 pytest ai_trading/tests/test_enhanced_preprocessor.py -v
 pytest ai_trading/tests/test_enhanced_news_analyzer.py -v
 pytest ai_trading/tests/test_social_analyzer.py -v
-pytest ai_trading/tests/test_sentiment_integration.py -v
+pytest ai_trading/tests/test_sentiment_integration.py -v 
+
+ez
