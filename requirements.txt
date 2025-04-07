@@ -70,7 +70,8 @@ beautifulsoup4==4.12.3
 
 # Trading et analyse technique
 ccxt==4.4.72
-#ta-lib==0.4.28  # Commenter ou supprimer la ligne
+# TA-Lib (décommenter si installé)
+# TA-Lib==0.4.24
 
 # Visualisation
 matplotlib>=3.7.0

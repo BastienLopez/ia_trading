@@ -175,7 +175,7 @@ class EnhancedMarketDataPreprocessor:
         
         try:
             # Calcul des rendements
-            df_tech['returns'] = df_tech['close'].pct_change()
+            df_tech['returns'] = df_tech['close'].pct_change(fill_method='pad')
             
             # Moyennes mobiles
             df_tech['sma_7'] = df_tech['close'].rolling(window=7).mean()
