@@ -157,7 +157,7 @@ class SocialAnalyzer(EnhancedNewsAnalyzer):
         norm_columns = [f'{m}_norm' for m in existing_metrics if f'{m}_norm' in df.columns]
         if norm_columns:
             df['engagement_score'] = df[norm_columns].mean(axis=1)
-        else:
+                else:
             df['engagement_score'] = 0.0
         
         return df
