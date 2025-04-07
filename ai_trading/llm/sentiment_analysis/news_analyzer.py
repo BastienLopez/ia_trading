@@ -258,9 +258,7 @@ class NewsAnalyzer:
             global_label = (
                 "positive"
                 if global_score > 0.5
-                else "negative"
-                if global_score < 0.5
-                else "neutral"
+                else "negative" if global_score < 0.5 else "neutral"
             )
 
             results.append(

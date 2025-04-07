@@ -18,8 +18,17 @@ pytest ai_trading/tests/test_sentiment_integration.py -v
 
 # Formatage et vérification du code
 
-black ai_trading/                                                # Formatage du code
-autoflake --in-place --remove-all-unused-imports --recursive ai_trading/  # Suppression des imports inutilisés
-isort ai_trading/                                               # Organisation des imports
-python fix_fstrings_simple.py ai_trading                        # Correction des f-strings sans placeholders
-flake8 ai_trading/                                              # Vérification finale du style
+# 1. Suppression des imports inutilisés
+autoflake --in-place --remove-all-unused-imports --recursive ai_trading/
+
+# 2. Organisation des imports
+isort ai_trading/
+
+# 3. Formatage du code
+black ai_trading/
+
+# 4. Correction des f-strings sans placeholders
+python fix_fstrings_simple.py ai_trading
+
+# 5. Vérification finale du style
+flake8 ai_trading/                                     

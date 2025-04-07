@@ -138,3 +138,37 @@ python -m flake8 ai_trading/
   isort ai_trading/
   flake8 ai_trading/
   ```
+
+## Workflow de développement
+
+Pour maintenir la qualité du code, ce projet utilise plusieurs outils de formatage et de vérification :
+
+- **Black** : Formateur de code automatique
+- **isort** : Organisation des imports
+- **flake8** : Vérification du style de code
+- **pre-commit** : Exécution automatique des vérifications
+
+### Workflow recommandé
+
+1. Développez votre code
+2. Formatez votre code avant de committer :
+   ```bash
+   pre-commit run --all-files
+   ```
+3. Ajoutez les fichiers modifiés :
+   ```bash
+   git add .
+   ```
+4. Committez vos modifications :
+   ```bash
+   git commit -m "Votre message"
+   ```
+5. Poussez vos modifications :
+   ```bash
+   git push
+   ```
+Si vous rencontrez des problèmes avec pre-commit, vous pouvez temporairement le désactiver :
+```bash
+git commit --no-verify -m "Votre message"
+```
+
