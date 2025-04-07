@@ -4,13 +4,28 @@ Tests pour l'analyseur de réseaux sociaux.
 
 import unittest
 import pandas as pd
+import numpy as np
 from datetime import datetime
 from ai_trading.llm.sentiment_analysis.social_analyzer import SocialAnalyzer
+from ai_trading.config import EMA_RIBBON_PERIODS, EMA_GRADIENT_THRESHOLDS
 
 class TestSocialAnalyzer(unittest.TestCase):
     def setUp(self):
         self.twitter_analyzer = SocialAnalyzer(platform='twitter')
         self.reddit_analyzer = SocialAnalyzer(platform='reddit')
+        
+        # Ajout du processeur de données
+        from ai_trading.data_processor import DataProcessor
+        self.processor = DataProcessor()
+        
+        # Données de test EMA
+        self.raw_data = pd.DataFrame({
+            'open': np.linspace(50000, 51500, 100),
+            'high': np.linspace(50500, 52000, 100),
+            'low': np.linspace(49500, 51000, 100),
+            'close': np.linspace(50000, 51500, 100),
+            'volume': np.random.randint(800, 2000, 100)
+        })
         
         self.sample_tweet = {
             'full_text': "Bitcoin to the moon! 🚀",
@@ -70,6 +85,22 @@ class TestSocialAnalyzer(unittest.TestCase):
     def assertBetween(self, value, min_val, max_val):
         """Helper pour vérifier les plages de valeurs."""
         self.assertTrue(min_val <= value <= max_val)
+
+    def test_ema_features(self):
+        # Ajout des indicateurs techniques
+        df = self.processor.add_indicators(self.raw_data)
+        
+        # Ajout spécifique des EMA
+        df = self.processor.add_ema_features(df)
+        
+        required_columns = [f'ema_{p}' for p in EMA_RIBBON_PERIODS] + ['ema_ribbon_width']
+        self.assertTrue(all(col in df.columns for col in required_columns))
+        
+        # Vérification du calcul du gradient
+        self.assertIn('ema_gradient', df.columns)
+        
+        # Vérification de la cohérence des valeurs
+        self.assertTrue((df['ema_5'] > df['ema_30']).any() or (df['ema_5'] < df['ema_30']).any())
 
 if __name__ == '__main__':
     unittest.main() 

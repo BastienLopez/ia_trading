@@ -86,3 +86,9 @@ tqdm==4.66.1
 huggingface-hub>=0.14.1
 xformers>=0.0.22
 python-dateutil>=2.8.2
+
+# Added from the code block
+flask-socketio==5.3.6
+tf-keras==2.15.0
+python-socketio==5.11.2
+websocket-client==1.7.0

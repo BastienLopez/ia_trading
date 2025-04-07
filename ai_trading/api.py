@@ -275,6 +275,17 @@ async def backtest(
         logger.error(f"Erreur lors du backtest: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.route('/api/ema_metrics', methods=['GET'])
+def get_ema_metrics():
+    periods = request.args.getlist('periods', type=int) or [5, 10, 15, 20, 25, 30, 50]
+    data = fetch_market_data()
+    processed = add_ema_features(data.copy(), periods)
+    return jsonify({
+        'timestamps': processed['timestamp'].tolist(),
+        'emas': {f'ema_{p}': processed[f'ema_{p}'].tolist() for p in periods},
+        'ribbon_width': processed['ema_ribbon_width'].tolist()
+    })
+
 if __name__ == "__main__":
     # Créer le dossier logs s'il n'existe pas
     os.makedirs("logs", exist_ok=True)

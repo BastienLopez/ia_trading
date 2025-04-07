@@ -115,4 +115,10 @@ LOGGING_CONFIG = {
             "propagate": True
         }
     }
+}
+
+EMA_RIBBON_PERIODS = [5, 10, 15, 20, 25, 30, 50]
+EMA_GRADIENT_THRESHOLDS = {
+    'bullish': 0.015,
+    'bearish': -0.01
 } 

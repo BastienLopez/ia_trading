@@ -138,26 +138,21 @@ class SocialAnalyzer(EnhancedNewsAnalyzer):
         return df
     
     def _calculate_engagement_metrics(self, df: pd.DataFrame) -> pd.DataFrame:
-        if df.empty:
-            return df
-        
-        existing_metrics = [m for m in self.platform_config[self.platform]['metrics'] if m in df.columns]
+        """Calcule les métriques d'engagement normalisées."""
+        existing_metrics = [m for m in self.engagement_metrics if m in df.columns]
         
         for metric in existing_metrics:
-            # Remplissage des valeurs manquantes et conversion en numérique
             df[metric] = pd.to_numeric(df[metric].fillna(0), errors='coerce').fillna(0)
             
-            # Calcul de la normalisation seulement si la plage est valide
             if (df[metric].max() - df[metric].min()) > 0:
                 df[f'{metric}_norm'] = (df[metric] - df[metric].min()) / (df[metric].max() - df[metric].min())
             else:
-                df[f'{metric}_norm'] = 0.5  # Valeur neutre quand pas de variation
-        
-        # Calcul du score d'engagement avec vérification des colonnes
+                df[f'{metric}_norm'] = 0.5
+
         norm_columns = [f'{m}_norm' for m in existing_metrics if f'{m}_norm' in df.columns]
         if norm_columns:
             df['engagement_score'] = df[norm_columns].mean(axis=1)
-                else:
+        else:
             df['engagement_score'] = 0.0
         
         return df
@@ -264,6 +259,13 @@ class SocialAnalyzer(EnhancedNewsAnalyzer):
             (1 - df['time_decay']) * 
             df['sentiment_score'].abs()
         )
+    
+    def _enhance_with_technical_features(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Enrichit les données avec des indicateurs techniques."""
+        from ai_trading.data_processor import add_ema_features
+        df = add_ema_features(df)
+        df['ema_ribbon_width'] = df['ema_5'] - df['ema_30']
+        return df
 
 # Exemple d'utilisation
 if __name__ == "__main__":

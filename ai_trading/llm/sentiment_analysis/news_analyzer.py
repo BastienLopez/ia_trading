@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 import logging
 import re
 import json
+import tensorflow.keras as keras
 
 # Configuration du logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
