@@ -1,8 +1,8 @@
 import argparse
 import os
-import pandas as pd
-import matplotlib.pyplot as plt
 from datetime import datetime, timedelta
+
+import matplotlib.pyplot as plt
 
 from ai_trading.data_processor import DataProcessor
 from ai_trading.rl_agent import RLAgent
@@ -203,13 +203,13 @@ def main():
         )
 
         # Afficher les métriques de performance
-        print(f"Résultats du backtest:")
+        print("Résultats du backtest:")
         print(f"Profit: {backtest_results['profit_pct']:.2f}%")
         print(f"Buy & Hold: {backtest_results['bh_profit_pct']:.2f}%")
         print(f"Ratio de Sharpe: {backtest_results['sharpe_ratio']:.2f}")
         print(f"Nombre de trades: {len(backtest_results['trades'])}")
 
-    print(f"Entraînement terminé. Modèle sauvegardé dans {save_path}")
+    print("Entraînement terminé")
 
 
 if __name__ == "__main__":

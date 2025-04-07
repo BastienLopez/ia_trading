@@ -1,11 +1,11 @@
-import os
 import json
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
+import os
 from datetime import datetime
+from typing import Any, Dict
+
+import matplotlib.pyplot as plt
+import pandas as pd
 import requests
-from typing import Dict, List, Any, Optional
 
 
 class TradeLogger:
@@ -159,7 +159,7 @@ class TradeLogger:
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10), sharex=True)
 
         # Graphique du profit cumulatif
-        ax1.plot(df["timestamp"], df["cumulative_profit"], label="Profit cumulatif")
+        ax1.plot(df["timestamp"], df["cumulative_profit"], label="Profit cumulati")
         ax1.set_title(f"Performance de trading {symbol if symbol else 'tous symboles'}")
         ax1.set_ylabel("Profit ($)")
         ax1.legend()

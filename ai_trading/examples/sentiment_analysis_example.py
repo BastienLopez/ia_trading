@@ -2,13 +2,14 @@
 Exemple d'utilisation du module d'analyse de sentiment pour les actualités crypto.
 """
 
-import os
-import pandas as pd
-from ai_trading.utils.enhanced_data_collector import EnhancedDataCollector
-from ai_trading.llm.sentiment_analysis.news_analyzer import NewsAnalyzer
-
 # Configuration du logging
 import logging
+import os
+
+import pandas as pd
+
+from ai_trading.llm.sentiment_analysis.news_analyzer import NewsAnalyzer
+from ai_trading.utils.enhanced_data_collector import EnhancedDataCollector
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -58,7 +59,7 @@ def main():
 
     # Sauvegarde des résultats
     enriched_df.to_csv("data/sentiment/analyzed_news.csv", index=False)
-    logger.info(f"Analyse de sentiment terminée et sauvegardée")
+    logger.info("Analyse de sentiment terminée et sauvegardée")
 
     # 3. Affichage des résultats
     logger.info("Étape 3: Résultats de l'analyse")

@@ -1,14 +1,15 @@
-import os
-import pandas as pd
-from fastapi import FastAPI, HTTPException, Depends
-from pydantic import BaseModel, Field
-from typing import Dict, List, Any, Optional
-from datetime import datetime, timedelta
-import uvicorn
 import logging
+import os
+from datetime import datetime, timedelta
+from typing import Optional
+
+import uvicorn
+from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 
 from ai_trading.data_processor import DataProcessor
-from ai_trading.rl_agent import RLAgent, CryptoTradingEnv
+from ai_trading.rl_agent import CryptoTradingEnv, RLAgent
 
 # Configuration du logging
 logging.basicConfig(
@@ -224,6 +225,9 @@ async def train(
             "model_path": save_path,
             "training_samples": len(train_data),
             "test_samples": len(test_data),
+            "metrics": {
+                "final_reward": metrics["rewards"][-1] if metrics["rewards"] else 0,
+            },
             "backtest_results": {
                 "profit_pct": backtest_results["profit_pct"],
                 "buy_hold_pct": backtest_results["bh_profit_pct"],
@@ -309,11 +313,12 @@ async def backtest(
 
 
 @app.route("/api/ema_metrics", methods=["GET"])
-def get_ema_metrics():
-    periods = request.args.getlist("periods", type=int) or [5, 10, 15, 20, 25, 30, 50]
-    data = fetch_market_data()
-    processed = add_ema_features(data.copy(), periods)
-    return jsonify(
+def get_ema_metrics(request: Request):
+    periods = request.query_params.getlist("periods", [5, 10, 15, 20, 25, 30, 50])
+    data_processor = DataProcessor()
+    data = data_processor.download_historical_data()
+    processed = data_processor.add_ema_features(data.copy(), periods)
+    return JSONResponse(
         {
             "timestamps": processed["timestamp"].tolist(),
             "emas": {f"ema_{p}": processed[f"ema_{p}"].tolist() for p in periods},

@@ -2,16 +2,16 @@
 Collecteur de données amélioré qui utilise plusieurs sources gratuites pour les cryptomonnaies.
 """
 
-import os
-import pandas as pd
-import numpy as np
-import requests
-import time
-from datetime import datetime, timedelta
 import logging
-from typing import Dict, List, Optional, Union, Tuple
-from pycoingecko import CoinGeckoAPI
+import os
+import time
+from typing import Dict, List
+
+import numpy as np
+import pandas as pd
+import requests
 from dotenv import load_dotenv
+from pycoingecko import CoinGeckoAPI
 
 # Chargement des variables d'environnement
 load_dotenv()

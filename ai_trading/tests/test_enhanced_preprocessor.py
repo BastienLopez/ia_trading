@@ -2,13 +2,13 @@
 Tests unitaires pour le module de prétraitement amélioré.
 """
 
-import unittest
 import os
-import pandas as pd
-import numpy as np
-from datetime import datetime
 import sys
 import tempfile
+import unittest
+
+import numpy as np
+import pandas as pd
 
 # Ajout du chemin absolu vers le répertoire ai_trading
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

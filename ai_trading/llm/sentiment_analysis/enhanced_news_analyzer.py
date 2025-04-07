@@ -3,19 +3,15 @@ Module amélioré d'analyse des actualités crypto pour extraire le sentiment et
 Utilise des modèles LLM avancés et des techniques de NLP pour une analyse plus complète.
 """
 
-import os
-import pandas as pd
-import numpy as np
-from typing import List, Dict, Any, Optional, Union, Tuple
-from datetime import datetime, timedelta
 import logging
-import re
-import json
-import hashlib
-import pickle
-from collections import Counter
+from typing import Dict, List, Optional
+
 import matplotlib.pyplot as plt
+import pandas as pd
 import seaborn as sns
+
+from .news_analyzer import NewsAnalyzer
+from .sentiment_tools import SentimentCache
 
 # Configuration du logging
 logging.basicConfig(
@@ -25,17 +21,15 @@ logger = logging.getLogger(__name__)
 
 # Importation conditionnelle des bibliothèques LLM
 try:
-    from transformers import pipeline, AutoModelForSequenceClassification, AutoTokenizer
+    pass
 
     TRANSFORMERS_AVAILABLE = True
 except ImportError:
     logger.warning(
-        "La bibliothèque 'transformers' n'est pas disponible. Certaines fonctionnalités seront limitées."
+        "La bibliothèque 'transformers' n'est pas disponible. "
+        "Certaines fonctionnalités seront limitées."
     )
     TRANSFORMERS_AVAILABLE = False
-
-from .sentiment_tools import SentimentCache, text_hash
-from .news_analyzer import NewsAnalyzer
 
 
 class EnhancedNewsAnalyzer(NewsAnalyzer):

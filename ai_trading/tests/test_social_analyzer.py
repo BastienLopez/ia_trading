@@ -3,12 +3,12 @@ Tests pour l'analyseur de réseaux sociaux.
 """
 
 import unittest
-import pandas as pd
+
 import numpy as np
-from datetime import datetime
-from ai_trading.llm.sentiment_analysis.social_analyzer import SocialAnalyzer
-from ai_trading.config import EMA_RIBBON_PERIODS, EMA_GRADIENT_THRESHOLDS
+import pandas as pd
+
 from ai_trading.data_processor import DataProcessor
+from ai_trading.llm.sentiment_analysis.social_analyzer import SocialAnalyzer
 
 
 class TestSocialAnalyzer(unittest.TestCase):

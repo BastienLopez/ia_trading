@@ -2,15 +2,13 @@
 Tests unitaires pour le module d'analyse de sentiment amélioré.
 """
 
-import unittest
 import os
-import pandas as pd
-import numpy as np
-from datetime import datetime
 import sys
 import tempfile
-import json
+import unittest
 from pathlib import Path
+
+import pandas as pd
 
 # Ajout du chemin absolu vers le répertoire ai_trading
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

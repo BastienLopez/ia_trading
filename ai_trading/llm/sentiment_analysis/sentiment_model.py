@@ -4,14 +4,12 @@ Utilise un modèle de langage pour analyser les sentiments des textes.
 """
 
 import logging
-from typing import Dict, List, Optional, Union
 import os
+from typing import Dict, List, Optional, Union
 
 import numpy as np
-from transformers import AutoTokenizer, AutoModelForSequenceClassification, pipeline
 import torch
-import tensorflow as tf
-from tensorflow.keras import layers, models
+from transformers import AutoModelForSequenceClassification, AutoTokenizer, pipeline
 
 logger = logging.getLogger(__name__)
 

@@ -2,19 +2,20 @@
 Préprocesseur amélioré pour les données de cryptomonnaies provenant de différentes sources.
 """
 
-import pandas as pd
-import numpy as np
 import logging
-from typing import List, Dict, Union, Optional, Tuple
-from datetime import datetime, timedelta
+import os
 import re
-from sklearn.preprocessing import MinMaxScaler, StandardScaler
-import ta  # Bibliothèque pour les indicateurs techniques
-from nltk.tokenize import word_tokenize
+from typing import Dict, List, Optional, Tuple
+
+import nltk
+import numpy as np
+import pandas as pd
+
+# import ta  # Bibliothèque pour les indicateurs techniques
 from nltk.corpus import stopwords
 from nltk.stem import WordNetLemmatizer
-import nltk
-import os
+from nltk.tokenize import word_tokenize
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 # Configuration du logging
 logging.basicConfig(level=logging.INFO)
@@ -379,7 +380,7 @@ class EnhancedMarketDataPreprocessor:
         Returns:
             DataFrame prétraité
         """
-        logger.info(f"Prétraitement complet des données de marché")
+        logger.info("Prétraitement complet des données de marché")
 
         # Chargement des données si un chemin de fichier est fourni
         if isinstance(market_data, str):
@@ -441,7 +442,7 @@ class EnhancedMarketDataPreprocessor:
             else:
                 df_target = df_normalized
 
-            logger.info(f"Prétraitement terminé, dimensions finales: {df_target.shape}")
+            logger.info("Prétraitement des données de marché terminé")
             return df_target
 
         except Exception as e:
@@ -467,17 +468,17 @@ class EnhancedTextDataPreprocessor:
 
         # Téléchargement des ressources NLTK si nécessaire
         try:
-            nltk.data.find(f"corpora/stopwords")
+            nltk.data.find("corpora/stopwords")
         except LookupError:
             nltk.download("stopwords")
 
         try:
-            nltk.data.find(f"tokenizers/punkt")
+            nltk.data.find("tokenizers/punkt")
         except LookupError:
             nltk.download("punkt")
 
         try:
-            nltk.data.find(f"corpora/wordnet")
+            nltk.data.find("corpora/wordnet")
         except LookupError:
             nltk.download("wordnet")
 
@@ -568,7 +569,7 @@ class EnhancedTextDataPreprocessor:
         Returns:
             DataFrame avec les données prétraitées
         """
-        logger.info(f"Prétraitement de {len(news_data)} actualités")
+        logger.info("Prétraitement des actualités terminé")
 
         # Conversion en DataFrame
         df = pd.DataFrame(news_data)
@@ -599,7 +600,7 @@ class EnhancedTextDataPreprocessor:
         Returns:
             DataFrame avec les données prétraitées
         """
-        logger.info(f"Prétraitement de {len(social_data)} posts sociaux")
+        logger.info("Prétraitement des données sociales terminé")
 
         # Conversion en DataFrame
         df = pd.DataFrame(social_data)

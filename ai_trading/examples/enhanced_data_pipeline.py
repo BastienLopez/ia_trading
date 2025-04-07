@@ -3,19 +3,18 @@ Exemple d'utilisation du pipeline de données amélioré.
 Ce script montre comment collecter, prétraiter et analyser les données de cryptomonnaies.
 """
 
+# Configuration du logging
+import logging
 import os
-import pandas as pd
+
 import matplotlib.pyplot as plt
-from datetime import datetime, timedelta
+import pandas as pd
 
 from ai_trading.utils.enhanced_data_collector import EnhancedDataCollector
 from ai_trading.utils.enhanced_preprocessor import (
     EnhancedMarketDataPreprocessor,
     EnhancedTextDataPreprocessor,
 )
-
-# Configuration du logging
-import logging
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"

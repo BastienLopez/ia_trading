@@ -1,9 +1,10 @@
-import pandas as pd
-import numpy as np
-import ccxt
-import ta
-from datetime import datetime, timedelta
 import os
+from datetime import datetime, timedelta
+
+import ccxt
+import pandas as pd
+import ta
+
 from ai_trading.config import EMA_RIBBON_PERIODS
 
 

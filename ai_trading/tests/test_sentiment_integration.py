@@ -1,8 +1,7 @@
 """Tests d'intégration pour le pipeline complet de sentiment."""
 
 import unittest
-import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from ai_trading.llm.sentiment_analysis import EnhancedNewsAnalyzer, SocialAnalyzer
 

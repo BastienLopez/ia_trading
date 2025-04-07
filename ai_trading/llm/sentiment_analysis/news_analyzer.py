@@ -3,17 +3,14 @@ Module d'analyse des actualités crypto pour extraire le sentiment et les entit�
 Utilise des modèles LLM pour analyser le contenu des actualités.
 """
 
-import os
-import pandas as pd
-import numpy as np
-from typing import List, Dict, Any, Optional, Union
-from datetime import datetime, timedelta
-import logging
-import re
 import json
-import tensorflow as tf
-from keras import layers, models
+import logging
+import os
+import re
 from collections import Counter
+from typing import Any, Dict, List, Optional
+
+import pandas as pd
 
 # Configuration du logging
 logging.basicConfig(
@@ -23,8 +20,7 @@ logger = logging.getLogger(__name__)
 
 # Importation conditionnelle des bibliothèques LLM
 try:
-    from transformers import pipeline, AutoModelForSequenceClassification, AutoTokenizer
-    from transformers import BertTokenizer, BertForSequenceClassification
+    from transformers import pipeline
 
     TRANSFORMERS_AVAILABLE = True
 except ImportError:
@@ -262,7 +258,9 @@ class NewsAnalyzer:
             global_label = (
                 "positive"
                 if global_score > 0.5
-                else "negative" if global_score < 0.5 else "neutral"
+                else "negative"
+                if global_score < 0.5
+                else "neutral"
             )
 
             results.append(
@@ -730,19 +728,18 @@ if __name__ == "__main__":
     analyzer = NewsAnalyzer()
 
     # Exemple d'actualités
-    news_examples = [
-        {
-            "title": "Bitcoin Surges to $60,000 as Institutional Adoption Grows",
-            "body": "Bitcoin reached a new all-time high of $60,000 today as more institutional investors are entering the cryptocurrency market. Major companies like Tesla and MicroStrategy have added BTC to their balance sheets.",
-        },
-        {
-            "title": "Ethereum Price Drops 10% Following Network Congestion",
-            "body": "Ethereum (ETH) experienced a significant price drop of 10% in the last 24 hours due to network congestion and high gas fees. Developers are working on solutions to address these scaling issues.",
-        },
-    ]
+    sample_news = {
+        "title": "Bitcoin Surges to $60,000 as Institutional Adoption Grows",
+        "body": (
+            "Bitcoin reached a new all-time high of $60,000 today as more "
+            "institutional investors are entering the cryptocurrency market. "
+            "Major companies like Tesla and MicroStrategy have added BTC to their balance sheets."
+        ),
+        "published_at": "2023-03-15T12:30:00Z",
+    }
 
     # Analyse des actualités
-    enriched_news = analyzer.analyze_news(news_examples)
+    enriched_news = analyzer.analyze_news([sample_news])
 
     # Affichage des résultats
     for i, news in enumerate(enriched_news):

@@ -3,21 +3,20 @@ Analyse de sentiment pour les réseaux sociaux (Twitter, Reddit).
 Combine l'analyse LLM avec des métriques sociales (engagements, viralité).
 """
 
-import os
-import pandas as pd
-from typing import List, Dict, Optional
 import logging
-from datetime import datetime, timedelta
-from collections import Counter
-import matplotlib.pyplot as plt
 import re  # Ajout de l'import manquant pour les regex
-import numpy as np
+from collections import Counter
+from datetime import datetime
+from typing import Dict, List
 
-from ai_trading.utils.enhanced_preprocessor import EnhancedTextDataPreprocessor
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+
 from ai_trading.llm.sentiment_analysis.enhanced_news_analyzer import (
     EnhancedNewsAnalyzer,
 )
-from ai_trading.llm.sentiment_analysis.sentiment_tools import SentimentCache
+from ai_trading.utils.enhanced_preprocessor import EnhancedTextDataPreprocessor
 
 logger = logging.getLogger(__name__)
 

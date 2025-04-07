@@ -3,19 +3,19 @@ Exemple avancé d'utilisation du module d'analyse de sentiment pour les actualit
 Démontre les fonctionnalités avancées de l'EnhancedNewsAnalyzer.
 """
 
-import os
-import pandas as pd
-import matplotlib.pyplot as plt
-from datetime import datetime, timedelta
 import argparse
-
-from ai_trading.utils.enhanced_data_collector import EnhancedDataCollector
-from ai_trading.llm.sentiment_analysis.enhanced_news_analyzer import (
-    EnhancedNewsAnalyzer,
-)
 
 # Configuration du logging
 import logging
+import os
+from datetime import datetime, timedelta
+
+import pandas as pd
+
+from ai_trading.llm.sentiment_analysis.enhanced_news_analyzer import (
+    EnhancedNewsAnalyzer,
+)
+from ai_trading.utils.enhanced_data_collector import EnhancedDataCollector
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"

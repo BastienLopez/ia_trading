@@ -3,6 +3,7 @@ Démonstration simple de l'utilisation du module d'analyse de sentiment amélior
 """
 
 import os
+
 from ai_trading.llm.sentiment_analysis.enhanced_news_analyzer import (
     EnhancedNewsAnalyzer,
 )

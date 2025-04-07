@@ -10,37 +10,39 @@ jobs:
         python-version: ["3.9", "3.10", "3.11"]
     steps:
     - uses: actions/checkout@v4
-    
+
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v4
       with:
         python-version: ${{ matrix.python-version }}
-    
+
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
+        # Installer les outils de développement si nécessaire
+        pip install black autoflake isort flake8
         python -m nltk.downloader punkt wordnet
-        
+
     - name: Run AI Trading unit tests
       run: |
         # Ajouter l'option -k pour exclure le test problématique
         pytest ai_trading/tests/ -v -k "not test_get_crypto_prices_coingecko"
-        
+
         # Ou exécuter le test séparément avec l'option -xvs (continue en cas d'échec)
         pytest ai_trading/tests/test_enhanced_collector.py::TestEnhancedDataCollector::test_get_crypto_prices_coingecko -v || true
-    
+
     # Commenté temporairement jusqu'à ce que les problèmes soient résolus
     # - name: Run Web App tests
     #   run: |
     #     pytest tests/web_app/test_transaction_service.py -v
     #     pytest tests/web_app/test_routes.py -v
     #     pytest tests/web_app/test_price_service.py -v
-    
+
     - name: Run coverage report
       run: |
         pytest ai_trading/tests/ --cov=ai_trading --cov-report=xml
-    
+
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v3
       with:
@@ -48,17 +50,34 @@ jobs:
         file: ./coverage.xml
         flags: unittests
         name: codecov-umbrella
-    
+
     - name: Check code formatting
       run: |
         pip install black
         black --check ai_trading/
-    
+
     - name: Lint with flake8
       run: |
         pip install flake8
-        flake8 ai_trading/
-    
+        # Arrête le build si des erreurs de syntaxe Python sont présentes
+        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+        # Exécute flake8 avec les paramètres configurés dans .flake8
+        flake8 . --count --statistics
+
+    - name: Check for f-strings without placeholders
+      run: |
+        python -c "import re; import sys; import os; exit_code = 0
+        for root, _, files in os.walk('ai_trading'):
+          for file in files:
+            if file.endswith('.py'):
+              with open(os.path.join(root, file), 'r') as f:
+                content = f.read()
+                matches = re.findall(r'f\"([^\{\}\"]*)\"|f\'([^\{\}\']*)\')\'', content)
+                if matches:
+                  print(f'F-strings sans placeholders trouvés dans {os.path.join(root, file)}')
+                  exit_code = 1
+        sys.exit(exit_code)"
+
     # Ajouter des services pour les tests web_app
     services:
       redis:
@@ -66,7 +85,7 @@ jobs:
         ports:
           - 6379:6379
         options: --health-cmd="redis-cli ping" --health-interval=10s --health-timeout=5s --health-retries=3
-      
+
       postgres:
         image: postgres:13
         env:
@@ -75,4 +94,4 @@ jobs:
           POSTGRES_DB: test_db
         ports:
           - 5432:5432
-        options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5 
+        options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5

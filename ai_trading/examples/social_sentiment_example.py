@@ -4,8 +4,8 @@ Montre comment analyser des tweets et des posts Reddit.
 """
 
 import os
-import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime
+
 from ai_trading.llm.sentiment_analysis.social_analyzer import SocialAnalyzer
 
 

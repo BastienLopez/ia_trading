@@ -1,11 +1,12 @@
 import os
+
+import gymnasium as gym
 import numpy as np
 import pandas as pd
-import gymnasium as gym
 from gymnasium import spaces
 from stable_baselines3 import PPO
-from stable_baselines3.common.vec_env import DummyVecEnv
 from stable_baselines3.common.callbacks import BaseCallback
+from stable_baselines3.common.vec_env import DummyVecEnv
 
 
 class TradingCallback(BaseCallback):
@@ -291,9 +292,7 @@ class RLAgent:
             obs = next_obs
 
         # Calculer les métriques de performance
-        initial_value = df.iloc[0]["close"] * (
-            env.initial_balance / df.iloc[0]["close"]
-        )
+        # initial_value = portfolio_value  # Variable non utilisée
         final_portfolio = env.portfolio_value
         bh_final_value = df.iloc[-1]["close"] * (
             env.initial_balance / df.iloc[0]["close"]

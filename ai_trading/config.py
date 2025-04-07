@@ -4,6 +4,7 @@ Configuration principale du système de trading IA.
 
 import os
 from pathlib import Path
+
 from dotenv import load_dotenv
 
 # Chargement des variables d'environnement

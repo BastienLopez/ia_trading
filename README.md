@@ -101,3 +101,40 @@ pytest tests/web_app/test_routes.py -v
 ### CI/CD
 
 Le projet utilise GitHub Actions pour l'intégration continue. Voir `.github/workflows/tests.yml`.
+
+### Formatage du code
+
+Ce projet utilise plusieurs outils pour maintenir la qualité du code :
+
+- **Black** : Formateur de code automatique
+- **Autoflake** : Suppression des imports inutilisés
+- **isort** : Organisation des imports
+- **Flake8** : Vérification du style de code
+
+Pour formater le code, exécutez les commandes suivantes :
+
+```bash
+# Installation des outils
+pip install black autoflake isort flake8
+
+# Formatage
+black ai_trading/
+autoflake --in-place --remove-all-unused-imports --recursive ai_trading/
+isort ai_trading/
+
+# Vérification
+python -m flake8 ai_trading/
+```
+
+### Bonnes pratiques de code
+
+- **F-strings** : Utilisez les f-strings uniquement lorsque vous avez besoin d'insérer des variables dans une chaîne.
+  N'utilisez pas `f"texte sans variables"` mais simplement `"texte sans variables"`.
+
+- **Formatage du code** : Utilisez les outils suivants pour maintenir la qualité du code :
+  ```bash
+  black ai_trading/
+  autoflake --in-place --remove-all-unused-imports --recursive ai_trading/
+  isort ai_trading/
+  flake8 ai_trading/
+  ```

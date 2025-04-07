@@ -1,5 +1,6 @@
-import nltk
 import ssl
+
+import nltk
 
 try:
     _create_unverified_https_context = ssl._create_unverified_context
