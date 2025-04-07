@@ -7,6 +7,11 @@ from gymnasium import spaces
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.vec_env import DummyVecEnv
+from ai_trading.rl.trading_environment import TradingEnvironment
+import logging
+from ai_trading.rl.data_integration import RLDataIntegrator
+from ai_trading.rl.train import train_agent, TrainingMonitor
+from ai_trading.rl.evaluation import evaluate_agent, PerformanceVisualizer, PerformanceMetrics
 
 
 class TradingCallback(BaseCallback):
@@ -192,45 +197,69 @@ class RLAgent:
         os.makedirs(model_dir, exist_ok=True)
         self.model = None
 
-    def train(self, df, total_timesteps=100000, save_path=None):
+    def train(self, episodes=100, batch_size=32, update_target_every=5, 
+              save_path=None, visualize=True, checkpoint_interval=10,
+              early_stopping=None, max_steps_per_episode=None,
+              use_tensorboard=False, tensorboard_log_dir='./logs'):
         """
-        Entraîner l'agent sur les données historiques
+        Entraîne l'agent sur l'environnement avec des fonctionnalités avancées.
+        
+        Args:
+            episodes (int): Nombre d'épisodes d'entraînement
+            batch_size (int): Taille du batch pour l'entraînement
+            update_target_every (int): Fréquence de mise à jour du modèle cible
+            save_path (str, optional): Chemin pour sauvegarder le modèle
+            visualize (bool): Si True, génère des visualisations
+            checkpoint_interval (int): Intervalle d'épisodes entre les sauvegardes
+            early_stopping (dict, optional): Paramètres pour l'arrêt anticipé
+                - 'patience': Nombre d'épisodes sans amélioration
+                - 'min_delta': Amélioration minimale requise
+                - 'metric': Métrique à surveiller ('reward', 'portfolio_value', 'returns')
+            max_steps_per_episode (int, optional): Nombre maximum d'étapes par épisode
+            use_tensorboard (bool): Si True, utilise TensorBoard pour le suivi
+            tensorboard_log_dir (str): Répertoire pour les logs TensorBoard
+            
+        Returns:
+            dict: Historique d'entraînement
         """
-        # Créer l'environnement de trading
-        env = DummyVecEnv([lambda: CryptoTradingEnv(df)])
-
-        # Initialiser le modèle PPO
-        model = PPO(
-            "MlpPolicy",
-            env,
-            verbose=1,
-            learning_rate=0.0003,
-            n_steps=2048,
-            batch_size=64,
-            n_epochs=10,
-            gamma=0.99,
-            gae_lambda=0.95,
-            clip_range=0.2,
-            ent_coef=0.01,
+        if not self.model or not self.environment:
+            raise ValueError("Le modèle et l'environnement doivent être créés avant l'entraînement")
+        
+        logger.info("Démarrage de l'entraînement de l'agent RL...")
+        
+        # Configurer l'arrêt anticipé
+        es_config = None
+        if early_stopping:
+            es_config = {
+                'patience': early_stopping.get('patience', 10),
+                'min_delta': early_stopping.get('min_delta', 0.0),
+                'metric': early_stopping.get('metric', 'returns')
+            }
+            logger.info(f"Arrêt anticipé configuré: patience={es_config['patience']}, "
+                       f"min_delta={es_config['min_delta']}, metric={es_config['metric']}")
+        
+        # Exécuter l'entraînement
+        history = train_agent(
+            agent=self.model,
+            env=self.environment,
+            episodes=episodes,
+            batch_size=batch_size,
+            update_target_every=update_target_every,
+            save_path=save_path,
+            visualize=visualize,
+            checkpoint_interval=checkpoint_interval,
+            early_stopping=es_config,
+            max_steps_per_episode=max_steps_per_episode,
+            use_tensorboard=use_tensorboard,
+            tensorboard_log_dir=tensorboard_log_dir
         )
-
-        # Callback pour suivre les performances
-        callback = TradingCallback()
-
-        # Entraîner le modèle
-        model.learn(total_timesteps=total_timesteps, callback=callback)
-
-        # Sauvegarder le modèle
-        if save_path:
-            model.save(save_path)
-
-        self.model = model
-
-        # Retourner les métriques d'entraînement
-        return {
-            "rewards": callback.rewards,
-            "portfolio_values": callback.portfolio_values,
-        }
+        
+        logger.info("Entraînement terminé")
+        
+        # Stocker l'historique d'entraînement
+        self.training_history = history
+        
+        return history
 
     def load(self, model_path):
         """
@@ -327,3 +356,157 @@ class RLAgent:
             "final_portfolio": final_portfolio,
             "buy_hold_value": bh_final_value,
         }
+
+
+# Configuration du logger
+logger = logging.getLogger('RLAgent')
+logger.setLevel(logging.INFO)
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+
+class RLTradingSystem:
+    """Interface principale pour le système de trading par RL."""
+    
+    def __init__(self, config=None):
+        """
+        Initialise le système de trading RL.
+        
+        Args:
+            config (dict, optional): Configuration du système
+        """
+        self.config = config or {}
+        self.agent = None
+        self.environment = None
+        
+        logger.info("Système de trading RL initialisé")
+    
+    def create_environment(self, data, initial_balance=10000, transaction_fee=0.001, window_size=5):
+        """
+        Crée l'environnement de trading.
+        
+        Args:
+            data (DataFrame): Données historiques de prix
+            initial_balance (float): Solde initial
+            transaction_fee (float): Frais de transaction
+            window_size (int): Taille de la fenêtre d'observation
+            
+        Returns:
+            TradingEnvironment: L'environnement créé
+        """
+        self.environment = TradingEnvironment(
+            df=data,
+            initial_balance=initial_balance,
+            transaction_fee=transaction_fee,
+            window_size=window_size
+        )
+        
+        logger.info(f"Environnement de trading créé avec {len(data)} points de données")
+        
+        return self.environment
+    
+    def test_random_strategy(self, num_episodes=1):
+        """
+        Teste une stratégie aléatoire dans l'environnement.
+        
+        Args:
+            num_episodes (int): Nombre d'épisodes à exécuter
+            
+        Returns:
+            list: Historique des valeurs de portefeuille pour chaque épisode
+        """
+        if self.environment is None:
+            raise ValueError("L'environnement doit être créé avant de tester une stratégie")
+        
+        results = []
+        
+        for episode in range(num_episodes):
+            obs = self.environment.reset()
+            done = False
+            episode_rewards = []
+            
+            while not done:
+                action = np.random.randint(0, 3)  # Action aléatoire
+                obs, reward, done, info = self.environment.step(action)
+                episode_rewards.append(reward)
+            
+            final_value = self.environment.get_portfolio_value()
+            returns = (final_value / self.environment.initial_balance) - 1
+            
+            results.append({
+                'episode': episode,
+                'final_value': final_value,
+                'returns': returns,
+                'avg_reward': np.mean(episode_rewards),
+                'portfolio_history': self.environment.get_portfolio_history()
+            })
+            
+            logger.info(f"Épisode {episode}: Valeur finale=${final_value:.2f}, "
+                       f"Rendement={returns*100:.2f}%")
+        
+        return results
+
+    def integrate_data(self, market_data, sentiment_data=None, window_size=5, test_split=0.2):
+        """
+        Intègre les données de marché et de sentiment pour l'apprentissage par renforcement.
+        
+        Args:
+            market_data (DataFrame): Données de marché prétraitées
+            sentiment_data (DataFrame, optional): Données de sentiment
+            window_size (int): Taille de la fenêtre d'observation
+            test_split (float): Proportion des données à utiliser pour le test
+            
+        Returns:
+            tuple: (train_data, test_data) DataFrames prêts pour l'RL
+        """
+        integrator = RLDataIntegrator()
+        return integrator.integrate_data(
+            market_data=market_data,
+            sentiment_data=sentiment_data,
+            window_size=window_size,
+            test_split=test_split
+        )
+
+    def evaluate(self, test_data=None, num_episodes=1, visualize=True, save_dir='results/evaluation'):
+        """
+        Évalue l'agent sur des données de test.
+        
+        Args:
+            test_data (DataFrame, optional): Données de test. Si None, utilise l'environnement actuel.
+            num_episodes (int): Nombre d'épisodes d'évaluation
+            visualize (bool): Si True, génère des visualisations
+            save_dir (str): Répertoire pour sauvegarder les visualisations
+            
+        Returns:
+            dict: Résultats de l'évaluation
+        """
+        if not self.agent:
+            raise ValueError("L'agent doit être créé avant l'évaluation")
+        
+        # Créer un nouvel environnement avec les données de test si fournies
+        if test_data is not None:
+            test_env = self.create_environment(
+                data=test_data,
+                initial_balance=self.environment.initial_balance,
+                transaction_fee=self.environment.transaction_fee,
+                window_size=self.environment.window_size
+            )
+        else:
+            test_env = self.environment
+        
+        # Évaluer l'agent
+        results = evaluate_agent(self.agent, test_env, num_episodes=num_episodes)
+        
+        # Visualiser les résultats si demandé
+        if visualize:
+            visualizer = PerformanceVisualizer(save_dir=save_dir)
+            visualizer.create_performance_dashboard(
+                results=results,
+                dates=test_data.index if test_data is not None else None,
+                actions=results['actions'],
+                trades=results['trades']
+            )
+        
+        return results
