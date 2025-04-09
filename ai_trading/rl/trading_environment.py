@@ -22,7 +22,14 @@ class TradingEnvironment(gym.Env):
     Version simple avec actions d'achat, vente et maintien.
     """
 
-    def __init__(self, df, initial_balance=10000, transaction_fee=0.001, window_size=5, include_technical_indicators=False):
+    def __init__(
+        self,
+        df,
+        initial_balance=10000,
+        transaction_fee=0.001,
+        window_size=5,
+        include_technical_indicators=False,
+    ):
         """
         Initialise l'environnement de trading.
 
@@ -73,17 +80,14 @@ class TradingEnvironment(gym.Env):
     def _build_observation_space(self):
         """Construit l'espace d'observation."""
         # Calcul correct du nombre de caractéristiques
-        n_features = (self.window_size + 1)  # Historique des prix (close)
+        n_features = self.window_size + 1  # Historique des prix (close)
         n_features += 2  # Crypto détenue + solde
-        
+
         if self.include_technical_indicators:
             n_features += self.window_size * 3  # RSI, MACD, BB
-        
+
         self.observation_space = spaces.Box(
-            low=-np.inf, 
-            high=np.inf, 
-            shape=(n_features,), 
-            dtype=np.float32
+            low=-np.inf, high=np.inf, shape=(n_features,), dtype=np.float32
         )
 
     def reset(self):
@@ -222,12 +226,18 @@ class TradingEnvironment(gym.Env):
         if self.include_technical_indicators:
             # Exemple d'indicateurs techniques (à adapter selon les besoins)
             # RSI
-            rsi_values = np.random.random(self.window_size) * 100  # Simulé pour l'exemple
+            rsi_values = (
+                np.random.random(self.window_size) * 100
+            )  # Simulé pour l'exemple
             # MACD
-            macd_values = np.random.random(self.window_size) * 2 - 1  # Simulé pour l'exemple
+            macd_values = (
+                np.random.random(self.window_size) * 2 - 1
+            )  # Simulé pour l'exemple
             # Bandes de Bollinger
-            bb_values = np.random.random(self.window_size) * 2 - 1  # Simulé pour l'exemple
-            
+            bb_values = (
+                np.random.random(self.window_size) * 2 - 1
+            )  # Simulé pour l'exemple
+
             # Ajouter les indicateurs à l'observation
             features.extend(rsi_values)
             features.extend(macd_values)

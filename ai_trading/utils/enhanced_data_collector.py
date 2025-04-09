@@ -512,11 +512,12 @@ class EnhancedDataCollector:
 
 class DataCollector:
     """Collecte les données de marché depuis diverses sources"""
+
     def __init__(self, apis=None):
         self.apis = apis or []
-        self.logger = logging.getLogger('DataCollector')
-    
-    def collect_market_data(self, symbol, start_date, end_date, interval='1d'):
+        self.logger = logging.getLogger("DataCollector")
+
+    def collect_market_data(self, symbol, start_date, end_date, interval="1d"):
         # Implémentation existante...
         return pd.DataFrame()  # Exemple simplifié
 

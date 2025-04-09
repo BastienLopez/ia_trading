@@ -1,9 +1,8 @@
 import logging
 import os
-from datetime import datetime, timedelta
 import tempfile
+from datetime import datetime, timedelta
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
@@ -367,73 +366,76 @@ class RLDataIntegrator:
     def visualize_integrated_data(self, data, save_dir=None):
         """
         Visualise les données intégrées.
-        
+
         Args:
             data (pd.DataFrame): Données intégrées
             save_dir (str): Répertoire de sauvegarde
-            
+
         Returns:
             list: Chemins des fichiers de visualisation
         """
         import matplotlib
-        matplotlib.use('Agg')  # Utiliser le backend non-interactif
+
+        matplotlib.use("Agg")  # Utiliser le backend non-interactif
         import matplotlib.pyplot as plt
-        
+
         if save_dir is None:
             save_dir = tempfile.mkdtemp(prefix="data_visualizations")
-        
+
         os.makedirs(save_dir, exist_ok=True)
-        
+
         # Liste des fichiers générés
         files = []
-        
+
         # 1. Prix de clôture
         plt.figure(figsize=(12, 6))
-        plt.plot(data.index, data['close'])
-        plt.title('Prix de clôture')
-        plt.xlabel('Date')
-        plt.ylabel('Prix')
+        plt.plot(data.index, data["close"])
+        plt.title("Prix de clôture")
+        plt.xlabel("Date")
+        plt.ylabel("Prix")
         plt.grid(True)
-        close_path = os.path.join(save_dir, 'close_price.png')
+        close_path = os.path.join(save_dir, "close_price.png")
         plt.savefig(close_path)
         plt.close()
-        files.append('close_price.png')
-        
+        files.append("close_price.png")
+
         # 2. Volume
-        if 'volume' in data.columns:
+        if "volume" in data.columns:
             plt.figure(figsize=(12, 6))
-            plt.bar(data.index, data['volume'])
-            plt.title('Volume')
-            plt.xlabel('Date')
-            plt.ylabel('Volume')
+            plt.bar(data.index, data["volume"])
+            plt.title("Volume")
+            plt.xlabel("Date")
+            plt.ylabel("Volume")
             plt.grid(True)
-            volume_path = os.path.join(save_dir, 'volume.png')
+            volume_path = os.path.join(save_dir, "volume.png")
             plt.savefig(volume_path)
             plt.close()
-            files.append('volume.png')
-        
+            files.append("volume.png")
+
         # 3. Sentiment si disponible
-        if 'sentiment' in data.columns:
+        if "sentiment" in data.columns:
             plt.figure(figsize=(12, 6))
-            plt.plot(data.index, data['sentiment'])
-            plt.title('Sentiment')
-            plt.xlabel('Date')
-            plt.ylabel('Score de sentiment')
+            plt.plot(data.index, data["sentiment"])
+            plt.title("Sentiment")
+            plt.xlabel("Date")
+            plt.ylabel("Score de sentiment")
             plt.grid(True)
-            sentiment_path = os.path.join(save_dir, 'sentiment.png')
+            sentiment_path = os.path.join(save_dir, "sentiment.png")
             plt.savefig(sentiment_path)
             plt.close()
-            files.append('sentiment.png')
-        
+            files.append("sentiment.png")
+
         logger.info(f"Visualisations sauvegardées dans {save_dir}")
-        
+
         return files
 
-    def generate_synthetic_data(self, n_samples=100, trend="bullish", volatility=0.02, with_sentiment=True):
+    def generate_synthetic_data(
+        self, n_samples=100, trend="bullish", volatility=0.02, with_sentiment=True
+    ):
         """Génère des données synthétiques pour les tests."""
         # Créer des dates
         dates = pd.date_range(start="2023-01-01", periods=n_samples, freq="D")
-        
+
         # Générer des prix selon la tendance
         if trend == "bullish":
             prices = np.linspace(100, 200, n_samples)
@@ -441,54 +443,59 @@ class RLDataIntegrator:
             prices = np.linspace(200, 100, n_samples)
         else:  # sideways
             prices = np.ones(n_samples) * 150
-        
+
         # Ajouter de la volatilité
         prices += np.random.normal(0, volatility * 100, n_samples)
-        
+
         # Créer le DataFrame avec des valeurs cohérentes
         base_prices = prices.copy()
         highs = base_prices + np.random.uniform(5, 15, n_samples)
         lows = base_prices - np.random.uniform(5, 15, n_samples)
         closes = np.random.uniform(lows, highs, n_samples)
-        
-        df = pd.DataFrame({
-            "open": base_prices,
-            "high": highs,
-            "low": lows,
-            "close": closes,
-            "volume": np.random.uniform(1000, 5000, n_samples)
-        }, index=dates)
-        
+
+        df = pd.DataFrame(
+            {
+                "open": base_prices,
+                "high": highs,
+                "low": lows,
+                "close": closes,
+                "volume": np.random.uniform(1000, 5000, n_samples),
+            },
+            index=dates,
+        )
+
         # Ajouter des données de sentiment si demandé
         if with_sentiment:
             df["compound_score"] = np.random.uniform(-1, 1, n_samples)
-        
+
         logger.info(f"Données synthétiques générées: {n_samples} points")
         return df
 
     def integrate_sentiment_data(self, market_data, sentiment_data):
         """
         Intègre les données de sentiment aux données de marché.
-        
+
         Args:
             market_data (pd.DataFrame): Données de marché
             sentiment_data (pd.DataFrame): Données de sentiment
-            
+
         Returns:
             pd.DataFrame: Données intégrées
         """
         # Vérifier que les données de sentiment ont la bonne structure
         if "compound_score" not in sentiment_data.columns:
-            logger.warning("Les données de sentiment n'ont pas la colonne 'compound_score'")
+            logger.warning(
+                "Les données de sentiment n'ont pas la colonne 'compound_score'"
+            )
             return market_data
-        
+
         # Aligner les index
         sentiment_data = sentiment_data.reindex(market_data.index, method="ffill")
-        
+
         # Fusionner les données
         integrated_data = market_data.copy()
         integrated_data["sentiment"] = sentiment_data["compound_score"]
-        
+
         logger.info(f"Données de sentiment intégrées: {len(integrated_data)} points")
-        
+
         return integrated_data

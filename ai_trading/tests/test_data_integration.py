@@ -2,16 +2,16 @@ import os
 import sys
 import unittest
 
+import matplotlib
 import numpy as np
 import pandas as pd
-import matplotlib
 
 # Ajouter le répertoire parent au chemin pour pouvoir importer les modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from ai_trading.rl.data_integration import RLDataIntegrator
 
-matplotlib.use('Agg')  # Utiliser le backend non-interactif
+matplotlib.use("Agg")  # Utiliser le backend non-interactif
 
 
 class TestDataIntegration(unittest.TestCase):
@@ -55,19 +55,19 @@ class TestDataIntegration(unittest.TestCase):
         """Teste le prétraitement des données de marché."""
         # Générer des données synthétiques
         data = self.integrator.generate_synthetic_data(n_samples=100)
-        
+
         # Prétraiter les données
         processed_data = self.integrator.preprocess_market_data(data)
-        
+
         # Vérifier que les données sont prétraitées
         self.assertIsInstance(processed_data, pd.DataFrame)
         self.assertEqual(len(processed_data), 100)
-        
+
         # Vérifier que les colonnes nécessaires sont présentes
-        required_columns = ['open', 'high', 'low', 'close', 'volume']
+        required_columns = ["open", "high", "low", "close", "volume"]
         for col in required_columns:
             self.assertIn(col, processed_data.columns)
-        
+
         # Vérifier qu'il n'y a pas de valeurs manquantes
         self.assertTrue(processed_data[required_columns].notna().all().all())
 
@@ -137,8 +137,7 @@ class TestDataIntegration(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             # Visualiser les données
             files = self.integrator.visualize_integrated_data(
-                data=preprocessed_market_data,
-                save_dir=temp_dir
+                data=preprocessed_market_data, save_dir=temp_dir
             )
 
             # Vérifier que les fichiers de visualisation sont créés

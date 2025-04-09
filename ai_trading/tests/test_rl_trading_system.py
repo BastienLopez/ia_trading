@@ -3,10 +3,11 @@ import sys
 import tempfile
 import unittest
 
+import matplotlib
 import numpy as np
 import pandas as pd
-import matplotlib
-matplotlib.use('Agg')  # Désactiver l'interface graphique pour les tests
+
+matplotlib.use("Agg")  # Désactiver l'interface graphique pour les tests
 
 # Ajouter le répertoire parent au chemin pour pouvoir importer les modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -86,9 +87,9 @@ class TestRLTradingSystem(unittest.TestCase):
             initial_balance=10000,
             transaction_fee=0.001,
             window_size=10,
-            include_technical_indicators=False  # Désactiver les indicateurs techniques
+            include_technical_indicators=False,  # Désactiver les indicateurs techniques
         )
-        
+
         # Créer l'agent avec la taille réelle de l'état
         agent = self.system.create_agent(
             state_size=env.observation_space.shape[0],
@@ -101,7 +102,7 @@ class TestRLTradingSystem(unittest.TestCase):
             batch_size=32,
             memory_size=1000,
         )
-        
+
         # Entraîner l'agent
         history = self.system.train(
             agent=agent,
@@ -111,16 +112,20 @@ class TestRLTradingSystem(unittest.TestCase):
             save_path=os.path.join(self.temp_dir, "test_model"),
             visualize=False,  # Désactiver les visualisations pour éviter les problèmes de tkinter
         )
-        
+
         # Vérifier que l'historique est retourné
         self.assertIsInstance(history, dict)
-        
+
         # Vérifier que l'historique contient les bonnes clés
-        expected_keys = ["episode_rewards", "episode_portfolio_values", "episode_returns"]
+        expected_keys = [
+            "episode_rewards",
+            "episode_portfolio_values",
+            "episode_returns",
+        ]
         for key in expected_keys:
             self.assertIn(key, history)
             self.assertEqual(len(history[key]), 3)
-        
+
         # Vérifier que le modèle final est sauvegardé
         final_model_path = os.path.join(self.temp_dir, "test_model_final.h5")
         if os.path.exists(final_model_path):
@@ -131,7 +136,9 @@ class TestRLTradingSystem(unittest.TestCase):
             if os.path.exists(alt_path):
                 self.assertTrue(True)
             else:
-                self.assertTrue(False, f"Aucun modèle trouvé à {final_model_path} ou {alt_path}")
+                self.assertTrue(
+                    False, f"Aucun modèle trouvé à {final_model_path} ou {alt_path}"
+                )
 
     def test_evaluate(self):
         """Teste l'évaluation du système."""
@@ -161,7 +168,7 @@ class TestRLTradingSystem(unittest.TestCase):
             # Évaluer le système
             results = self.system.evaluate(
                 agent=agent,  # Passer l'agent explicitement
-                env=env,      # Passer l'environnement explicitement
+                env=env,  # Passer l'environnement explicitement
                 num_episodes=1,
             )
 
@@ -199,9 +206,7 @@ class TestRLTradingSystem(unittest.TestCase):
 
         # Intégrer les données
         train_data, test_data = self.system.integrate_data(
-            market_data=market_data,
-            sentiment_data=sentiment_data,
-            split_ratio=0.8
+            market_data=market_data, sentiment_data=sentiment_data, split_ratio=0.8
         )
 
         # Vérifier que les données sont divisées correctement

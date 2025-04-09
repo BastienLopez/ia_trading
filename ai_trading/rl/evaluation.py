@@ -4,9 +4,9 @@ import os
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 import seaborn as sns
 from tqdm import tqdm
-import pandas as pd
 
 # Configuration du logger
 logger = logging.getLogger("EvaluationRL")
@@ -52,17 +52,17 @@ class PerformanceMetrics:
         """
         returns = np.array(returns)
         excess_returns = returns - risk_free_rate
-        
+
         # Éviter la division par zéro
         std_dev = np.std(excess_returns)
         if std_dev == 0:
             return 0.0  # Retourner un float même si std_dev est 0
-        
+
         sharpe_ratio = np.mean(excess_returns) / std_dev
-        
+
         # Annualiser (supposons des rendements quotidiens)
         sharpe_ratio_annualized = sharpe_ratio * np.sqrt(252)
-        
+
         return float(sharpe_ratio_annualized)  # Convertir explicitement en float
 
     @staticmethod
@@ -639,33 +639,35 @@ class PerformanceVisualizer:
         else:
             plt.show()
 
-    def plot_performance_metrics(self, results, dates=None, title="Métriques de performance"):
+    def plot_performance_metrics(
+        self, results, dates=None, title="Métriques de performance"
+    ):
         """Trace les métriques de performance dans un tableau."""
         plt.figure(figsize=self.figsize)
-        
+
         # Calcul des métriques
         portfolio_values = results["portfolio_history"]
         metrics = PerformanceMetrics.calculate_all_metrics(portfolio_values)
         metrics_df = pd.DataFrame([metrics])
-        
+
         # Création du tableau
         cell_text = metrics_df.values.tolist()
-        
+
         # Modification ici : utilisation d'un label personnalisé au lieu de l'index
         row_labels = ["Métriques"]  # Étiquette unique pour la seule ligne
-        
+
         plt.table(
             cellText=cell_text,
             rowLabels=row_labels,  # Utilisation du label personnalisé
             colLabels=metrics_df.columns,
             cellLoc="center",
             loc="center",
-            bbox=[0, 0, 1, 1]  # Ajustement de la position
+            bbox=[0, 0, 1, 1],  # Ajustement de la position
         )
-        
+
         plt.axis("off")
         plt.title(title)
-        
+
         if self.save_dir:
             plt.savefig(os.path.join(self.save_dir, "performance_metrics.png"))
             plt.close()

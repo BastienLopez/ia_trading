@@ -115,18 +115,18 @@ class DQNAgent:
     def act(self, state, use_epsilon=True):
         """
         Choisit une action en fonction de l'état actuel.
-        
+
         Args:
             state (np.array): État actuel
             use_epsilon (bool): Utiliser epsilon-greedy ou non (pour l'évaluation)
-        
+
         Returns:
             int: Action choisie
         """
         # Exploration aléatoire avec probabilité epsilon
         if use_epsilon and np.random.rand() <= self.epsilon:
             return random.randrange(self.action_size)
-        
+
         # Exploitation: choisir la meilleure action selon le modèle
         act_values = self.model.predict(state, verbose=0)
         return np.argmax(act_values[0])
@@ -190,8 +190,8 @@ class DQNAgent:
         Args:
             name (str): Chemin du fichier
         """
-        if not name.endswith('.weights.h5'):
-            name += '.weights.h5'
+        if not name.endswith(".weights.h5"):
+            name += ".weights.h5"
         self.model.load_weights(name)
         self.update_target_model()
         logger.info(f"Modèle chargé depuis {name}")
@@ -203,8 +203,8 @@ class DQNAgent:
         Args:
             name (str): Chemin du fichier
         """
-        if not name.endswith('.weights.h5'):
-            name += '.weights.h5'
+        if not name.endswith(".weights.h5"):
+            name += ".weights.h5"
         self.model.save_weights(name)
         logger.info(f"Modèle sauvegardé dans {name}")
 

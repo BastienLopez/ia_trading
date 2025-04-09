@@ -1,4 +1,4 @@
-# Test simple:
+# Test globaux IA:
 
 python -m ai_trading.tests.test_enhanced_collector
 python -m ai_trading.tests.test_enhanced_preprocessor
@@ -29,30 +29,18 @@ python -m unittest ai_trading/tests/test_evaluation.py
 
 python -m unittest ai_trading/tests/test_train.py
 python -m unittest ai_trading/tests/test_rl_trading_system.py
-    python -m unittest ai_trading.tests.test_rl_trading_system.TestRLTradingSystem.test_train
+python -m unittest ai_trading.tests.test_rl_trading_system.TestRLTradingSystem.test_train
 
 # Exécuter tous les tests RL
 python -m unittest discover -s ai_trading/tests
 
+# Test PASSED OR FAILED en ligne
+python -m pytest ai_trading/tests/ -v
 
-
-# Tests RL avec pytest
+# Tests RL + warning
 pytest ai_trading/tests/test_trading_environment.py -v
 pytest ai_trading/tests/test_dqn_agent.py -v
 pytest ai_trading/tests/test_data_integration.py -v
 pytest ai_trading/tests/test_train.py -v
 pytest ai_trading/tests/test_evaluation.py -v
 pytest ai_trading/tests/test_rl_trading_system.py -v
-
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-# Formatage et vérification du code
-
-# 1. Suppression des imports inutilisés
-autoflake --in-place --remove-all-unused-imports --recursive ai_trading/
-
-# 2. Organisation des imports
-isort ai_trading/
-
-# 3. Formatage du code
-black ai_trading/                                 
-

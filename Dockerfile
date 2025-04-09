@@ -1,5 +1,5 @@
 # Base image
-FROM python:3.9-slim-buster
+FROM python:3.11-slim
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE 1
@@ -32,8 +32,7 @@ WORKDIR /app
 
 # Install Python dependencies
 COPY requirements.txt .
-RUN pip install --upgrade pip && \
-    pip install -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy project
 COPY . .
@@ -45,7 +44,7 @@ RUN mkdir -p data logs
 EXPOSE 8000
 
 # Run the application
-CMD ["uvicorn", "ai_trading.api:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["python", "-m", "pytest", "ai_trading/tests/", "-v"]
 
 # Autres commandes possibles en fonction de l'utilisation :
 # Pour entraîner un modèle : 

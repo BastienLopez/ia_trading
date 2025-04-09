@@ -4,7 +4,8 @@ import time
 from datetime import datetime
 
 import matplotlib
-matplotlib.use('Agg')  # Forcer le backend non-interactif
+
+matplotlib.use("Agg")  # Forcer le backend non-interactif
 import matplotlib.pyplot as plt
 import numpy as np
 import tensorflow as tf
@@ -42,7 +43,7 @@ class TrainingMonitor:
         self.save_dir = save_dir
         self.figs = {}  # Initialiser les dictionnaires de figures
         self.axes = {}  # Initialiser les dictionnaires d'axes
-        
+
         if save_dir:
             os.makedirs(save_dir, exist_ok=True)
             self._init_figures()  # Forcer la création des figures pour les sauvegardes
@@ -133,7 +134,9 @@ class TrainingMonitor:
         # Mettre à jour l'historique
         self.history["episode_rewards"].append(total_reward)
         self.history["episode_portfolio_values"].append(portfolio_value)
-        self.history["episode_returns"].append((portfolio_value / self.initial_balance) - 1)
+        self.history["episode_returns"].append(
+            (portfolio_value / self.initial_balance) - 1
+        )
         self.history["losses"].append(avg_loss)
         self.history["epsilon"].append(epsilon)
 
@@ -198,7 +201,9 @@ class TrainingMonitor:
             try:
                 fig.savefig(os.path.join(self.save_dir, f"{name}.png"))
                 plt.close(fig)
-                logger.info(f"Graphique sauvegardé dans {os.path.join(self.save_dir, f'{name}.png')}")
+                logger.info(
+                    f"Graphique sauvegardé dans {os.path.join(self.save_dir, f'{name}.png')}"
+                )
             except ValueError as e:
                 logger.warning(f"Impossible de sauvegarder {name}.png : {str(e)}")
             except Exception as e:
@@ -230,7 +235,7 @@ def train_agent(
 ):
     """
     Entraîne un agent d'apprentissage par renforcement.
-    
+
     Args:
         agent: Agent d'apprentissage par renforcement
         env: Environnement de trading
@@ -244,14 +249,16 @@ def train_agent(
         max_steps_per_episode (int): Nombre maximum d'étapes par épisode
         use_tensorboard (bool): Utiliser TensorBoard pour le suivi
         tensorboard_log_dir (str): Répertoire pour les logs TensorBoard
-        
+
     Returns:
         dict: Historique d'entraînement
     """
     # Vérifier la taille de l'état
     state_size = env.observation_space.shape[0]
     if state_size != agent.state_size:
-        logger.warning(f"Taille de l'état de l'environnement ({state_size}) différente de celle de l'agent ({agent.state_size})")
+        logger.warning(
+            f"Taille de l'état de l'environnement ({state_size}) différente de celle de l'agent ({agent.state_size})"
+        )
         logger.warning("Réinitialisation de l'agent avec la bonne taille d'état")
         # Réinitialiser l'agent avec la bonne taille d'état
         new_agent = DQNAgent(
@@ -285,7 +292,9 @@ def train_agent(
         if save_path
         else "visualizations"
     )
-    monitor = TrainingMonitor(initial_balance=env.initial_balance, save_dir=viz_dir, plot_interval=5)
+    monitor = TrainingMonitor(
+        initial_balance=env.initial_balance, save_dir=viz_dir, plot_interval=5
+    )
 
     # Paramètres pour l'arrêt anticipé
     if early_stopping:
@@ -302,7 +311,7 @@ def train_agent(
     for e in tqdm(range(episodes), desc="Entraînement"):
         # Réinitialiser l'environnement
         state = env.reset()
-        
+
         # Redimensionner l'état en utilisant la taille de l'état de l'agent
         # qui a été mise à jour si nécessaire
         state = np.reshape(state, [1, agent.state_size])
@@ -323,7 +332,7 @@ def train_agent(
 
             # Exécuter l'action
             next_state, reward, done, info = env.step(action)
-            
+
             # Redimensionner l'état suivant en utilisant la taille de l'état de l'agent
             next_state = np.reshape(next_state, [1, agent.state_size])
 
@@ -354,7 +363,12 @@ def train_agent(
 
         # Mettre à jour le moniteur
         monitor.update(
-            e, total_reward, portfolio_value, agent.epsilon, avg_loss, time.time() - start_time
+            e,
+            total_reward,
+            portfolio_value,
+            agent.epsilon,
+            avg_loss,
+            time.time() - start_time,
         )
 
         # Ajouter la récompense à l'historique de l'agent
