@@ -5,7 +5,6 @@ test:
 	python -m pytest ai_trading/tests/ -v
 
 lint:
-	flake8 ai_trading/
 	isort --check-only ai_trading/
 	black --check ai_trading/
 

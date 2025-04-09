@@ -54,7 +54,6 @@ dash>=2.0.0  # Pour les tableaux de bord interactifs (futur)
 pytest>=7.0.0
 black>=21.9b0
 isort>=5.9.0
-flake8>=3.9.0
 autoflake>=1.4.0
 
 # Utilitaires
