@@ -108,3 +108,9 @@ flask-socketio==5.3.6
 tf-keras==2.15.0
 python-socketio==5.11.2
 websocket-client==1.7.0
+
+# Remplacer gym par gymnasium et ajouter les dépendances manquantes
+gymnasium==0.29.1
+stable-baselines3==2.2.1
+tensorflow==2.16.1
+importlib-metadata==4.12.0

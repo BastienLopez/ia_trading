@@ -34,6 +34,13 @@ Ce module contient l'implémentation d'un système de trading de cryptomonnaies 
   - Définition des hyperparamètres
   - Entraînement sur données historiques
   - Validation et ajustement
+- ⏳ 3.3 Amelioration a long terme cf `update_3_a_faire.md`
+  - Gestion avancée des risques
+  - Ordres avancés
+  - Apprentissage avancé
+  - Optimisation de portefeuille
+  - Intégration plateforme réelle/fake
+  - Visualisations interactives
 
 ### Phase 4: Prédictions de Marché (LLM) ⏳
 - ⏳ 4.1 Implémentation de `llm/predictions/market_predictor.py`

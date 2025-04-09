@@ -642,6 +642,48 @@ class EnhancedTextDataPreprocessor:
         return top_keywords
 
 
+class DataPreprocessor:
+    """Classe pour prétraiter les données de marché"""
+    
+    def __init__(self):
+        self.logger = logging.getLogger('DataPreprocessor')
+        self.logger.setLevel(logging.INFO)
+        
+    def preprocess_market_data(self, data):
+        """Prétraite les données de marché"""
+        # Implémentation de base
+        return data
+        
+    def preprocess(self, data):
+        """Alias pour preprocess_market_data"""
+        return self.preprocess_market_data(data)
+
+    def add_technical_indicators(self, data):
+        """Ajoute des indicateurs techniques aux données de marché"""
+        # Implémentation simple
+        df = data.copy()
+        
+        # Calculer quelques indicateurs techniques de base
+        if 'close' in df.columns:
+            # Moyennes mobiles
+            df['sma_5'] = df['close'].rolling(window=5).mean()
+            df['sma_20'] = df['close'].rolling(window=20).mean()
+            
+            # RSI (version simplifiée)
+            delta = df['close'].diff()
+            gain = delta.where(delta > 0, 0)
+            loss = -delta.where(delta < 0, 0)
+            avg_gain = gain.rolling(window=14).mean()
+            avg_loss = loss.rolling(window=14).mean()
+            rs = avg_gain / avg_loss.replace(0, 0.001)  # Éviter division par zéro
+            df['rsi'] = 100 - (100 / (1 + rs))
+        
+        # Remplir les valeurs NaN
+        df = df.fillna(method='ffill').fillna(method='bfill')
+        
+        return df
+
+
 # Exemple d'utilisation
 if __name__ == "__main__":
     # Prétraitement des données de marché
