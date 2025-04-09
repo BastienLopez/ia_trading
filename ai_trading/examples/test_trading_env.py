@@ -1,10 +1,13 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import sys
+import os
 
-# Utiliser des imports relatifs
-from .trading_environment import TradingEnvironment
-from .data_integration import RLDataIntegrator
+# Ajouter le répertoire racine au chemin Python
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
+
+from ai_trading.rl.trading_environment import TradingEnvironment
 
 def test_random_actions():
     """Teste l'environnement avec des actions aléatoires."""
@@ -48,6 +51,4 @@ def test_random_actions():
     print(f"Rendement: {((info['portfolio_value'] / env.initial_balance) - 1) * 100:.2f}%")
 
 if __name__ == "__main__":
-    # Ce script doit être exécuté comme un module Python
-    # python -m ai_trading.rl.test_environment
-    test_random_actions()
+    test_random_actions() 

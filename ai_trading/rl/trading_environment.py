@@ -19,7 +19,7 @@ if not logger.handlers:
 class TradingEnvironment(gym.Env):
     """
     Environnement de trading pour l'apprentissage par renforcement.
-    Version simple avec actions d'achat, vente et maintien.
+    Version améliorée avec actions d'achat/vente partielles.
     """
 
     def __init__(
@@ -29,6 +29,8 @@ class TradingEnvironment(gym.Env):
         transaction_fee=0.001,
         window_size=5,
         include_technical_indicators=False,
+        action_type="discrete",
+        n_discrete_actions=5,
     ):
         """
         Initialise l'environnement de trading.
@@ -39,6 +41,8 @@ class TradingEnvironment(gym.Env):
             transaction_fee (float): Frais de transaction (pourcentage)
             window_size (int): Nombre de périodes précédentes à inclure dans l'observation
             include_technical_indicators (bool): Inclure des indicateurs techniques dans l'observation
+            action_type (str): Type d'espace d'action ('discrete' ou 'continuous')
+            n_discrete_actions (int): Nombre d'actions discrètes pour chaque direction (achat/vente)
         """
         super(TradingEnvironment, self).__init__()
 
@@ -59,22 +63,32 @@ class TradingEnvironment(gym.Env):
         self.transaction_fee = transaction_fee
         self.window_size = window_size
         self.include_technical_indicators = include_technical_indicators
+        self.action_type = action_type
+        self.n_discrete_actions = n_discrete_actions
 
-        # Définir l'espace d'action: 0 (ne rien faire), 1 (acheter), 2 (vendre)
-        self.action_space = spaces.Discrete(3)
+        # Définir l'espace d'action selon le type
+        if action_type == "discrete":
+            # Actions: 0 (ne rien faire), 1-n (acheter x%), n+1-2n (vendre x%)
+            # Exemple avec n_discrete_actions=5:
+            # 0: ne rien faire
+            # 1-5: acheter 20%, 40%, 60%, 80%, 100% du solde disponible
+            # 6-10: vendre 20%, 40%, 60%, 80%, 100% des crypto détenues
+            self.action_space = spaces.Discrete(1 + 2 * n_discrete_actions)
+        elif action_type == "continuous":
+            # Action continue entre -1 et 1
+            # -1: vendre 100%, -0.5: vendre 50%, 0: ne rien faire, 0.5: acheter 50%, 1: acheter 100%
+            self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(1,), dtype=np.float32)
+        else:
+            raise ValueError(f"Type d'action non supporté: {action_type}")
 
         # Définir l'espace d'observation (état)
-        # Pour la version simple, on utilise:
-        # - window_size derniers prix normalisés
-        # - Quantité de crypto détenue
-        # - Solde en USD
         self._build_observation_space()
 
         # Réinitialiser l'environnement
         self.reset()
 
         logger.info(
-            f"Environnement de trading initialisé avec {len(df)} points de données"
+            f"Environnement de trading initialisé avec {len(df)} points de données et espace d'action {action_type}"
         )
 
     def _build_observation_space(self):
@@ -90,13 +104,18 @@ class TradingEnvironment(gym.Env):
             low=-np.inf, high=np.inf, shape=(n_features,), dtype=np.float32
         )
 
-    def reset(self):
+    def reset(self, seed=None):
         """
         Réinitialise l'environnement au début d'un épisode.
 
         Returns:
             observation (np.array): L'état initial
+            info (dict): Informations supplémentaires
         """
+        # Réinitialiser le générateur aléatoire si un seed est fourni
+        if seed is not None:
+            super().reset(seed=seed)
+            
         # Réinitialiser l'indice de temps
         self.current_step = self.window_size
 
@@ -111,142 +130,233 @@ class TradingEnvironment(gym.Env):
 
         logger.debug(f"Environnement réinitialisé. Observation initiale: {observation}")
 
-        return observation
+        return observation, {}  # Retourner l'observation et un dict info vide
 
     def step(self, action):
         """
         Exécute une action dans l'environnement.
 
         Args:
-            action (int): 0 (ne rien faire), 1 (acheter), 2 (vendre)
+            action: Action à exécuter (discrète ou continue selon action_type)
 
         Returns:
-            tuple: (observation, reward, done, info)
+            tuple: (observation, reward, terminated, truncated, info)
         """
         # Vérifier que l'action est valide
-        if not self.action_space.contains(action):
-            raise ValueError(f"Action invalide: {action}. Doit être 0, 1 ou 2.")
-
-        # Enregistrer l'action
-        self.action_history.append(action)
-
-        # Obtenir le prix actuel
-        current_price = self.df.iloc[self.current_step]["close"]
-
-        # Exécuter l'action
-        if action == 1:  # Acheter
-            # Calculer le montant maximum que nous pouvons acheter
-            max_crypto_to_buy = self.balance / (
-                current_price * (1 + self.transaction_fee)
-            )
-            # Acheter tout ce que nous pouvons
-            self.crypto_held += max_crypto_to_buy
-            self.balance -= (
-                max_crypto_to_buy * current_price * (1 + self.transaction_fee)
-            )
-
-            logger.debug(
-                f"Achat: {max_crypto_to_buy:.6f} unités à ${current_price:.2f}"
-            )
-
-        elif action == 2:  # Vendre
-            if self.crypto_held > 0:
-                # Vendre toute la crypto détenue
-                self.balance += (
-                    self.crypto_held * current_price * (1 - self.transaction_fee)
-                )
-
-                logger.debug(
-                    f"Vente: {self.crypto_held:.6f} unités à ${current_price:.2f}"
-                )
-
-                self.crypto_held = 0
+        if self.action_type == "continuous":
+            if isinstance(action, np.ndarray):
+                # Convertir l'action en float pour l'espace continu
+                action_value = float(action[0])
             else:
-                logger.debug("Tentative de vente sans crypto détenue")
+                action_value = float(action)
+            
+            # Créer un tableau numpy pour la vérification de l'espace d'action
+            action_for_check = np.array([action_value], dtype=np.float32)
+            
+            if not self.action_space.contains(action_for_check):
+                raise ValueError(f"Action invalide: {action_value}, doit être entre -1 et 1")
+        else:
+            if not self.action_space.contains(action):
+                raise ValueError(f"Action invalide: {action}")
+
+        # Sauvegarder l'état précédent pour calculer la récompense
+        previous_portfolio_value = self.get_portfolio_value()
+
+        # Appliquer l'action
+        if self.action_type == "discrete":
+            self._apply_discrete_action(action)
+        else:  # continuous
+            if isinstance(action, np.ndarray):
+                self._apply_continuous_action(float(action[0]))
+            else:
+                self._apply_continuous_action(float(action))
 
         # Passer à l'étape suivante
         self.current_step += 1
 
-        # Calculer la valeur du portefeuille
-        portfolio_value = self.balance + self.crypto_held * current_price
-        self.portfolio_value_history.append(portfolio_value)
-
         # Vérifier si l'épisode est terminé
         done = self.current_step >= len(self.df) - 1
 
-        # Calculer la récompense (changement de valeur du portefeuille)
-        reward = (
-            portfolio_value - self.portfolio_value_history[-2]
-        ) / self.portfolio_value_history[-2]
+        # Calculer la récompense
+        current_portfolio_value = self.get_portfolio_value()
+        reward = self._calculate_reward(previous_portfolio_value, current_portfolio_value)
 
-        # Obtenir la nouvelle observation
-        obs = self._get_observation()
+        # Enregistrer la valeur du portefeuille
+        self.portfolio_value_history.append(current_portfolio_value)
 
-        # Informations supplémentaires pour le débogage
+        # Construire l'observation
+        observation = self._get_observation()
+
+        # Informations supplémentaires
         info = {
-            "portfolio_value": portfolio_value,
-            "crypto_held": self.crypto_held,
+            "portfolio_value": current_portfolio_value,
             "balance": self.balance,
-            "current_price": current_price,
-            "return": (portfolio_value / self.initial_balance) - 1,
+            "crypto_held": self.crypto_held,
+            "current_price": self.df.iloc[self.current_step]["close"],
         }
 
-        if done:
-            logger.info(
-                f"Épisode terminé. Valeur finale du portefeuille: ${portfolio_value:.2f}, "
-                f"Rendement: {((portfolio_value / self.initial_balance) - 1) * 100:.2f}%"
-            )
+        return observation, reward, done, False, info
 
-        return obs, reward, done, info
+    def _apply_discrete_action(self, action):
+        """
+        Applique une action discrète.
+        
+        Args:
+            action (int): Indice de l'action à appliquer
+        """
+        # Obtenir le prix actuel
+        current_price = self.df.iloc[self.current_step]["close"]
+        
+        if action == 0:  # Ne rien faire
+            logger.debug("Action: HOLD")
+            return
+            
+        # Calculer le pourcentage d'achat/vente
+        if 1 <= action <= self.n_discrete_actions:  # Achat
+            # Calculer le pourcentage d'achat (1/n, 2/n, ..., n/n)
+            buy_percentage = action / self.n_discrete_actions
+            
+            # Limiter l'achat à 30% du portefeuille total
+            portfolio_value = self.get_portfolio_value()
+            max_buy_value = portfolio_value * 0.3
+            
+            # Calculer la valeur d'achat basée sur le pourcentage
+            buy_value = self.balance * buy_percentage
+            
+            # Appliquer la limite de 30%
+            buy_value = min(buy_value, max_buy_value)
+            
+            # Calculer la quantité de crypto à acheter
+            max_crypto_to_buy = buy_value / (current_price * (1 + self.transaction_fee))
+            
+            # Acheter la quantité calculée
+            self.crypto_held += max_crypto_to_buy
+            self.balance -= (max_crypto_to_buy * current_price * (1 + self.transaction_fee))
+            
+            logger.debug(
+                f"Achat: {max_crypto_to_buy:.6f} unités à ${current_price:.2f} (limité à 30% du portefeuille)"
+            )
+            
+        elif self.n_discrete_actions < action <= 2 * self.n_discrete_actions:  # Vente
+            if self.crypto_held > 0:
+                # Calculer le pourcentage de vente (1/n, 2/n, ..., n/n)
+                sell_percentage = (action - self.n_discrete_actions) / self.n_discrete_actions
+                crypto_to_sell = self.crypto_held * sell_percentage
+                
+                # Vendre la quantité calculée
+                self.balance += (
+                    crypto_to_sell * current_price * (1 - self.transaction_fee)
+                )
+                
+                logger.debug(
+                    f"Vente: {crypto_to_sell:.6f} unités ({sell_percentage*100:.0f}%) à ${current_price:.2f}"
+                )
+                
+                self.crypto_held -= crypto_to_sell
+            else:
+                logger.debug("Tentative de vente sans crypto détenue")
+
+    def _apply_continuous_action(self, action):
+        """
+        Applique une action continue.
+        
+        Args:
+            action (float): Valeur de l'action entre -1 et 1
+        """
+        # Obtenir le prix actuel
+        current_price = self.df.iloc[self.current_step]["close"]
+        
+        # Zone neutre autour de 0 pour éviter des micro-transactions
+        if -0.05 <= action <= 0.05:
+            logger.debug("Action: HOLD (zone neutre)")
+            return
+            
+        if action > 0:  # Achat
+            buy_percentage = action
+            
+            # Limiter l'achat à 30% du portefeuille total
+            portfolio_value = self.get_portfolio_value()
+            max_buy_value = portfolio_value * 0.3
+            
+            # Calculer la valeur d'achat basée sur le pourcentage
+            buy_value = self.balance * buy_percentage
+            
+            # Appliquer la limite de 30%
+            buy_value = min(buy_value, max_buy_value)
+            
+            # Calculer la quantité de crypto à acheter
+            max_crypto_to_buy = buy_value / (current_price * (1 + self.transaction_fee))
+            
+            # Acheter la quantité calculée
+            self.crypto_held += max_crypto_to_buy
+            self.balance -= (max_crypto_to_buy * current_price * (1 + self.transaction_fee))
+
+            logger.debug(
+                f"Achat: {max_crypto_to_buy:.6f} unités ({buy_percentage*100:.0f}%) à ${current_price:.2f} (limité à 30% du portefeuille)"
+            )
+            
+        else:  # Vente (action_value < 0)
+            if self.crypto_held > 0:
+                sell_percentage = -action
+                crypto_to_sell = self.crypto_held * sell_percentage
+                
+                # Vendre la quantité calculée
+                self.balance += (
+                    crypto_to_sell * current_price * (1 - self.transaction_fee)
+                )
+
+                logger.debug(
+                    f"Vente: {crypto_to_sell:.6f} unités ({sell_percentage*100:.0f}%) à ${current_price:.2f}"
+                )
+
+                self.crypto_held -= crypto_to_sell
+            else:
+                logger.debug("Tentative de vente sans crypto détenue")
 
     def _get_observation(self):
         """
         Construit l'observation (état) actuelle.
 
         Returns:
-            np.array: L'état actuel
+            np.array: L'observation
         """
-        # Obtenir les window_size derniers prix
-        price_history = self.df.iloc[
+        # Extraire les prix des window_size dernières périodes
+        prices = self.df.iloc[
             self.current_step - self.window_size : self.current_step + 1
         ]["close"].values
 
-        # Normaliser les prix (diviser par le prix actuel)
-        current_price = price_history[-1]
-        normalized_prices = price_history / current_price
+        # Normaliser les prix (variation en pourcentage par rapport au prix actuel)
+        current_price = prices[-1]
+        normalized_prices = prices / current_price - 1
 
-        # Normaliser la quantité de crypto détenue et le solde
-        normalized_crypto_held = self.crypto_held * current_price / self.initial_balance
-        normalized_balance = self.balance / self.initial_balance
+        # Ajouter la position actuelle (crypto détenue et solde)
+        crypto_held_normalized = self.crypto_held * current_price / self.initial_balance
+        balance_normalized = self.balance / self.initial_balance
 
-        # Construire l'observation de base
-        features = [*normalized_prices, normalized_crypto_held, normalized_balance]
+        # Construire l'observation
+        observation = np.concatenate(
+            [normalized_prices, [crypto_held_normalized, balance_normalized]]
+        )
 
         # Ajouter des indicateurs techniques si demandé
         if self.include_technical_indicators:
-            # Exemple d'indicateurs techniques (à adapter selon les besoins)
-            # RSI
-            rsi_values = (
-                np.random.random(self.window_size) * 100
-            )  # Simulé pour l'exemple
-            # MACD
-            macd_values = (
-                np.random.random(self.window_size) * 2 - 1
-            )  # Simulé pour l'exemple
-            # Bandes de Bollinger
-            bb_values = (
-                np.random.random(self.window_size) * 2 - 1
-            )  # Simulé pour l'exemple
+            # Extraire les indicateurs techniques
+            tech_indicators = self._get_technical_indicators()
+            observation = np.concatenate([observation, tech_indicators])
 
-            # Ajouter les indicateurs à l'observation
-            features.extend(rsi_values)
-            features.extend(macd_values)
-            features.extend(bb_values)
+        return observation.astype(np.float32)
 
-        # Convertir en tableau numpy
-        obs = np.array(features, dtype=np.float32)
+    def _get_technical_indicators(self):
+        """
+        Calcule les indicateurs techniques pour l'observation.
 
-        return obs
+        Returns:
+            np.array: Indicateurs techniques
+        """
+        # Implémentation simplifiée - à développer selon les besoins
+        # Ici, on pourrait calculer RSI, MACD, Bollinger Bands, etc.
+        # Pour l'instant, on retourne un tableau vide
+        return np.array([])
 
     def render(self, mode="human"):
         """
@@ -287,3 +397,16 @@ class TradingEnvironment(gym.Env):
             list: Historique des valeurs du portefeuille
         """
         return self.portfolio_value_history
+
+    def _calculate_reward(self, previous_value, current_value):
+        """
+        Calcule la récompense à partir des valeurs précédente et actuelle du portefeuille.
+
+        Args:
+            previous_value (float): Valeur du portefeuille à l'étape précédente
+            current_value (float): Valeur du portefeuille à l'étape actuelle
+
+        Returns:
+            float: Récompense calculée
+        """
+        return (current_value - previous_value) / previous_value

@@ -15,6 +15,9 @@ pytest ai_trading/tests/test_social_analyzer.py -v
 pytest ai_trading/tests/test_sentiment_integration.py -v
 
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# Test RL PASSED OR FAILED en ligne
+python -m pytest ai_trading/tests/ -v
+
 # Tests du système de trading RL
 python -m unittest ai_trading/tests/test_trading_environment.py
 python -m unittest ai_trading.tests.test_trading_environment.TestTradingEnvironment.test_step_buy
@@ -34,9 +37,6 @@ python -m unittest ai_trading.tests.test_rl_trading_system.TestRLTradingSystem.t
 # Exécuter tous les tests RL
 python -m unittest discover -s ai_trading/tests
 
-# Test PASSED OR FAILED en ligne
-python -m pytest ai_trading/tests/ -v
-
 # Tests RL + warning
 pytest ai_trading/tests/test_trading_environment.py -v
 pytest ai_trading/tests/test_dqn_agent.py -v
@@ -44,3 +44,17 @@ pytest ai_trading/tests/test_data_integration.py -v
 pytest ai_trading/tests/test_train.py -v
 pytest ai_trading/tests/test_evaluation.py -v
 pytest ai_trading/tests/test_rl_trading_system.py -v
+
+
+# Test RL3.1+ PASSED OR FAILED en ligne
+python -m pytest ai_trading/tests/test_trading_environment.py -v
+
+python -m pytest ai_trading/tests/test_trading_environment.py::TestTradingEnvironment::test_max_buy_limit -v
+python -m pytest ai_trading/tests/test_trading_environment.py::TestTradingEnvironment::test_discrete_max_buy_limit -v
+python -m pytest ai_trading/tests/test_trading_environment.py::TestTradingEnvironment::test_continuous_max_buy_limit -v
+python -m pytest ai_trading/tests/test_trading_environment.py::TestTradingEnvironment::test_sequential_buys -v
+
+python -m pytest ai_trading/tests/test_trading_environment.py::TestTradingEnvironment::test_discrete_partial_buy -v
+python -m pytest ai_trading/tests/test_trading_environment.py::TestTradingEnvironment::test_discrete_partial_sell -v
+python -m pytest ai_trading/tests/test_trading_environment.py::TestTradingEnvironment::test_continuous_buy -v
+python -m pytest ai_trading/tests/test_trading_environment.py::TestTradingEnvironment::test_continuous_sell -v

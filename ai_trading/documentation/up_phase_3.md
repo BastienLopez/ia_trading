@@ -3,9 +3,9 @@
 ## ⚡️ **Améliorations prioritaires à court terme (Phase 3.1+)**
 
 ### 1. **Actions plus nuancées**
-- [ ] Implémenter des actions d'achat/vente partielles (x% du portefeuille)
-- [ ] Modifier l'espace d'action dans `TradingEnvironment` pour inclure ces actions
-- [ ] Adapter la fonction de récompense en conséquence
+- [x] Implémenter des actions d'achat/vente partielles (x% du portefeuille)
+- [x] Modifier l'espace d'action dans `TradingEnvironment` pour inclure ces actions
+- [x] Adapter la fonction de récompense en conséquence
 
 ### 2. **État plus riche avec indicateurs techniques**
 - [ ] Ajouter des indicateurs dans `data_integration.py` :

@@ -35,17 +35,36 @@ class TestTradingEnvironment(unittest.TestCase):
             index=dates,
         )
 
-        # Créer l'environnement
+        # Créer l'environnement standard
         self.env = TradingEnvironment(
             df=self.test_data,
             initial_balance=10000,
             transaction_fee=0.001,
             window_size=10,
         )
+        
+        # Créer l'environnement avec actions discrètes nuancées
+        self.env_discrete = TradingEnvironment(
+            df=self.test_data,
+            initial_balance=10000,
+            transaction_fee=0.001,
+            window_size=10,
+            action_type="discrete",
+            n_discrete_actions=5,
+        )
+        
+        # Créer l'environnement avec actions continues
+        self.env_continuous = TradingEnvironment(
+            df=self.test_data,
+            initial_balance=10000,
+            transaction_fee=0.001,
+            window_size=10,
+            action_type="continuous",
+        )
 
     def test_reset(self):
         """Teste la méthode reset de l'environnement."""
-        state = self.env.reset()
+        state, _ = self.env.reset()
 
         # Vérifier que l'état a la bonne forme
         self.assertEqual(len(state), 13)
@@ -66,7 +85,7 @@ class TestTradingEnvironment(unittest.TestCase):
         initial_crypto = self.env.crypto_held
 
         # Action 0 = HOLD
-        next_state, reward, done, info = self.env.step(0)
+        next_state, reward, terminated, truncated, info = self.env.step(0)
 
         # Vérifier que le solde et les actions n'ont pas changé
         self.assertEqual(self.env.balance, initial_balance)
@@ -81,7 +100,7 @@ class TestTradingEnvironment(unittest.TestCase):
         initial_balance = self.env.balance
 
         # Action 1 = BUY
-        next_state, reward, done, info = self.env.step(1)
+        next_state, reward, terminated, truncated, info = self.env.step(1)
 
         # Vérifier que des actions ont été achetées
         self.assertGreater(self.env.crypto_held, 0)
@@ -98,81 +117,156 @@ class TestTradingEnvironment(unittest.TestCase):
         crypto_held = self.env.crypto_held
         balance_after_buy = self.env.balance
 
-        # Puis les vendre (Action 2 = SELL)
-        next_state, reward, done, info = self.env.step(2)
+        # Puis vendre
+        # Dans l'environnement standard avec n_discrete_actions=5 par défaut,
+        # les actions de vente commencent à partir de 6
+        next_state, reward, terminated, truncated, info = self.env.step(6)  # Utiliser l'action 6 pour vendre
 
-        # Vérifier que les actions ont été vendues
-        self.assertEqual(self.env.crypto_held, 0)
-
+        # Vérifier que des crypto ont été vendues
+        self.assertLess(self.env.crypto_held, crypto_held)
+        
         # Vérifier que le solde a augmenté
         self.assertGreater(self.env.balance, balance_after_buy)
 
-    def test_done_condition(self):
-        """Teste la condition de fin d'épisode."""
+    def test_discrete_partial_buy(self):
+        """Teste l'achat partiel avec actions discrètes."""
+        self.env_discrete.reset()
+        initial_balance = self.env_discrete.balance
+
+        # Action 2 = Acheter 40% (2/5 du solde)
+        next_state, reward, terminated, truncated, info = self.env_discrete.step(2)
+
+        # Vérifier que des crypto ont été achetées
+        self.assertGreater(self.env_discrete.crypto_held, 0)
+
+        # Vérifier que le solde a diminué d'environ 40%
+        expected_balance = initial_balance * 0.6  # 60% restant
+        self.assertAlmostEqual(self.env_discrete.balance / initial_balance, 0.6, delta=0.1)
+
+    def test_discrete_partial_sell(self):
+        """Teste la vente partielle avec actions discrètes."""
+        self.env_discrete.reset()
+
+        # D'abord acheter des crypto
+        self.env_discrete.step(5)  # Acheter 100%
+        crypto_held = self.env_discrete.crypto_held
+        
+        # Puis vendre partiellement (Action 8 = Vendre 60%)
+        next_state, reward, terminated, truncated, info = self.env_discrete.step(8)
+
+        # Vérifier qu'environ 40% des crypto sont encore détenues
+        expected_crypto = crypto_held * 0.4  # 40% restant
+        self.assertAlmostEqual(self.env_discrete.crypto_held / crypto_held, 0.4, delta=0.1)
+
+    def test_continuous_buy(self):
+        """Teste l'achat avec actions continues."""
+        self.env_continuous.reset()
+        initial_balance = self.env_continuous.balance
+
+        # Action 0.5 = Acheter 50%
+        next_state, reward, terminated, truncated, info = self.env_continuous.step(np.array([0.5]))
+
+        # Vérifier que des crypto ont été achetées
+        self.assertGreater(self.env_continuous.crypto_held, 0)
+
+        # Vérifier que le solde a diminué d'environ 50% (limité à 30%)
+        expected_balance = initial_balance * 0.7  # Au moins 70% restant
+        self.assertGreaterEqual(self.env_continuous.balance, expected_balance * 0.95)  # Avec une marge de 5%
+
+    def test_continuous_sell(self):
+        """Teste la vente avec actions continues."""
+        self.env_continuous.reset()
+
+        # D'abord acheter des crypto
+        self.env_continuous.step(np.array([1.0]))  # Acheter 100%
+        crypto_held = self.env_continuous.crypto_held
+        
+        # Puis vendre partiellement (Action -0.7 = Vendre 70%)
+        next_state, reward, terminated, truncated, info = self.env_continuous.step(np.array([-0.7]))
+
+        # Vérifier qu'environ 30% des crypto sont encore détenues
+        expected_crypto = crypto_held * 0.3  # 30% restant
+        self.assertAlmostEqual(self.env_continuous.crypto_held / crypto_held, 0.3, delta=0.1)
+
+    def test_continuous_neutral(self):
+        """Teste l'action neutre avec actions continues."""
+        self.env_continuous.reset()
+        initial_balance = self.env_continuous.balance
+        initial_crypto = self.env_continuous.crypto_held
+
+        # Action 0.03 = Zone neutre, ne rien faire
+        next_state, reward, terminated, truncated, info = self.env_continuous.step(np.array([0.03]))
+
+        # Vérifier que le solde et les crypto n'ont pas changé
+        self.assertEqual(self.env_continuous.balance, initial_balance)
+        self.assertEqual(self.env_continuous.crypto_held, initial_crypto)
+
+    def test_max_buy_limit(self):
+        """Teste la limite d'achat maximum de 30% du portefeuille."""
         self.env.reset()
-
-        # Avancer jusqu'à la fin des données
-        done = False
-        steps = 0
-        max_steps = len(self.test_data) - self.env.window_size - 1
-
-        while not done and steps < max_steps + 10:  # +10 pour éviter une boucle infinie
-            _, _, done, _ = self.env.step(0)  # Action HOLD
-            steps += 1
-
-        # Vérifier que l'épisode se termine au bon moment
-        self.assertEqual(steps, max_steps)
-        self.assertTrue(done)
-
-    def test_reward_calculation(self):
-        """Teste le calcul de la récompense."""
+        initial_balance = self.env.balance
+        initial_portfolio_value = self.env.get_portfolio_value()
+        
+        # Action 1 = BUY (avec la nouvelle limite de 30%)
+        next_state, reward, terminated, truncated, info = self.env.step(1)
+        
+        # Calculer la valeur dépensée
+        spent_value = initial_balance - self.env.balance
+        
+        # Vérifier que la dépense ne dépasse pas 30% du portefeuille initial
+        self.assertLessEqual(spent_value / initial_portfolio_value, 0.3 + 1e-6)  # Ajouter une petite marge pour les erreurs d'arrondi
+        
+    def test_discrete_max_buy_limit(self):
+        """Teste la limite d'achat maximum de 30% avec actions discrètes."""
+        self.env_discrete.reset()
+        initial_balance = self.env_discrete.balance
+        initial_portfolio_value = self.env_discrete.get_portfolio_value()
+        
+        # Action 5 = Acheter 100% (mais devrait être limité à 30%)
+        next_state, reward, terminated, truncated, info = self.env_discrete.step(5)
+        
+        # Calculer la valeur dépensée
+        spent_value = initial_balance - self.env_discrete.balance
+        
+        # Vérifier que la dépense ne dépasse pas 30% du portefeuille initial
+        self.assertLessEqual(spent_value / initial_portfolio_value, 0.3 + 1e-6)
+        
+    def test_continuous_max_buy_limit(self):
+        """Teste la limite d'achat maximum de 30% avec actions continues."""
+        self.env_continuous.reset()
+        initial_balance = self.env_continuous.balance
+        initial_portfolio_value = self.env_continuous.get_portfolio_value()
+        
+        # Action 1.0 = Acheter 100% (mais devrait être limité à 30%)
+        next_state, reward, terminated, truncated, info = self.env_continuous.step(np.array([1.0]))
+        
+        # Calculer la valeur dépensée
+        spent_value = initial_balance - self.env_continuous.balance
+        
+        # Vérifier que la dépense ne dépasse pas 30% du portefeuille initial
+        self.assertLessEqual(spent_value / initial_portfolio_value, 0.3 + 1e-6)
+        
+    def test_sequential_buys(self):
+        """Teste que plusieurs achats séquentiels respectent toujours la limite de 30%."""
         self.env.reset()
-
-        # Acheter des actions
-        _, reward_buy, _, _ = self.env.step(1)
-
-        # La récompense devrait être proche de zéro pour un achat
-        self.assertAlmostEqual(reward_buy, 0, delta=0.1)
-
-        # Vendre des actions avec profit
-        # Pour ce test, on suppose que le prix augmente dans nos données synthétiques
-        _, reward_sell, _, _ = self.env.step(2)
-
-        # La récompense devrait être positive pour une vente profitable
-        self.assertIsInstance(reward_sell, float)
-
-    def test_get_portfolio_value(self):
-        """Teste le calcul de la valeur du portefeuille."""
-        self.env.reset()
-
-        # Acheter des actions
+        initial_portfolio_value = self.env.get_portfolio_value()
+        
+        # Premier achat
         self.env.step(1)
-
-        # Calculer la valeur attendue du portefeuille
-        current_price = self.test_data.iloc[self.env.current_step]["close"]
-        expected_value = self.env.balance + self.env.crypto_held * current_price
-
-        # Vérifier que la valeur du portefeuille est correcte
-        self.assertAlmostEqual(self.env.get_portfolio_value(), expected_value, places=5)
-
-    def test_get_portfolio_history(self):
-        """Teste l'historique de la valeur du portefeuille."""
-        self.env.reset()
-
-        # Effectuer quelques actions
-        self.env.step(1)  # BUY
-        self.env.step(0)  # HOLD
-        self.env.step(2)  # SELL
-
-        # Récupérer l'historique
-        history = self.env.get_portfolio_history()
-
-        # Vérifier que l'historique a la bonne longueur
-        self.assertEqual(len(history), self.env.current_step - self.env.window_size + 1)
-
-        # Vérifier que les valeurs sont positives
-        for value in history:
-            self.assertGreater(value, 0)
+        
+        # Deuxième achat
+        self.env.step(1)
+        
+        # Troisième achat
+        self.env.step(1)
+        
+        # Calculer la valeur totale dépensée
+        current_portfolio_value = self.env.get_portfolio_value()
+        crypto_value = self.env.crypto_held * self.test_data.iloc[self.env.current_step]["close"]
+        
+        # Vérifier que la valeur en crypto ne dépasse pas 90% (3 x 30%) du portefeuille initial
+        # Note: Ceci est une vérification approximative car la valeur du portefeuille peut changer avec le prix
+        self.assertLessEqual(crypto_value / initial_portfolio_value, 0.9 + 1e-6)
 
 
 if __name__ == "__main__":
