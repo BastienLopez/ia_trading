@@ -14,26 +14,33 @@
   - [x] Momentum
   - [x] OBV
   - [ ] RSI
-  - [ ] CCI
-  - [ ] Fibonacci
-  - [ ] Pivots
-  - [ ] Volume Average
-  - [ ] ADX
   - [ ] Bollinger Bands
+  - [ ] EMA
+  - [ ] ATR (Average True Range)
+  - [ ] Volume Profile
+  - [ ] ADX (Directional Movement Index)
+  - [ ] Pivots
+  - [ ] Ichimoku Cloud
 - [ ] Intégrer les données de sentiment (polarité, subjectivité, etc.)
 - [ ] Ajouter une normalisation adaptative des features
 
-### 3. **Récompenses plus sophistiquées**
+### 3. **Gestion des risques avancée**
+- [x] Implémenter des stop-loss dynamiques basés sur l'ATR
+- [x] Ajouter des trailing stops
+- [x] Intégrer la gestion de position basée sur la volatilité
+- [ ] Ajouter des limites d'exposition par actif
+
+### 4. **Récompenses plus sophistiquées**
 - [ ] Utiliser le ratio de Sharpe
 - [ ] Pénaliser les transactions trop fréquentes (frais fixes)
 - [ ] Récompense basée sur le drawdown
 
-### 4. **Gestion du risque basique**
+### 5. **Gestion du risque basique**
 - [ ] Implémenter stop-loss et take-profit
 - [ ] Ajouter une limite de perte par trade
 - [ ] Créer une classe `RiskManager`
 
-### 5. **Amélioration de l'agent**
+### 6. **Amélioration de l'agent**
 - [ ] Mémoire de replay priorisée pour DQN
 - [ ] Exploration avancée : UCB, exploration par nouveauté
 - [ ] Double DQN, Dueling DQN
@@ -45,7 +52,7 @@
 - [ ] Implémenter un curriculum learning progressif
 - [ ] Ajouter des couches récurrentes (LSTM/GRU) pour le contexte temporel
 
-### 6. **Optimisation des hyperparamètres**
+### 7. **Optimisation des hyperparamètres**
 - [ ] Recherche par grille (grid search)
 - [ ] Créer la classe `HyperparameterOptimizer`
 - [ ] Ajouter des métriques de qualité
