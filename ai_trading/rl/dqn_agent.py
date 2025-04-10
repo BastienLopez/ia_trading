@@ -3,7 +3,7 @@ import random
 from collections import deque
 
 import numpy as np
-from tensorflow.keras.layers import Dense
+from tensorflow.keras.layers import Dense, Dropout
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.optimizers import Adam
 
@@ -63,10 +63,10 @@ class DQNAgent:
         self.memory = deque(maxlen=memory_size)
 
         # Modèle principal (pour la prédiction)
-        self.model = self._build_model()
+        self.model = self.build_model()
 
         # Modèle cible (pour la stabilité de l'apprentissage)
-        self.target_model = self._build_model()
+        self.target_model = self.build_model()
         self.update_target_model()
 
         # Métriques de suivi
@@ -78,18 +78,34 @@ class DQNAgent:
             f"Agent DQN initialisé avec state_size={state_size}, action_size={action_size}"
         )
 
-    def _build_model(self):
+    def build_model(self):
         """
-        Construit le réseau de neurones pour l'approximation de Q-value.
-
+        Construit le modèle de réseau neuronal.
+        
         Returns:
-            model: Modèle Keras compilé
+            keras.Model: Modèle compilé.
         """
         model = Sequential()
-        model.add(Dense(24, input_dim=self.state_size, activation="relu"))
-        model.add(Dense(24, activation="relu"))
-        model.add(Dense(self.action_size, activation="linear"))
-        model.compile(loss="mse", optimizer=Adam(learning_rate=self.learning_rate))
+        
+        # Déterminer dynamiquement la taille de l'état d'entrée
+        input_shape = (self.state_size,) if isinstance(self.state_size, int) else self.state_size
+        
+        # Couche d'entrée
+        model.add(Dense(64, input_shape=input_shape, activation='relu'))
+        model.add(Dropout(0.2))
+        
+        # Couches cachées
+        model.add(Dense(128, activation='relu'))
+        model.add(Dropout(0.2))
+        model.add(Dense(64, activation='relu'))
+        model.add(Dropout(0.2))
+        
+        # Couche de sortie
+        model.add(Dense(self.action_size, activation='linear'))
+        
+        # Compilation du modèle
+        model.compile(loss='mse', optimizer=Adam(learning_rate=self.learning_rate))
+        
         return model
 
     def update_target_model(self):
@@ -112,22 +128,25 @@ class DQNAgent:
         """
         self.memory.append((state, action, reward, next_state, done))
 
-    def act(self, state, use_epsilon=True):
+    def act(self, state):
         """
         Choisit une action en fonction de l'état actuel.
-
+        
         Args:
-            state (np.array): État actuel
-            use_epsilon (bool): Utiliser epsilon-greedy ou non (pour l'évaluation)
-
+            state (numpy.array): État actuel.
+            
         Returns:
-            int: Action choisie
+            int: Action choisie.
         """
-        # Exploration aléatoire avec probabilité epsilon
-        if use_epsilon and np.random.rand() <= self.epsilon:
+        # S'assurer que l'état a la bonne forme pour le modèle
+        if len(state.shape) == 1:
+            state = np.reshape(state, [1, len(state)])
+        
+        # Exploration aléatoire
+        if np.random.rand() <= self.epsilon:
             return random.randrange(self.action_size)
-
-        # Exploitation: choisir la meilleure action selon le modèle
+        
+        # Exploitation: choisir la meilleure action
         act_values = self.model.predict(state, verbose=0)
         return np.argmax(act_values[0])
 

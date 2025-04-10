@@ -8,11 +8,18 @@
 - [x] Adapter la fonction de récompense en conséquence
 
 ### 2. **État plus riche avec indicateurs techniques**
-- [ ] Ajouter des indicateurs dans `data_integration.py` :
-  - [ ] MACD
-  - [ ] Stochastique
-  - [ ] Momentum
-  - [ ] OBV
+- [x] Ajouter des indicateurs dans `data_integration.py` :
+  - [x] MACD
+  - [x] Stochastique
+  - [x] Momentum
+  - [x] OBV
+  - [ ] RSI
+  - [ ] CCI
+  - [ ] Fibonacci
+  - [ ] Pivots
+  - [ ] Volume Average
+  - [ ] ADX
+  - [ ] Bollinger Bands
 - [ ] Intégrer les données de sentiment (polarité, subjectivité, etc.)
 - [ ] Ajouter une normalisation adaptative des features
 

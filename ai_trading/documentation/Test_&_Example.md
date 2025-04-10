@@ -16,7 +16,9 @@ pytest ai_trading/tests/test_sentiment_integration.py -v
 
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 # Test RL PASSED OR FAILED en ligne
+```bash	
 python -m pytest ai_trading/tests/ -v
+```
 
 # Tests du système de trading RL
 python -m unittest ai_trading/tests/test_trading_environment.py
@@ -35,7 +37,9 @@ python -m unittest ai_trading/tests/test_rl_trading_system.py
 python -m unittest ai_trading.tests.test_rl_trading_system.TestRLTradingSystem.test_train
 
 # Exécuter tous les tests RL
+```bash
 python -m unittest discover -s ai_trading/tests
+```
 
 # Tests RL + warning
 pytest ai_trading/tests/test_trading_environment.py -v
@@ -46,7 +50,7 @@ pytest ai_trading/tests/test_evaluation.py -v
 pytest ai_trading/tests/test_rl_trading_system.py -v
 
 
-# Test RL3.1+ PASSED OR FAILED en ligne
+# Test RL3.1.1+ PASSED OR FAILED en ligne
 python -m pytest ai_trading/tests/test_trading_environment.py -v
 
 python -m pytest ai_trading/tests/test_trading_environment.py::TestTradingEnvironment::test_max_buy_limit -v

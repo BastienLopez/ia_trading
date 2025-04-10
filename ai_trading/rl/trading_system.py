@@ -4,6 +4,7 @@ Module pour le système de trading basé sur l'apprentissage par renforcement.
 
 import logging
 import os
+import numpy as np
 
 from ai_trading.rl.data_integration import RLDataIntegrator
 from ai_trading.rl.trading_environment import TradingEnvironment
@@ -210,56 +211,52 @@ class RLTradingSystem:
 
         return self.agent
 
-    def test_random_strategy(self, num_episodes=5):
+    def test_random_strategy(self, num_episodes=10):
         """
-        Teste une stratégie aléatoire sur l'environnement.
-
+        Teste une stratégie aléatoire pour établir une référence.
+        
         Args:
-            num_episodes (int): Nombre d'épisodes à exécuter
-
+            num_episodes (int): Nombre d'épisodes à exécuter.
+            
         Returns:
-            list: Résultats pour chaque épisode
+            dict: Résultats de la stratégie aléatoire.
         """
-        if not hasattr(self, "env"):
-            raise ValueError(
-                "L'environnement n'a pas été créé. Appelez create_environment d'abord."
-            )
-
-        results = []
-
+        total_rewards = []
+        portfolio_values = []
+        
         for episode in range(num_episodes):
-            state = self.env.reset()
+            state, _ = self.env.reset()
             done = False
-            total_reward = 0
-
+            episode_reward = 0
+            
             while not done:
-                # Action aléatoire
-                action = self.env.action_space.sample()
-                next_state, reward, done, _ = self.env.step(action)
-
-                state = next_state
-                total_reward += reward
-
-            # Collecter les résultats
-            portfolio_value = self.env.get_portfolio_value()
-            returns = (portfolio_value / self.env.initial_balance - 1) * 100
-
-            results.append(
-                {
-                    "episode": episode + 1,
-                    "final_value": portfolio_value,
-                    "returns": returns,
-                    "avg_reward": total_reward / len(self.env.df),
-                    "portfolio_history": self.env.get_portfolio_history(),
-                }
-            )
-
-            logger.info(
-                f"Stratégie aléatoire - Épisode {episode+1}/{num_episodes}: "
-                f"Valeur finale: ${portfolio_value:.2f}, Rendement: {returns:.2f}%"
-            )
-
-        return results
+                action = self.env.action_space.sample()  # Action aléatoire
+                state, reward, terminated, truncated, info = self.env.step(action)
+                done = terminated or truncated
+                episode_reward += reward
+                
+                # Enregistrer la valeur du portefeuille
+                portfolio_values.append(info['portfolio_value'])
+            
+            total_rewards.append(episode_reward)
+        
+        # Calculer les métriques
+        avg_reward = np.mean(total_rewards)
+        max_reward = np.max(total_rewards)
+        min_reward = np.min(total_rewards)
+        
+        # Calculer les métriques de trading
+        final_portfolio_value = portfolio_values[-1]
+        initial_portfolio_value = self.env.initial_balance
+        total_return = (final_portfolio_value - initial_portfolio_value) / initial_portfolio_value * 100
+        
+        return {
+            'average_reward': avg_reward,
+            'max_reward': max_reward,
+            'min_reward': min_reward,
+            'total_return': total_return,
+            'final_portfolio_value': final_portfolio_value
+        }
 
     def integrate_data(
         self,

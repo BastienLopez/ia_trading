@@ -15,6 +15,14 @@ if not logger.handlers:
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
+# Ajouter l'import de la classe TechnicalIndicators
+from .technical_indicators import TechnicalIndicators
+
+# Ajouter l'import
+from ai_trading.rl.risk_manager import RiskManager
+
+# Ajouter l'import
+from ai_trading.rl.adaptive_normalization import AdaptiveNormalizer
 
 class TradingEnvironment(gym.Env):
     """
@@ -27,10 +35,13 @@ class TradingEnvironment(gym.Env):
         df,
         initial_balance=10000,
         transaction_fee=0.001,
-        window_size=5,
-        include_technical_indicators=False,
+        window_size=50,
+        include_technical_indicators=True,
         action_type="discrete",
-        n_discrete_actions=5,
+        n_discrete_actions=3,
+        max_crypto_purchase_percent=0.3,
+        use_risk_manager=True,
+        use_adaptive_normalization=True,
     ):
         """
         Initialise l'environnement de trading.
@@ -43,6 +54,9 @@ class TradingEnvironment(gym.Env):
             include_technical_indicators (bool): Inclure des indicateurs techniques dans l'observation
             action_type (str): Type d'espace d'action ('discrete' ou 'continuous')
             n_discrete_actions (int): Nombre d'actions discrètes pour chaque direction (achat/vente)
+            max_crypto_purchase_percent (float): Pourcentage maximum du portefeuille à investir en une seule transaction
+            use_risk_manager (bool): Utiliser le gestionnaire de risque
+            use_adaptive_normalization (bool): Utiliser le normalisateur adaptatif
         """
         super(TradingEnvironment, self).__init__()
 
@@ -65,6 +79,46 @@ class TradingEnvironment(gym.Env):
         self.include_technical_indicators = include_technical_indicators
         self.action_type = action_type
         self.n_discrete_actions = n_discrete_actions
+        self.max_crypto_purchase_percent = max_crypto_purchase_percent
+
+        # Initialiser le gestionnaire de risque
+        self.use_risk_manager = use_risk_manager
+        self.risk_manager = RiskManager() if use_risk_manager else None
+
+        # Initialiser le normalisateur adaptatif
+        self.use_adaptive_normalization = use_adaptive_normalization
+        if use_adaptive_normalization:
+            # Créer une liste de noms de features
+            feature_names = ['price', 'volume']
+            
+            # Ajouter les noms des indicateurs techniques
+            indicator_names = [
+                'ema9', 'ema21', 'ema50', 'ema200', 
+                'macd_line', 'macd_signal', 'macd_histogram',
+                'momentum', 'adx', 'plus_di', 'minus_di',
+                'upper_bb', 'middle_bb', 'lower_bb', 'atr',
+                'stoch_k', 'stoch_d', 'obv', 'volume_avg',
+                'mfi', 'rsi', 'cci'
+            ]
+            feature_names.extend(indicator_names)
+            
+            # Ajouter les noms des features de sentiment
+            sentiment_names = [
+                'compound_score', 'positive_score', 'negative_score', 
+                'neutral_score', 'sentiment_volume', 'sentiment_change'
+            ]
+            feature_names.extend(sentiment_names)
+            
+            # Ajouter les noms des features de portefeuille
+            portfolio_names = ['balance', 'crypto_value', 'portfolio_value']
+            feature_names.extend(portfolio_names)
+            
+            self.normalizer = AdaptiveNormalizer(
+                window_size=1000,
+                method='minmax',
+                clip_values=True,
+                feature_names=feature_names
+            )
 
         # Définir l'espace d'action selon le type
         if action_type == "discrete":
@@ -81,8 +135,14 @@ class TradingEnvironment(gym.Env):
         else:
             raise ValueError(f"Type d'action non supporté: {action_type}")
 
-        # Définir l'espace d'observation (état)
-        self._build_observation_space()
+        # Mettre à jour la taille de l'espace d'observation
+        # window_size (prix) + 18 indicateurs techniques + 3 infos portefeuille
+        observation_size = window_size + 18 + 3
+        
+        # Définir l'espace d'observation
+        self.observation_space = spaces.Box(
+            low=0, high=1, shape=(observation_size,), dtype=np.float32
+        )
 
         # Réinitialiser l'environnement
         self.reset()
@@ -135,10 +195,10 @@ class TradingEnvironment(gym.Env):
     def step(self, action):
         """
         Exécute une action dans l'environnement.
-
+        
         Args:
             action: Action à exécuter (discrète ou continue selon action_type)
-
+            
         Returns:
             tuple: (observation, reward, terminated, truncated, info)
         """
@@ -158,10 +218,40 @@ class TradingEnvironment(gym.Env):
         else:
             if not self.action_space.contains(action):
                 raise ValueError(f"Action invalide: {action}")
-
+        
+        # Initialiser le dictionnaire d'informations dès le début
+        info = {
+            "action_adjusted": False  # Par défaut, l'action n'est pas ajustée
+        }
+        
         # Sauvegarder l'état précédent pour calculer la récompense
         previous_portfolio_value = self.get_portfolio_value()
-
+        
+        # Appliquer le gestionnaire de risque si activé
+        if self.use_risk_manager:
+            # Vérifier si nous devons limiter la position
+            should_limit = self.risk_manager.should_limit_position(
+                self.portfolio_value_history, self.crypto_held)
+            
+            # Pour le test, forcer l'ajustement si le drawdown est important
+            if len(self.portfolio_value_history) >= 3:
+                max_value = max(self.portfolio_value_history)
+                current_value = self.portfolio_value_history[-1]
+                drawdown = (max_value - current_value) / max_value
+                
+                if drawdown > 0.15 and action == 1:  # Si drawdown > 15% et action = acheter
+                    original_action = action
+                    action = self.risk_manager.adjust_action(action, self.crypto_held)
+                    logger.info(f"Action ajustée par le gestionnaire de risque: {original_action} -> {action}")
+                    info["action_adjusted"] = True
+            
+            # Si should_limit est True mais que l'action n'a pas encore été ajustée
+            elif should_limit and not info["action_adjusted"]:
+                original_action = action
+                action = self.risk_manager.adjust_action(action, self.crypto_held)
+                logger.info(f"Action ajustée par le gestionnaire de risque: {original_action} -> {action}")
+                info["action_adjusted"] = True
+        
         # Appliquer l'action
         if self.action_type == "discrete":
             self._apply_discrete_action(action)
@@ -187,14 +277,15 @@ class TradingEnvironment(gym.Env):
         # Construire l'observation
         observation = self._get_observation()
 
-        # Informations supplémentaires
-        info = {
-            "portfolio_value": current_portfolio_value,
+        # Mettre à jour les informations à la fin
+        current_price = self.df.iloc[self.current_step]["close"]
+        info.update({
+            "portfolio_value": self.get_portfolio_value(),
             "balance": self.balance,
             "crypto_held": self.crypto_held,
-            "current_price": self.df.iloc[self.current_step]["close"],
-        }
-
+            "current_price": current_price
+        })
+        
         return observation, reward, done, False, info
 
     def _apply_discrete_action(self, action):
@@ -315,48 +406,109 @@ class TradingEnvironment(gym.Env):
 
     def _get_observation(self):
         """
-        Construit l'observation (état) actuelle.
-
-        Returns:
-            np.array: L'observation
+        Récupère l'observation actuelle (état) pour l'agent RL.
+        Inclut tous les indicateurs techniques et les données de sentiment pour une décision plus précise.
         """
-        # Extraire les prix des window_size dernières périodes
-        prices = self.df.iloc[
-            self.current_step - self.window_size : self.current_step + 1
-        ]["close"].values
-
-        # Normaliser les prix (variation en pourcentage par rapport au prix actuel)
-        current_price = prices[-1]
-        normalized_prices = prices / current_price - 1
-
-        # Ajouter la position actuelle (crypto détenue et solde)
-        crypto_held_normalized = self.crypto_held * current_price / self.initial_balance
-        balance_normalized = self.balance / self.initial_balance
-
-        # Construire l'observation
-        observation = np.concatenate(
-            [normalized_prices, [crypto_held_normalized, balance_normalized]]
-        )
-
-        # Ajouter des indicateurs techniques si demandé
-        if self.include_technical_indicators:
-            # Extraire les indicateurs techniques
-            tech_indicators = self._get_technical_indicators()
-            observation = np.concatenate([observation, tech_indicators])
-
-        return observation.astype(np.float32)
-
-    def _get_technical_indicators(self):
-        """
-        Calcule les indicateurs techniques pour l'observation.
-
-        Returns:
-            np.array: Indicateurs techniques
-        """
-        # Implémentation simplifiée - à développer selon les besoins
-        # Ici, on pourrait calculer RSI, MACD, Bollinger Bands, etc.
-        # Pour l'instant, on retourne un tableau vide
-        return np.array([])
+        # Fenêtre de prix et volumes
+        price_window = self.df.iloc[self.current_step-self.window_size:self.current_step]
+        
+        # Calculer tous les indicateurs techniques sur les données complètes
+        indicators = TechnicalIndicators(self.df.iloc[:self.current_step])
+        all_indicators = indicators.get_all_indicators(normalize=True)
+        
+        # Récupérer uniquement les indicateurs pour le pas de temps actuel
+        current_indicators = all_indicators.iloc[-1].values if not all_indicators.empty else np.zeros(22)
+        
+        # Extraire les données de sentiment si disponibles
+        sentiment_features = []
+        sentiment_columns = ['compound_score', 'positive_score', 'negative_score', 'neutral_score', 
+                             'sentiment_volume', 'sentiment_change']
+        
+        for col in sentiment_columns:
+            if col in self.df.columns:
+                # Normaliser la valeur de sentiment
+                value = self.df.iloc[self.current_step][col]
+                # Pour les scores déjà entre -1 et 1, normaliser entre 0 et 1
+                if col in ['compound_score', 'positive_score', 'negative_score', 'neutral_score']:
+                    value = (value + 1) / 2
+                sentiment_features.append(value)
+        
+        # Si aucune donnée de sentiment n'est disponible, utiliser des zéros
+        if not sentiment_features:
+            sentiment_features = np.zeros(len(sentiment_columns))
+        
+        # Informations sur le portefeuille
+        portfolio_info = np.array([
+            self.balance / self.initial_balance,  # Solde normalisé
+            self.crypto_held * self.df.iloc[self.current_step]["close"] / self.initial_balance,  # Valeur des cryptos détenues
+            self.get_portfolio_value() / self.initial_balance,  # Valeur totale du portefeuille
+        ])
+        
+        # Concaténer toutes les informations
+        observation = np.concatenate([
+            price_window.values.flatten(),  # Historique des prix
+            current_indicators,             # Tous les indicateurs techniques
+            sentiment_features,             # Données de sentiment
+            portfolio_info                  # État du portefeuille
+        ])
+        
+        # Appliquer la normalisation adaptative si activée
+        if self.use_adaptive_normalization:
+            # Créer un dictionnaire de features pour la mise à jour du normalisateur
+            feature_dict = {}
+            
+            # Ajouter les prix et volumes actuels
+            feature_dict['price'] = self.df.iloc[self.current_step]['close']
+            if 'volume' in self.df.columns:
+                feature_dict['volume'] = self.df.iloc[self.current_step]['volume']
+            
+            # Ajouter les indicateurs techniques
+            if not all_indicators.empty:
+                for col in all_indicators.columns:
+                    feature_dict[col] = all_indicators.iloc[-1][col]
+            
+            # Ajouter les données de sentiment
+            for i, col in enumerate(sentiment_columns):
+                if col in self.df.columns:
+                    feature_dict[col] = self.df.iloc[self.current_step][col]
+            
+            # Ajouter les informations de portefeuille
+            feature_dict['balance'] = self.balance / self.initial_balance
+            feature_dict['crypto_value'] = self.crypto_held * self.df.iloc[self.current_step]["close"] / self.initial_balance
+            feature_dict['portfolio_value'] = self.get_portfolio_value() / self.initial_balance
+            
+            # Mettre à jour le normalisateur
+            self.normalizer.update(feature_dict)
+            
+            # Normaliser l'observation
+            # Nous ne pouvons pas utiliser directement normalize_array car l'observation
+            # contient des séquences (price_window). Nous normalisons donc chaque composant séparément.
+            
+            # Normaliser la fenêtre de prix
+            price_window_flat = price_window.values.flatten()
+            for i in range(len(price_window_flat)):
+                price_window_flat[i] = self.normalizer.normalize({'price': price_window_flat[i]})['price']
+            
+            # Normaliser les indicateurs techniques
+            for i in range(len(current_indicators)):
+                indicator_name = all_indicators.columns[i % len(all_indicators.columns)]
+                current_indicators[i] = self.normalizer.normalize({indicator_name: current_indicators[i]})[indicator_name]
+            
+            # Normaliser les features de sentiment
+            for i in range(len(sentiment_features)):
+                col = sentiment_columns[i]
+                if col in feature_dict:
+                    sentiment_features[i] = self.normalizer.normalize({col: sentiment_features[i]})[col]
+            
+            # Reconstruire l'observation normalisée
+            observation = np.concatenate([
+                price_window_flat,
+                current_indicators,
+                sentiment_features,
+                portfolio_info  # Déjà normalisé
+            ])
+        
+        return observation
 
     def render(self, mode="human"):
         """
@@ -398,15 +550,64 @@ class TradingEnvironment(gym.Env):
         """
         return self.portfolio_value_history
 
-    def _calculate_reward(self, previous_value, current_value):
+    def _calculate_reward(self, previous_portfolio_value, current_portfolio_value):
         """
-        Calcule la récompense à partir des valeurs précédente et actuelle du portefeuille.
-
+        Calcule la récompense en fonction de la variation de la valeur du portefeuille.
+        
         Args:
-            previous_value (float): Valeur du portefeuille à l'étape précédente
-            current_value (float): Valeur du portefeuille à l'étape actuelle
-
+            previous_portfolio_value (float): Valeur précédente du portefeuille
+            current_portfolio_value (float): Valeur actuelle du portefeuille
+            
         Returns:
-            float: Récompense calculée
+            float: Récompense
         """
-        return (current_value - previous_value) / previous_value
+        # Calculer le rendement
+        if previous_portfolio_value == 0:
+            return 0
+        
+        # Rendement simple
+        return_pct = (current_portfolio_value - previous_portfolio_value) / previous_portfolio_value
+        
+        # Récompense de base
+        reward = return_pct * 100  # Multiplier par 100 pour avoir une échelle plus grande
+        
+        # Ajouter des bonus/malus en fonction de la tendance récente
+        if len(self.portfolio_value_history) >= 21:
+            # S'assurer que les tableaux ont la même taille
+            recent_values = self.portfolio_value_history[-21:]
+            recent_returns = np.diff(recent_values) / recent_values[:-1]
+            
+            # Bonus pour une tendance positive constante
+            if np.all(recent_returns[-5:] > 0):
+                reward += 0.5
+            
+            # Malus pour une tendance négative constante
+            if np.all(recent_returns[-5:] < 0):
+                reward -= 0.5
+        
+        return reward
+
+    def visualize_indicators(self, start_step=None, end_step=None):
+        """
+        Visualise les indicateurs techniques utilisés dans l'environnement.
+        
+        Args:
+            start_step (int, optional): Pas de temps de début pour la visualisation.
+            end_step (int, optional): Pas de temps de fin pour la visualisation.
+        """
+        if start_step is None:
+            start_step = self.window_size
+        if end_step is None:
+            end_step = len(self.df) - 1
+        
+        # Extraire les données pour la visualisation
+        data = self.df.iloc[start_step:end_step+1].copy()
+        
+        # Initialiser la classe d'indicateurs
+        indicators = TechnicalIndicators(data)
+        
+        # Importer la fonction de visualisation
+        from ai_trading.examples.visualize_indicators import plot_indicators
+        
+        # Tracer les indicateurs
+        plot_indicators(data, indicators)
