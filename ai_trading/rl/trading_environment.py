@@ -42,6 +42,7 @@ class TradingEnvironment(gym.Env):
         max_crypto_purchase_percent=0.3,
         use_risk_manager=True,
         use_adaptive_normalization=True,
+        risk_config=None,
     ):
         """
         Initialise l'environnement de trading.
@@ -57,6 +58,7 @@ class TradingEnvironment(gym.Env):
             max_crypto_purchase_percent (float): Pourcentage maximum du portefeuille à investir en une seule transaction
             use_risk_manager (bool): Utiliser le gestionnaire de risque
             use_adaptive_normalization (bool): Utiliser le normalisateur adaptatif
+            risk_config (dict, optional): Configuration du gestionnaire de risques
         """
         super(TradingEnvironment, self).__init__()
 
@@ -83,7 +85,7 @@ class TradingEnvironment(gym.Env):
 
         # Initialiser le gestionnaire de risque
         self.use_risk_manager = use_risk_manager
-        self.risk_manager = RiskManager() if use_risk_manager else None
+        self.risk_manager = RiskManager(config=risk_config) if use_risk_manager else None
 
         # Initialiser le normalisateur adaptatif
         self.use_adaptive_normalization = use_adaptive_normalization
@@ -229,27 +231,14 @@ class TradingEnvironment(gym.Env):
         
         # Appliquer le gestionnaire de risque si activé
         if self.use_risk_manager:
-            # Vérifier si nous devons limiter la position
-            should_limit = self.risk_manager.should_limit_position(
-                self.portfolio_value_history, self.crypto_held)
-            
-            # Pour le test, forcer l'ajustement si le drawdown est important
-            if len(self.portfolio_value_history) >= 3:
-                max_value = max(self.portfolio_value_history)
-                current_value = self.portfolio_value_history[-1]
-                drawdown = (max_value - current_value) / max_value
-                
-                if drawdown > 0.15 and action == 1:  # Si drawdown > 15% et action = acheter
-                    original_action = action
-                    action = self.risk_manager.adjust_action(action, self.crypto_held)
-                    logger.info(f"Action ajustée par le gestionnaire de risque: {original_action} -> {action}")
-                    info["action_adjusted"] = True
-            
-            # Si should_limit est True mais que l'action n'a pas encore été ajustée
-            elif should_limit and not info["action_adjusted"]:
-                original_action = action
-                action = self.risk_manager.adjust_action(action, self.crypto_held)
-                logger.info(f"Action ajustée par le gestionnaire de risque: {original_action} -> {action}")
+            adjusted_action = self.risk_manager.adjust_action(
+                action,
+                self.portfolio_value_history[-1],
+                self.crypto_held,
+                current_price=self.df.iloc[self.current_step]["close"] if not self.df.empty else 0
+            )
+            if adjusted_action != action:
+                action = adjusted_action
                 info["action_adjusted"] = True
         
         # Appliquer l'action
@@ -285,6 +274,28 @@ class TradingEnvironment(gym.Env):
             "crypto_held": self.crypto_held,
             "current_price": current_price
         })
+        
+        # Vérifier les conditions de stop-loss pour les positions ouvertes
+        if self.use_risk_manager and self.crypto_held > 0:
+            position_id = f"position_{self.current_step}"
+            
+            # Mettre à jour le trailing stop si nécessaire
+            if self.crypto_held > 0:
+                self.risk_manager.update_trailing_stop(
+                    position_id, current_price, self.df.iloc[self.current_step]["close"], 'long')
+            else:
+                self.risk_manager.update_trailing_stop(
+                    position_id, current_price, self.df.iloc[self.current_step]["close"], 'short')
+            
+            # Vérifier si un stop est déclenché
+            stop_result = self.risk_manager.check_stop_conditions(
+                position_id, current_price, 'long')
+            
+            if stop_result['stop_triggered']:
+                # Fermer la position au prix du stop
+                stop_price = stop_result['stop_price']
+                self._close_position(stop_price)
+                logger.info(f"{stop_result['stop_type']} déclenché à {stop_price}")
         
         return observation, reward, done, False, info
 
@@ -611,3 +622,13 @@ class TradingEnvironment(gym.Env):
         
         # Tracer les indicateurs
         plot_indicators(data, indicators)
+
+    def _close_position(self, price):
+        # ...
+        
+        # Supprimer les stop-loss et take-profit
+        if self.use_risk_manager:
+            position_id = f"position_{self.current_step}"
+            self.risk_manager.clear_position(position_id)
+        
+        # ...

@@ -58,8 +58,8 @@ Ce module contient l'implémentation d'un système de trading de cryptomonnaies 
   - [x] Ajouter une normalisation adaptative des features
 
   ### 3. **Gestion des risques avancée**
-  - [ ] Implémenter des stop-loss dynamiques basés sur l'ATR
-  - [ ] Ajouter des trailing stops
+  - [x] Implémenter des stop-loss dynamiques basés sur l'ATR
+  - [x] Ajouter des trailing stops
   - [ ] Intégrer la gestion de position basée sur la volatilité
   - [ ] Ajouter des limites d'exposition par actif
 

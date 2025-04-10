@@ -1,0 +1,11 @@
+dit moi quel test je peux supprimer, genre ceux qui ne sont pas utiles, qui ne sont plsu d'actu, qui ne sont pas necessaire au projet etc, quel test supprimer car la y'en a trop qd je lance python -m pytest ai_trading/tests/ -v
+il ne faut pas toucher au test de buy/hold/sell car si les test apsse plus je vais pas le savoir et perdre de l'argent lors des trade
+
+python ai_trading/examples/test_atr_stop_loss.py
+python -c "from ai_trading.rl.hyperparameter_tuning import optimize_risk_parameters; optimize_risk_parameters()"
+python ai_trading/examples/test_atr_stop_loss.py
+
+
+
+python -m pytest ai_trading/tests/ -v 
+python -m pytest ai_trading/tests/test_trading_environment.py -k test_risk_manager -v 

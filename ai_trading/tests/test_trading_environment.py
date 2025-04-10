@@ -276,29 +276,38 @@ class TestTradingEnvironment(unittest.TestCase):
 
     def test_risk_manager(self):
         """Teste l'intégration du gestionnaire de risque."""
+        # Créer des données avec prix élevé pour dépasser les limites
+        test_data = self.test_data.copy()
+        test_data['close'] = 1000  # Prix fixe à 1000$
+        
         # Créer un environnement avec gestionnaire de risque
         env = TradingEnvironment(
-            df=self.test_data,
+            df=test_data,
             initial_balance=10000,
             transaction_fee=0.001,
             window_size=10,
-            use_risk_manager=True
+            use_risk_manager=True,
+            risk_config={
+                'max_position_size': 0.1,  # Limite à 10% pour déclencher plus facilement
+                'volatility_threshold': 0.01  # Seuil de volatilité très bas
+            }
         )
         
         # Vérifier que le gestionnaire de risque est initialisé
         self.assertIsNotNone(env.risk_manager)
         
-        # Simuler un drawdown important
+        # Configurer une position risquée
         env.reset()
-        env.portfolio_value_history = [10000, 10500, 11000, 10000, 9500, 9000]  # -18% depuis le max
+        env.crypto_held = 20  # 20 * 1000$ = 20 000$ (200% du portefeuille initial)
+        env.portfolio_value_history = [10000]  # Valeur initiale
         
-        # Tenter d'acheter
-        original_action = 1  # Acheter
-        state, _, _, _, info = env.step(original_action)
+        # Exécuter une action d'achat
+        action = 1 if env.action_type == "discrete" else np.array([1.0])
+        next_state, reward, terminated, truncated, info = env.step(action)
         
-        # Vérifier que l'action a été ajustée par le gestionnaire de risque
-        self.assertIn("action_adjusted", info)
-        self.assertTrue(info["action_adjusted"])
+        # Vérifier l'ajustement
+        self.assertTrue(info.get("action_adjusted", False), 
+            f"L'action devrait être ajustée. Détails: {info.get('risk_info', 'Pas d\'info')}")
 
 
 if __name__ == "__main__":

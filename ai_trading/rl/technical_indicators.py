@@ -778,4 +778,20 @@ class TechnicalIndicators:
         # Calculer la bande médiane (moyenne des bandes supérieure et inférieure)
         middle_band = (upper_band + lower_band) / 2
         
-        return upper_band, middle_band, lower_band 
+        return upper_band, middle_band, lower_band
+
+    def calculate_sma(self, window=20):
+        """
+        Calcule la moyenne mobile simple (SMA).
+        
+        Args:
+            window (int): Période de la moyenne mobile
+            
+        Returns:
+            pd.Series: Série des SMA calculés
+        """
+        if self.df is None:
+            return None
+        
+        sma = self.df['close'].rolling(window=window).mean()
+        return sma 

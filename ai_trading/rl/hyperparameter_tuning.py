@@ -5,6 +5,8 @@ from tqdm import tqdm
 import json
 import os
 from datetime import datetime
+from sklearn.model_selection import ParameterGrid
+from ai_trading.examples.test_atr_stop_loss import test_atr_stop_loss
 
 from ai_trading.rl.trading_environment import TradingEnvironment
 from ai_trading.rl.dqn_agent import DQNAgent
@@ -101,6 +103,32 @@ def grid_search(df, param_grid, episodes=50, eval_episodes=10):
         json.dump(results, f, indent=4)
     
     return best_params, best_performance
+
+def optimize_risk_parameters():
+    param_grid = {
+        'stop_loss_atr_factor': [1.5, 2.0, 2.5],
+        'take_profit_atr_factor': [2.5, 3.0, 3.5],
+        'trailing_stop_atr_factor': [1.0, 1.5, 2.0],
+        'breakout_threshold': [0.5, 1.0, 1.5],
+        'breakout_multiplier': [0.6, 0.7, 0.8]
+    }
+    
+    best_profit = -float('inf')
+    best_params = {}
+    
+    for params in ParameterGrid(param_grid):
+        print(f"\nTest des paramètres: {params}")
+        total_profit = test_atr_stop_loss(verbose=False, config=params)
+        
+        if total_profit > best_profit:
+            best_profit = total_profit
+            best_params = params
+            print(f"Nouveau meilleur résultat: {best_profit:.2f}%")
+    
+    print(f"\nMeilleurs paramètres trouvés:")
+    print(best_params)
+    print(f"Profit: {best_profit:.2f}%")
+    return best_params
 
 # Exemple d'utilisation
 if __name__ == "__main__":
