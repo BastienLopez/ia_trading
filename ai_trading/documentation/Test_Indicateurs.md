@@ -1,11 +1,9 @@
 # Tests des Indicateurs Techniques
 
 # Test all indicateurs PASSED OR FAILED en ligne
-python -m pytest ai_trading/tests/test_technical_indicators.py -v
-
-
-   
 ```bash
+python -m pytest ai_trading/tests/test_technical_indicators.py -v
+```
 python -m pytest ai_trading/tests/test_technical_indicators.py::TestTechnicalIndicators::test_ema -v
 python -m pytest ai_trading/tests/test_technical_indicators.py::TestTechnicalIndicators::test_momentum -v
 python -m pytest ai_trading/tests/test_technical_indicators.py::TestTechnicalIndicators::test_atr -v
@@ -24,8 +22,6 @@ python -m pytest ai_trading/tests/test_technical_indicators.py::TestTechnicalInd
 python -m pytest ai_trading/tests/test_technical_indicators.py::TestTechnicalIndicators::test_adx -v
 python -m pytest ai_trading/tests/test_technical_indicators.py::TestTechnicalIndicators::test_bollinger_bands -v
 python -m pytest ai_trading/tests/test_technical_indicators.py::TestTechnicalIndicators::test_macd -v
-    
-```
 
 ## 3. Tests Fonctionnels
 

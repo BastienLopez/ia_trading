@@ -540,83 +540,242 @@ class TechnicalIndicators:
         
         return normalized
     
-    def get_all_indicators(self, normalize=True):
+    def get_all_indicators(self, normalize=False):
         """
         Calcule tous les indicateurs techniques et les retourne dans un DataFrame.
         
         Args:
-            normalize (bool): Si True, normalise tous les indicateurs.
+            normalize (bool): Si True, normalise les indicateurs.
             
         Returns:
             pandas.DataFrame: DataFrame contenant tous les indicateurs.
         """
+        logger.info("Calcul de tous les indicateurs techniques")
+        
         if not self.validate_data():
-            return None
+            return pd.DataFrame()
         
-        indicators = {}
+        # Créer un DataFrame pour stocker les indicateurs
+        indicators_df = pd.DataFrame(index=self.df.index)
         
-        # Indicateurs de tendance
-        ema9 = self.calculate_ema(period=9)
-        ema21 = self.calculate_ema(period=21)
-        ema50 = self.calculate_ema(period=50)
-        ema200 = self.calculate_ema(period=200)
+        # EMA
+        indicators_df['ema_9'] = self.calculate_ema(period=9)
+        indicators_df['ema_21'] = self.calculate_ema(period=21)
         
-        macd_line, signal_line, histogram = self.calculate_macd()
+        # MACD
+        macd, signal, hist = self.calculate_macd()
+        indicators_df['macd'] = macd
+        indicators_df['macd_signal'] = signal
+        indicators_df['macd_hist'] = hist
         
-        momentum = self.calculate_momentum()
+        # Momentum
+        indicators_df['momentum'] = self.calculate_momentum()
         
-        adx, plus_di, minus_di = self.calculate_adx()
+        # Bollinger Bands
+        middle_bb, upper_bb, lower_bb = self.calculate_bollinger_bands()
+        indicators_df['middle_bb'] = middle_bb
+        indicators_df['upper_bb'] = upper_bb
+        indicators_df['lower_bb'] = lower_bb
         
-        # Indicateurs de volatilité
-        upper_bb, middle_bb, lower_bb = self.calculate_bollinger_bands()
+        # ATR
+        indicators_df['atr'] = self.calculate_atr()
         
-        atr = self.calculate_atr()
-        
+        # Stochastic
         stoch_k, stoch_d = self.calculate_stochastic()
+        indicators_df['stoch_k'] = stoch_k
+        indicators_df['stoch_d'] = stoch_d
         
-        # Indicateurs de volume
-        obv = self.calculate_obv()
+        # OBV
+        indicators_df['obv'] = self.calculate_obv()
         
-        volume_avg = self.calculate_volume_average()
+        # Volume Average
+        indicators_df['volume_avg'] = self.calculate_volume_average()
         
-        mfi = self.calculate_mfi()
+        # MFI
+        indicators_df['mfi'] = self.calculate_mfi()
         
-        # Indicateurs d'oscillateurs
-        rsi = self.calculate_rsi()
+        # RSI
+        indicators_df['rsi'] = self.calculate_rsi()
         
-        cci = self.calculate_cci()
+        # CCI
+        indicators_df['cci'] = self.calculate_cci()
         
-        # Ajouter les indicateurs au dictionnaire
-        indicators['ema9'] = ema9
-        indicators['ema21'] = ema21
-        indicators['ema50'] = ema50
-        indicators['ema200'] = ema200
-        indicators['macd_line'] = macd_line
-        indicators['macd_signal'] = signal_line
-        indicators['macd_histogram'] = histogram
-        indicators['momentum'] = momentum
-        indicators['adx'] = adx
-        indicators['plus_di'] = plus_di
-        indicators['minus_di'] = minus_di
-        indicators['upper_bb'] = upper_bb
-        indicators['middle_bb'] = middle_bb
-        indicators['lower_bb'] = lower_bb
-        indicators['atr'] = atr
-        indicators['stoch_k'] = stoch_k
-        indicators['stoch_d'] = stoch_d
-        indicators['obv'] = obv
-        indicators['volume_avg'] = volume_avg
-        indicators['mfi'] = mfi
-        indicators['rsi'] = rsi
-        indicators['cci'] = cci
+        # Pivots
+        pivots = self.calculate_pivots()
+        for col in pivots.columns:
+            indicators_df[f'pivot_{col}'] = pivots[col]
+        
+        # Ichimoku Cloud
+        tenkan, kijun, senkou_a, senkou_b, chikou = self.calculate_ichimoku_cloud()
+        indicators_df['ichimoku_tenkan'] = tenkan
+        indicators_df['ichimoku_kijun'] = kijun
+        indicators_df['ichimoku_senkou_a'] = senkou_a
+        indicators_df['ichimoku_senkou_b'] = senkou_b
+        indicators_df['ichimoku_chikou'] = chikou
+        
+        # Donchian Channel
+        upper_dc, middle_dc, lower_dc = self.calculate_donchian_channel()
+        indicators_df['donchian_upper'] = upper_dc
+        indicators_df['donchian_middle'] = middle_dc
+        indicators_df['donchian_lower'] = lower_dc
+        
+        # Volume Profile (seulement les principales métriques)
+        try:
+            vp = self.calculate_volume_profile()
+            if not vp.empty and 'vp_poc' in vp.columns:
+                indicators_df['vp_poc'] = vp['vp_poc']
+                indicators_df['vp_vah'] = vp['vp_vah']
+                indicators_df['vp_val'] = vp['vp_val']
+            else:
+                # Ajouter des colonnes vides si le calcul échoue
+                indicators_df['vp_poc'] = np.nan
+                indicators_df['vp_vah'] = np.nan
+                indicators_df['vp_val'] = np.nan
+        except Exception as e:
+            logger.warning(f"Erreur lors du calcul du Volume Profile: {e}")
+            # Ajouter des colonnes vides en cas d'erreur
+            indicators_df['vp_poc'] = np.nan
+            indicators_df['vp_vah'] = np.nan
+            indicators_df['vp_val'] = np.nan
         
         # Normaliser les indicateurs si demandé
         if normalize:
-            for key in indicators:
-                if indicators[key] is not None:
-                    indicators[key] = self.normalize_indicator(indicators[key])
+            for col in indicators_df.columns:
+                indicators_df[col] = self.normalize_indicator(indicators_df[col])
         
-        # Créer un DataFrame à partir du dictionnaire
-        indicators_df = pd.DataFrame(indicators)
+        return indicators_df
+
+    def calculate_volume_profile(self, n_bins=10, lookback=20):
+        """
+        Calcule le profil de volume (Volume Profile).
         
-        return indicators_df 
+        Args:
+            n_bins (int): Nombre de niveaux de prix à analyser
+            lookback (int): Période d'analyse
+            
+        Returns:
+            pandas.DataFrame: DataFrame contenant le volume par niveau de prix
+        """
+        logger.info(f"Calcul du Volume Profile avec {n_bins} bins et lookback {lookback}")
+        
+        result = pd.DataFrame(index=self.df.index)
+        
+        for i in range(lookback, len(self.df)):
+            # Extraire la période d'analyse
+            period_data = self.df.iloc[i-lookback:i]
+            
+            # Déterminer les niveaux de prix
+            price_min = period_data['low'].min()
+            price_max = period_data['high'].max()
+            price_range = price_max - price_min
+            
+            if price_range == 0:  # Éviter la division par zéro
+                continue
+            
+            # Créer les bins de prix
+            price_bins = np.linspace(price_min, price_max, n_bins+1)
+            
+            # Initialiser le volume par bin
+            volume_by_bin = np.zeros(n_bins)
+            
+            # Attribuer le volume à chaque bin
+            for j in range(len(period_data)):
+                bar = period_data.iloc[j]
+                # Utiliser le prix typique (TP) pour déterminer le bin
+                tp = (bar['high'] + bar['low'] + bar['close']) / 3
+                
+                # Trouver le bin correspondant
+                bin_idx = min(int((tp - price_min) / price_range * n_bins), n_bins-1)
+                
+                # Ajouter le volume au bin
+                volume_by_bin[bin_idx] += bar['volume']
+            
+            # Normaliser le volume
+            if sum(volume_by_bin) > 0:
+                volume_by_bin = volume_by_bin / sum(volume_by_bin)
+            
+            # Trouver le Point of Control (POC) - niveau de prix avec le plus de volume
+            poc_bin = np.argmax(volume_by_bin)
+            poc_price = price_bins[poc_bin] + (price_bins[poc_bin+1] - price_bins[poc_bin]) / 2
+            
+            # Calculer le Value Area (70% du volume)
+            sorted_bins = np.argsort(volume_by_bin)[::-1]
+            cumulative_volume = 0
+            value_area_bins = []
+            
+            for bin_idx in sorted_bins:
+                value_area_bins.append(bin_idx)
+                cumulative_volume += volume_by_bin[bin_idx]
+                if cumulative_volume >= 0.7:  # 70% du volume
+                    break
+            
+            # Déterminer les limites du Value Area
+            value_area_high = price_bins[max(value_area_bins) + 1]
+            value_area_low = price_bins[min(value_area_bins)]
+            
+            # Stocker les résultats
+            result.loc[self.df.index[i], 'vp_poc'] = poc_price
+            result.loc[self.df.index[i], 'vp_vah'] = value_area_high
+            result.loc[self.df.index[i], 'vp_val'] = value_area_low
+        
+        return result
+
+    def calculate_ichimoku_cloud(self, tenkan_period=9, kijun_period=26, senkou_span_b_period=52, displacement=26):
+        """
+        Calcule l'Ichimoku Cloud.
+        
+        Args:
+            tenkan_period (int): Période pour Tenkan-sen (conversion line)
+            kijun_period (int): Période pour Kijun-sen (base line)
+            senkou_span_b_period (int): Période pour Senkou Span B
+            displacement (int): Déplacement pour Senkou Span A et B
+            
+        Returns:
+            tuple: (tenkan_sen, kijun_sen, senkou_span_a, senkou_span_b, chikou_span)
+        """
+        logger.info(f"Calcul de l'Ichimoku Cloud avec périodes {tenkan_period}/{kijun_period}/{senkou_span_b_period}")
+        
+        # Fonction pour calculer la ligne Donchian (moyenne du plus haut et du plus bas)
+        def donchian(high_prices, low_prices, period):
+            return (high_prices.rolling(window=period).max() + 
+                    low_prices.rolling(window=period).min()) / 2
+        
+        # Calculer Tenkan-sen (Conversion Line): (plus haut + plus bas) / 2 sur tenkan_period
+        tenkan_sen = donchian(self.df['high'], self.df['low'], tenkan_period)
+        
+        # Calculer Kijun-sen (Base Line): (plus haut + plus bas) / 2 sur kijun_period
+        kijun_sen = donchian(self.df['high'], self.df['low'], kijun_period)
+        
+        # Calculer Senkou Span A (Leading Span A): (Tenkan-sen + Kijun-sen) / 2 déplacé de displacement périodes
+        senkou_span_a = ((tenkan_sen + kijun_sen) / 2).shift(displacement)
+        
+        # Calculer Senkou Span B (Leading Span B): (plus haut + plus bas) / 2 sur senkou_span_b_period déplacé de displacement périodes
+        senkou_span_b = donchian(self.df['high'], self.df['low'], senkou_span_b_period).shift(displacement)
+        
+        # Calculer Chikou Span (Lagging Span): Prix de clôture déplacé de -displacement périodes
+        chikou_span = self.df['close'].shift(-displacement)
+        
+        return tenkan_sen, kijun_sen, senkou_span_a, senkou_span_b, chikou_span
+
+    def calculate_donchian_channel(self, period=20):
+        """
+        Calcule le canal de Donchian.
+        
+        Args:
+            period (int): Période pour le canal
+            
+        Returns:
+            tuple: (upper_band, middle_band, lower_band)
+        """
+        logger.info(f"Calcul du canal de Donchian avec période {period}")
+        
+        # Calculer la bande supérieure (plus haut sur la période)
+        upper_band = self.df['high'].rolling(window=period).max()
+        
+        # Calculer la bande inférieure (plus bas sur la période)
+        lower_band = self.df['low'].rolling(window=period).min()
+        
+        # Calculer la bande médiane (moyenne des bandes supérieure et inférieure)
+        middle_band = (upper_band + lower_band) / 2
+        
+        return upper_band, middle_band, lower_band 

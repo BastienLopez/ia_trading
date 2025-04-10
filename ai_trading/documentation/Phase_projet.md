@@ -26,7 +26,7 @@ Ce module contient l'implémentation d'un système de trading de cryptomonnaies 
   - Détection des tendances et sentiments
 
 ### Phase 3: Développement de l'Agent d'Apprentissage par Renforcement 🔄
-- ⏳ 3.1 Implémentation de `rl_agent.py`
+- ✅ 3.1 Implémentation de `rl_agent.py`
   - Définition de l'environnement de trading
   - Implémentation de l'agent DQN (Deep Q-Network)
   - Intégration des données de marché et de sentiment

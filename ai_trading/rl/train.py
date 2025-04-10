@@ -1,10 +1,11 @@
 import logging
 import os
+import sys
 import time
 from datetime import datetime
 
 import matplotlib
-
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 matplotlib.use("Agg")  # Forcer le backend non-interactif
 import matplotlib.pyplot as plt
 import numpy as np

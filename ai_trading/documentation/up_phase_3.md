@@ -13,14 +13,14 @@
   - [x] Stochastique
   - [x] Momentum
   - [x] OBV
-  - [ ] RSI
-  - [ ] Bollinger Bands
-  - [ ] EMA
-  - [ ] ATR (Average True Range)
-  - [ ] Volume Profile
-  - [ ] ADX (Directional Movement Index)
-  - [ ] Pivots
-  - [ ] Ichimoku Cloud
+  - [x] RSI
+  - [x] Bollinger Bands
+  - [x] EMA
+  - [x] ATR (Average True Range)
+  - [x] Volume Profile
+  - [x] ADX (Directional Movement Index)
+  - [x] Pivots
+  - [x] Ichimoku Cloud
 - [ ] Intégrer les données de sentiment (polarité, subjectivité, etc.)
 - [ ] Ajouter une normalisation adaptative des features
 
