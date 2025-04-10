@@ -10,6 +10,7 @@ import pandas as pd
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from ai_trading.rl.data_integration import RLDataIntegrator
+from ai_trading.rl.adaptive_normalization import AdaptiveNormalizer
 
 matplotlib.use("Agg")  # Utiliser le backend non-interactif
 
@@ -143,6 +144,27 @@ class TestDataIntegration(unittest.TestCase):
             # Vérifier que les fichiers de visualisation sont créés
             for file in files:
                 self.assertTrue(os.path.exists(os.path.join(temp_dir, file)))
+
+    def test_integrate_and_normalize_sentiment_data(self):
+        """Teste l'intégration et la normalisation des données de sentiment."""
+        # Intégrer les données de sentiment
+        integrated_data = self.integrator.integrate_sentiment_data(
+            self.market_data, self.sentiment_data
+        )
+        
+        # Normaliser les données intégrées
+        normalizer = AdaptiveNormalizer()
+        normalized_data = normalizer.normalize_features(integrated_data, method="adaptive")
+        
+        # Vérifier que les données sont correctement normalisées
+        self.assertIsNotNone(normalized_data)
+        self.assertEqual(len(normalized_data), len(integrated_data))
+        
+        # Vérifier que les colonnes de sentiment sont normalisées
+        for col in ["polarity", "subjectivity", "compound_score"]:
+            if col in normalized_data.columns:
+                self.assertTrue((normalized_data[col] >= 0).all())
+                self.assertTrue((normalized_data[col] <= 1).all())
 
 
 if __name__ == "__main__":

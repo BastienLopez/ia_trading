@@ -125,3 +125,170 @@ class AdaptiveNormalizer:
         normalized_array = np.array([normalized_dict[name] for name in feature_names])
         
         return normalized_array 
+
+    def normalize_features(self, features_df, method='adaptive', window_size=None):
+        """
+        Normalise les features de manière adaptative.
+        
+        Args:
+            features_df (pd.DataFrame): DataFrame contenant les features à normaliser
+            method (str): Méthode de normalisation ('minmax', 'zscore', 'robust', 'adaptive')
+            window_size (int, optional): Taille de la fenêtre pour la normalisation adaptative
+            
+        Returns:
+            pd.DataFrame: DataFrame avec les features normalisées
+        """
+        if features_df is None or features_df.empty:
+            return pd.DataFrame()
+        
+        normalized_df = features_df.copy()
+        
+        # Déterminer la taille de la fenêtre si non spécifiée
+        if window_size is None:
+            window_size = min(len(features_df) // 10, 30)  # 10% des données ou 30 jours max
+        
+        # Normaliser chaque colonne
+        for col in normalized_df.columns:
+            # Ignorer les colonnes non numériques
+            if not np.issubdtype(normalized_df[col].dtype, np.number):
+                continue
+            
+            if method == 'minmax':
+                normalized_df[col] = self.normalize_minmax(normalized_df[col])
+            elif method == 'zscore':
+                normalized_df[col] = self.normalize_zscore(normalized_df[col])
+            elif method == 'robust':
+                normalized_df[col] = self.normalize_robust(normalized_df[col])
+            elif method == 'adaptive':
+                # Normalisation adaptative avec fenêtre glissante
+                values = normalized_df[col].values
+                normalized_values = np.zeros_like(values, dtype=float)
+                
+                # Créer un masque pour les valeurs NaN
+                nan_mask = np.isnan(values)
+                
+                for i in range(len(values)):
+                    if nan_mask[i]:
+                        # Conserver les NaN
+                        normalized_values[i] = np.nan
+                        continue
+                        
+                    start_idx = max(0, i - window_size)
+                    # Filtrer les valeurs NaN dans la fenêtre
+                    window_values = values[start_idx:i+1]
+                    valid_window = window_values[~np.isnan(window_values)]
+                    
+                    if len(valid_window) > 1:
+                        # Utiliser les statistiques de la fenêtre pour normaliser
+                        window_min = np.min(valid_window)
+                        window_max = np.max(valid_window)
+                        window_range = window_max - window_min
+                        
+                        if window_range > 0:
+                            normalized_values[i] = (values[i] - window_min) / window_range
+                        else:
+                            normalized_values[i] = 0.5  # Valeur par défaut si pas de variation
+                    else:
+                        normalized_values[i] = 0.5  # Valeur par défaut pour le début
+                
+                normalized_df[col] = normalized_values
+        
+        return normalized_df 
+
+    def normalize_minmax(self, series):
+        """
+        Normalise une série avec la méthode min-max.
+        
+        Args:
+            series (pd.Series): Série à normaliser
+            
+        Returns:
+            pd.Series: Série normalisée entre 0 et 1
+        """
+        if series.empty:
+            return series
+        
+        # Gérer les valeurs NaN
+        valid_values = series.dropna()
+        if valid_values.empty:
+            return series
+        
+        min_val = valid_values.min()
+        max_val = valid_values.max()
+        
+        if max_val == min_val:
+            # Si toutes les valeurs sont identiques, retourner 0.5
+            normalized = pd.Series(0.5, index=series.index)
+            # Conserver les NaN
+            normalized[series.isna()] = np.nan
+            return normalized
+        
+        # Normaliser entre 0 et 1
+        normalized = (series - min_val) / (max_val - min_val)
+        return normalized
+
+    def normalize_zscore(self, series):
+        """
+        Normalise une série avec la méthode z-score.
+        
+        Args:
+            series (pd.Series): Série à normaliser
+            
+        Returns:
+            pd.Series: Série normalisée avec moyenne 0 et écart-type 1
+        """
+        if series.empty:
+            return series
+        
+        # Gérer les valeurs NaN
+        valid_values = series.dropna()
+        if valid_values.empty:
+            return series
+        
+        mean_val = valid_values.mean()
+        std_val = valid_values.std()
+        
+        if std_val == 0:
+            # Si l'écart-type est nul, retourner 0
+            normalized = pd.Series(0, index=series.index)
+            # Conserver les NaN
+            normalized[series.isna()] = np.nan
+            return normalized
+        
+        # Normaliser avec z-score
+        normalized = (series - mean_val) / std_val
+        return normalized
+
+    def normalize_robust(self, series):
+        """
+        Normalise une série avec une méthode robuste (médiane et IQR).
+        
+        Args:
+            series (pd.Series): Série à normaliser
+            
+        Returns:
+            pd.Series: Série normalisée de manière robuste
+        """
+        if series.empty:
+            return series
+        
+        # Gérer les valeurs NaN
+        valid_values = series.dropna()
+        if valid_values.empty:
+            return series
+        
+        median_val = valid_values.median()
+        q1 = valid_values.quantile(0.25)
+        q3 = valid_values.quantile(0.75)
+        iqr = q3 - q1
+        
+        if iqr == 0:
+            # Si l'IQR est nul, retourner 0.5
+            normalized = pd.Series(0.5, index=series.index)
+            # Conserver les NaN
+            normalized[series.isna()] = np.nan
+            return normalized
+        
+        # Normaliser avec médiane et IQR
+        normalized = (series - median_val) / iqr
+        return normalized 

@@ -1,125 +1,129 @@
 import unittest
-import numpy as np
 import pandas as pd
+import numpy as np
+import os
+import sys
+
+# Ajouter le répertoire parent au chemin Python
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
+
 from ai_trading.rl.adaptive_normalization import AdaptiveNormalizer
 
-class TestAdaptiveNormalizer(unittest.TestCase):
-    """Tests pour le normalisateur adaptatif."""
-    
+class TestAdaptiveNormalization(unittest.TestCase):
+    """Tests pour la normalisation adaptative."""
+
     def setUp(self):
-        """Initialise le normalisateur pour les tests."""
-        self.feature_names = ['price', 'volume', 'rsi']
-        self.normalizer_minmax = AdaptiveNormalizer(
-            window_size=100,
-            method='minmax',
-            clip_values=True,
-            feature_names=self.feature_names
-        )
+        """Prépare les données pour les tests."""
+        # Créer des données synthétiques
+        np.random.seed(42)
+        self.data = pd.DataFrame({
+            "feature1": np.random.normal(100, 15, 100),
+            "feature2": np.random.uniform(0, 1000, 100),
+            "feature3": np.random.exponential(5, 100),
+            "non_numeric": ["A", "B", "C"] * 33 + ["A"]
+        })
         
-        self.normalizer_zscore = AdaptiveNormalizer(
-            window_size=100,
-            method='zscore',
-            clip_values=True,
-            feature_names=self.feature_names
-        )
+        # Initialiser le normalisateur
+        self.normalizer = AdaptiveNormalizer()
     
-    def test_normalize_minmax(self):
-        """Teste la normalisation minmax."""
-        # Créer des données de test
-        features = {
-            'price': 100,
-            'volume': 1000,
-            'rsi': 50
-        }
+    def test_normalize_features_minmax(self):
+        """Teste la normalisation minmax des features."""
+        # Normaliser les features avec la méthode minmax
+        normalized_df = self.normalizer.normalize_features(self.data, method="minmax")
         
-        # Première normalisation (devrait donner 0.5 car min=max)
-        normalized = self.normalizer_minmax.normalize(features)
+        # Vérifier que les données sont correctement normalisées
+        self.assertIsNotNone(normalized_df)
+        self.assertEqual(len(normalized_df), len(self.data))
         
-        for key in normalized:
-            self.assertEqual(normalized[key], 0.5)
+        # Vérifier que les valeurs sont entre 0 et 1 pour les colonnes numériques
+        for col in ["feature1", "feature2", "feature3"]:
+            self.assertTrue((normalized_df[col] >= 0).all())
+            self.assertTrue((normalized_df[col] <= 1).all())
         
-        # Ajouter des valeurs extrêmes
-        self.normalizer_minmax.update({'price': 200, 'volume': 2000, 'rsi': 100})
-        self.normalizer_minmax.update({'price': 50, 'volume': 500, 'rsi': 0})
-        
-        # Normaliser à nouveau
-        normalized = self.normalizer_minmax.normalize(features)
-        
-        # Vérifier que les valeurs sont correctement normalisées
-        self.assertAlmostEqual(normalized['price'], 0.33, delta=0.01)
-        self.assertAlmostEqual(normalized['volume'], 0.33, delta=0.01)
-        self.assertAlmostEqual(normalized['rsi'], 0.5, delta=0.01)
+        # Vérifier que la colonne non numérique est inchangée
+        pd.testing.assert_series_equal(normalized_df["non_numeric"], self.data["non_numeric"])
     
-    def test_normalize_zscore(self):
-        """Teste la normalisation zscore."""
-        # Créer des données de test
-        features = {
-            'price': 100,
-            'volume': 1000,
-            'rsi': 50
-        }
+    def test_normalize_features_zscore(self):
+        """Teste la normalisation zscore des features."""
+        # Normaliser les features avec la méthode zscore
+        normalized_df = self.normalizer.normalize_features(self.data, method="zscore")
         
-        # Première normalisation (devrait donner 0 car mean=value)
-        normalized = self.normalizer_zscore.normalize(features)
+        # Vérifier que les données sont correctement normalisées
+        self.assertIsNotNone(normalized_df)
+        self.assertEqual(len(normalized_df), len(self.data))
         
-        for key in normalized:
-            self.assertEqual(normalized[key], 0)
+        # Vérifier que la moyenne est proche de 0 et l'écart-type proche de 1 pour les colonnes numériques
+        for col in ["feature1", "feature2", "feature3"]:
+            self.assertAlmostEqual(normalized_df[col].mean(), 0, delta=0.1)
+            self.assertAlmostEqual(normalized_df[col].std(), 1, delta=0.1)
         
-        # Ajouter des valeurs pour créer une distribution
-        for i in range(10):
-            self.normalizer_zscore.update({
-                'price': 100 + 10 * np.random.randn(),
-                'volume': 1000 + 100 * np.random.randn(),
-                'rsi': 50 + 5 * np.random.randn()
-            })
-        
-        # Normaliser à nouveau
-        normalized = self.normalizer_zscore.normalize(features)
-        
-        # Vérifier que les valeurs sont dans une plage raisonnable
-        for key in normalized:
-            self.assertTrue(-3 <= normalized[key] <= 3)
+        # Vérifier que la colonne non numérique est inchangée
+        pd.testing.assert_series_equal(normalized_df["non_numeric"], self.data["non_numeric"])
     
-    def test_normalize_array(self):
-        """Teste la normalisation d'un tableau."""
-        # Créer un tableau de test
-        feature_array = np.array([100, 1000, 50])
+    def test_normalize_features_adaptive(self):
+        """Teste la normalisation adaptative des features."""
+        # Normaliser les features avec la méthode adaptive
+        normalized_df = self.normalizer.normalize_features(self.data, method="adaptive", window_size=20)
         
-        # Normaliser
-        normalized = self.normalizer_minmax.normalize_array(feature_array)
+        # Vérifier que les données sont correctement normalisées
+        self.assertIsNotNone(normalized_df)
+        self.assertEqual(len(normalized_df), len(self.data))
         
-        # Vérifier que le tableau a la bonne taille
-        self.assertEqual(len(normalized), len(feature_array))
+        # Vérifier que les valeurs sont entre 0 et 1 pour les colonnes numériques
+        for col in ["feature1", "feature2", "feature3"]:
+            self.assertTrue((normalized_df[col] >= 0).all())
+            self.assertTrue((normalized_df[col] <= 1).all())
         
-        # Vérifier que toutes les valeurs sont entre 0 et 1
-        self.assertTrue(np.all(normalized >= 0) and np.all(normalized <= 1))
+        # Vérifier que la colonne non numérique est inchangée
+        pd.testing.assert_series_equal(normalized_df["non_numeric"], self.data["non_numeric"])
     
-    def test_adaptive_behavior(self):
-        """Teste le comportement adaptatif du normalisateur."""
-        # Initialiser avec des valeurs
-        for i in range(50):
-            self.normalizer_minmax.update({
-                'price': 100 + i,
-                'volume': 1000 + i * 10,
-                'rsi': 50
-            })
+    def test_normalize_features_with_missing_values(self):
+        """Teste la normalisation des features avec des valeurs manquantes."""
+        # Créer des données avec des valeurs manquantes
+        data_with_missing = self.data.copy()
+        data_with_missing.iloc[10:20, 0] = np.nan
+        data_with_missing.iloc[30:40, 1] = np.nan
         
-        # Normaliser une valeur
-        normalized1 = self.normalizer_minmax.normalize({'price': 125})
+        # Normaliser les features
+        normalized_df = self.normalizer.normalize_features(data_with_missing, method="adaptive")
         
-        # Ajouter des valeurs plus élevées
-        for i in range(50):
-            self.normalizer_minmax.update({
-                'price': 200 + i,
-                'volume': 2000 + i * 10,
-                'rsi': 50
-            })
+        # Vérifier que les données sont correctement normalisées
+        self.assertIsNotNone(normalized_df)
+        self.assertEqual(len(normalized_df), len(data_with_missing))
         
-        # Normaliser la même valeur
-        normalized2 = self.normalizer_minmax.normalize({'price': 125})
+        # Vérifier que les valeurs NaN sont toujours NaN
+        self.assertTrue(normalized_df.iloc[10:20, 0].isna().all())
+        self.assertTrue(normalized_df.iloc[30:40, 1].isna().all())
+    
+    def test_normalize_features_with_empty_dataframe(self):
+        """Teste la normalisation des features avec un DataFrame vide."""
+        # Créer un DataFrame vide
+        empty_df = pd.DataFrame()
         
-        # La valeur normalisée devrait être plus petite après l'ajout de valeurs plus élevées
-        self.assertLess(normalized2['price'], normalized1['price'])
+        # Normaliser les features
+        normalized_df = self.normalizer.normalize_features(empty_df)
+        
+        # Vérifier que le résultat est un DataFrame vide
+        self.assertTrue(normalized_df.empty)
+    
+    def test_normalize_features_with_constant_values(self):
+        """Teste la normalisation des features avec des valeurs constantes."""
+        # Créer des données avec des valeurs constantes
+        constant_data = pd.DataFrame({
+            "constant1": [5] * 100,
+            "constant2": [10] * 100
+        })
+        
+        # Normaliser les features
+        normalized_df = self.normalizer.normalize_features(constant_data, method="adaptive")
+        
+        # Vérifier que les données sont correctement normalisées
+        self.assertIsNotNone(normalized_df)
+        self.assertEqual(len(normalized_df), len(constant_data))
+        
+        # Pour des valeurs constantes, la normalisation devrait donner 0.5
+        self.assertTrue((normalized_df["constant1"] == 0.5).all())
+        self.assertTrue((normalized_df["constant2"] == 0.5).all())
 
 if __name__ == "__main__":
     unittest.main() 

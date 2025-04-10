@@ -474,28 +474,60 @@ class RLDataIntegrator:
     def integrate_sentiment_data(self, market_data, sentiment_data):
         """
         Intègre les données de sentiment aux données de marché.
-
+        
         Args:
-            market_data (pd.DataFrame): Données de marché
-            sentiment_data (pd.DataFrame): Données de sentiment
-
+            market_data (pd.DataFrame): DataFrame contenant les données de marché
+            sentiment_data (pd.DataFrame): DataFrame contenant les données de sentiment
+                avec au moins les colonnes 'date', 'polarity', 'subjectivity'
+                
         Returns:
-            pd.DataFrame: Données intégrées
+            pd.DataFrame: DataFrame combiné avec les données de marché et de sentiment
         """
-        # Vérifier que les données de sentiment ont la bonne structure
-        if "compound_score" not in sentiment_data.columns:
-            logger.warning(
-                "Les données de sentiment n'ont pas la colonne 'compound_score'"
-            )
+        logger.info("Intégration des données de sentiment")
+        
+        if sentiment_data is None or sentiment_data.empty:
+            logger.warning("Aucune donnée de sentiment fournie. Retour des données de marché uniquement.")
             return market_data
-
-        # Aligner les index
-        sentiment_data = sentiment_data.reindex(market_data.index, method="ffill")
-
+        
+        # S'assurer que les index sont des dates
+        market_data = market_data.copy()
+        sentiment_data = sentiment_data.copy()
+        
+        if not isinstance(market_data.index, pd.DatetimeIndex):
+            if 'date' in market_data.columns:
+                market_data.set_index('date', inplace=True)
+            else:
+                logger.error("Les données de marché n'ont pas de colonne 'date'.")
+                return market_data
+        
+        if not isinstance(sentiment_data.index, pd.DatetimeIndex):
+            if 'date' in sentiment_data.columns:
+                sentiment_data.set_index('date', inplace=True)
+            else:
+                logger.error("Les données de sentiment n'ont pas de colonne 'date'.")
+                return market_data
+        
+        # Resampler les données de sentiment à la même fréquence que les données de marché
+        market_freq = pd.infer_freq(market_data.index)
+        if market_freq:
+            # Calculer la moyenne des scores de sentiment pour chaque période
+            sentiment_resampled = sentiment_data.resample(market_freq).mean()
+        else:
+            # Si la fréquence ne peut pas être déterminée, utiliser une méthode d'alignement d'index
+            sentiment_resampled = sentiment_data
+        
         # Fusionner les données
-        integrated_data = market_data.copy()
-        integrated_data["sentiment"] = sentiment_data["compound_score"]
-
-        logger.info(f"Données de sentiment intégrées: {len(integrated_data)} points")
-
-        return integrated_data
+        combined_data = market_data.join(sentiment_resampled, how='left')
+        
+        # Remplir les valeurs manquantes
+        sentiment_columns = ['polarity', 'subjectivity', 'compound_score']
+        for col in sentiment_columns:
+            if col in combined_data.columns:
+                # Utiliser une méthode de remplissage avant/arrière pour les valeurs manquantes
+                combined_data[col] = combined_data[col].fillna(method='ffill').fillna(method='bfill')
+                
+                # Si toujours des NaN, remplacer par 0 (neutre)
+                combined_data[col] = combined_data[col].fillna(0)
+        
+        logger.info(f"Données intégrées avec succès. Colonnes: {combined_data.columns.tolist()}")
+        return combined_data
