@@ -61,7 +61,7 @@ Ce module contient l'implémentation d'un système de trading de cryptomonnaies 
   - [x] Implémenter des stop-loss dynamiques basés sur l'ATR
   - [x] Ajouter des trailing stops
   - [x] Intégrer la gestion de position basée sur la volatilité
-  - [ ] Ajouter des limites d'exposition par actif
+  - [x] Ajouter des limites d'exposition par actif
 
   ### 4. **Récompenses plus sophistiquées**
   - [ ] Utiliser le ratio de Sharpe
