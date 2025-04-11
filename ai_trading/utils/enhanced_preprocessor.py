@@ -679,7 +679,7 @@ class DataPreprocessor:
             df["rsi"] = 100 - (100 / (1 + rs))
 
         # Remplir les valeurs NaN
-        df = df.fillna(method="ffill").fillna(method="bfill")
+        df = df.ffill().bfill()
 
         return df
 

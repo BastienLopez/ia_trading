@@ -11,20 +11,21 @@ from ai_trading.rl.trading_environment import TradingEnvironment
 
 def test_random_actions():
     """Teste l'environnement avec des actions aléatoires."""
-    # Créer des données de test simples
-    dates = pd.date_range(start="2020-01-01", periods=100, freq="D")
-    prices = np.random.normal(loc=100, scale=10, size=100)
-    prices = np.cumsum(np.random.normal(loc=0, scale=1, size=100)) + 100  # Marche aléatoire
-    prices = np.abs(prices)  # Assurer que les prix sont positifs
-
-    df = pd.DataFrame({"close": prices}, index=dates)
+    # Données de test complètes
+    data = {
+        'open': [100 + i for i in range(100)],
+        'high': [101 + i for i in range(100)],
+        'low': [99 + i for i in range(100)],
+        'close': [100 + i for i in range(100)],
+        'volume': [1000 + i*10 for i in range(100)]
+    }
+    df = pd.DataFrame(data)
     
-    # Créer l'environnement
     env = TradingEnvironment(
         df=df,
         initial_balance=10000,
         transaction_fee=0.001,
-        window_size=10,
+        window_size=5
     )
     
     # Réinitialiser l'environnement

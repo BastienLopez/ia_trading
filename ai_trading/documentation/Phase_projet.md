@@ -248,3 +248,7 @@ Ce module contient l'implémentation d'un système de trading de cryptomonnaies 
   - Configuration cloud
   - Mise en place CI/CD
   - Monitoring de performance
+
+### Analyse technique
+- Intégration complète dans `data_integration.py`
+- Visualisations dans les rapports d'analyse

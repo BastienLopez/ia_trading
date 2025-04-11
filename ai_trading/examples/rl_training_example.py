@@ -1,13 +1,16 @@
-import os
 import sys
+import os
 from datetime import datetime, timedelta
+import logging
 
 # Ajouter le répertoire parent au chemin pour pouvoir importer les modules
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
 from ai_trading.rl.data_integration import RLDataIntegrator
-from ai_trading.rl_agent import RLTradingSystem
+from ai_trading.rl_agent import TradingEnvironment
+from ai_trading.rl import DQNAgent
 
+logger = logging.getLogger(__name__)
 
 def run_training_example():
     """
@@ -31,86 +34,72 @@ def run_training_example():
     market_data = integrator.collect_market_data(
         symbol="BTC", start_date=start_date, end_date=end_date, interval="1d"
     )
+    if market_data is None:
+        logger.warning("Génération de données de marché synthétiques")
+        market_data = integrator.generate_synthetic_market_data(start_date, end_date)
     preprocessed_market_data = integrator.preprocess_market_data(market_data)
 
     sentiment_data = integrator.collect_sentiment_data(
         symbol="BTC", start_date=start_date, end_date=end_date
     )
+    if sentiment_data is None:
+        logger.warning("Génération de données de sentiment synthétiques")
+        sentiment_data = integrator.generate_synthetic_sentiment_data(start_date, end_date)
 
     # Intégrer les données pour l'apprentissage par renforcement
     print("Intégration des données pour l'apprentissage par renforcement...")
     train_data, test_data = integrator.integrate_data(
         market_data=preprocessed_market_data,
         sentiment_data=sentiment_data,
-        window_size=10,
+        lookback_window=10,
         test_split=0.2,
     )
 
     print(f"Données d'entraînement: {len(train_data)} points")
     print(f"Données de test: {len(test_data)} points")
 
-    # Créer le système de trading RL
-    rl_system = RLTradingSystem()
-
-    # Créer l'environnement de trading avec les données d'entraînement
-    print("\nCréation de l'environnement de trading...")
-    env = rl_system.create_environment(
-        data=train_data, initial_balance=10000, transaction_fee=0.001, window_size=10
+    # Créer l'environnement de trading
+    env = TradingEnvironment(
+        data_source=train_data,
+        initial_balance=10000,
+        lookback_window=10
     )
 
     # Créer l'agent DQN
-    print("\nCréation de l'agent DQN...")
-    state_size = env.observation_space.shape[0]
-    action_size = env.action_space.n
-
-    agent = rl_system.create_agent(
-        state_size=state_size,
-        action_size=action_size,
-        learning_rate=0.001,
-        gamma=0.95,
-        epsilon=1.0,
-        epsilon_decay=0.995,
-        epsilon_min=0.01,
-        batch_size=32,
-        memory_size=10000,
-    )
-
-    # Configurer l'arrêt anticipé
-    early_stopping = {"patience": 20, "min_delta": 0.01, "metric": "returns"}
+    agent = DQNAgent(env)
 
     # Entraîner l'agent
-    print("\nDémarrage de l'entraînement...")
-    history = rl_system.train(
-        episodes=100,
-        batch_size=32,
-        update_target_every=5,
-        save_path="models/dqn_trading",
-        visualize=True,
-        checkpoint_interval=10,
-        early_stopping=early_stopping,
-        max_steps_per_episode=None,
-        use_tensorboard=True,
-        tensorboard_log_dir="logs/tensorboard",
-    )
+    agent.train(episodes=100)
 
     # Évaluer l'agent sur les données de test
-    print("\nÉvaluation de l'agent sur les données de test...")
-    test_env = rl_system.create_environment(
-        data=test_data, initial_balance=10000, transaction_fee=0.001, window_size=10
+    test_env = TradingEnvironment(
+        data_source=test_data,
+        initial_balance=10000,
+        lookback_window=10
     )
 
-    # Créer un nouvel environnement pour l'évaluation
-    results = rl_system.evaluate(test_data=test_data, visualize=True)
+    # Évaluation
+    total_reward = 0
+    state = test_env.reset()
+    done = False
+    
+    while not done:
+        action = agent.act(state)
+        next_state, reward, done, _ = test_env.step(action)
+        total_reward += reward
+        state = next_state
 
-    # Afficher les résultats
-    print("\nRésultats de l'évaluation:")
-    print(f"Valeur finale du portefeuille: ${results['final_value']:.2f}")
-    print(f"Rendement: {results['returns']*100:.2f}%")
-    print(f"Ratio de Sharpe: {results['sharpe_ratio']:.4f}")
-    print(f"Drawdown maximum: {results['max_drawdown']*100:.2f}%")
+    print(f"Récompense totale sur les données de test: {total_reward:.2f}")
 
     print("\nExemple d'entraînement terminé!")
 
 
+def train_agent():
+    env = TradingEnvironment(...)
+    agent = DQNAgent(env)
+    agent.train(episodes=1000)
+
+
 if __name__ == "__main__":
     run_training_example()
+    train_agent()
