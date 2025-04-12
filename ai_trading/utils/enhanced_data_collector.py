@@ -509,6 +509,15 @@ class EnhancedDataCollector:
         # Retourner le symbole s'il existe, sinon convertir l'ID en majuscules
         return id_to_symbol.get(coin_id, coin_id.upper())
 
+    def fetch_crypto_news(self, symbol):
+        params = {
+            'auth_token': os.getenv('CRYPTOPANIC_API_KEY'),  # Clé sécurisée
+            'currencies': symbol.upper(),
+            'public': 'true'
+        }
+        response = requests.get("https://cryptopanic.com/api/v1/posts/", params=params)
+        return response.json()
+
 
 class DataCollector:
     """Collecte les données de marché depuis diverses sources"""

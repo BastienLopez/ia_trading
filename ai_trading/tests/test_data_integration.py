@@ -83,7 +83,7 @@ class TestDataIntegration(unittest.TestCase):
         train_data, test_data = self.integrator.integrate_data(
             market_data=preprocessed_market_data,
             sentiment_data=self.sentiment_data,
-            window_size=10,
+            lookback_window=10,
             test_split=0.2,
         )
 

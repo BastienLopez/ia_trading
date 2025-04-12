@@ -186,6 +186,8 @@ def main():
         "--gpu", action="store_true", help="Utiliser le GPU pour l'inférence"
     )
     parser.add_argument("--no-cache", action="store_true", help="Désactiver le cache")
+    parser.add_argument('--plot', action='store_true', help='Générer des graphiques')
+    parser.add_argument('--output', type=str, default='plots/', help='Répertoire de sortie')
     args = parser.parse_args()
 
     # Création des dossiers de données

@@ -23,15 +23,16 @@ scikit-learn>=1.0.0
 
 # Traitement des données et analyse
 ta>=0.10.0  # Indicateurs techniques
-statsmodels>=0.13.0  # Modèles statistiques
-scipy>=1.7.0  # Calculs scientifiques
+statsmodels==0.14.4  # Modèles statistiques
+scipy==1.13.0  # Calculs scientifiques
 pytz>=2021.1  # Gestion des fuseaux horaires
 
 # Apprentissage par renforcement
-tensorflow>=2.10.0  # Pour l'agent DQN
-stable-baselines3>=1.5.0  # Implémentations d'algorithmes RL
-gymnasium>=0.26.0  # Environnements standardisés
+tensorflow-cpu==2.15.0
+stable-baselines3==2.2.1
+gymnasium==0.29.1
 optuna>=2.10.0  # Optimisation des hyperparamètres
+keras==2.15.0  # Version explicitement liée à TensorFlow 2.15
 
 # Collecte de données
 requests>=2.26.0
@@ -44,7 +45,7 @@ ccxt>=1.60.0  # Pour les données de crypto-monnaies
 nltk>=3.6.0
 textblob>=0.15.3
 transformers>=4.25.0  # Pour les modèles de sentiment avancés
-torch>=1.10.0  # Requis pour transformers
+torch==2.2.1  # Version standard compatible Windows
 
 # Visualisation
 plotly>=5.3.0
@@ -66,12 +67,12 @@ numpy>=1.23.5,<2.0.0
 pandas>=1.5.3
 scikit-learn>=1.2.2
 scipy>=1.10.0
-tensorflow==2.16.1
-keras==3.3.3
+tensorflow-cpu==2.15.0
+stable-baselines3==2.2.1
 xgboost==1.7.6
 lightgbm==4.1.0
 torch>=2.0.1
-transformers>=4.28.1
+transformers==4.35.2
 sentence-transformers==2.2.2
 nltk>=3.8.1
 emoji==0.6.0
@@ -111,7 +112,6 @@ websocket-client==1.7.0
 # Remplacer gym par gymnasium et ajouter les dépendances manquantes
 gymnasium==0.29.1
 stable-baselines3==2.2.1
-tensorflow==2.16.1
 importlib-metadata==4.12.0
 
 # New additions from the code block

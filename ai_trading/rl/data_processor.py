@@ -49,7 +49,7 @@ def prepare_data_for_rl(
         df["returns"] = df["close"].pct_change()
 
     # Remplir les valeurs NaN
-    df = df.fillna(method="ffill").fillna(method="bfill")
+    df = df.ffill().bfill()
 
     # Normaliser les données
     logger.info("Normalisation des données")

@@ -181,16 +181,14 @@ class RLDataIntegrator:
             # Retourner les données originales en cas d'erreur
             return market_data
 
-    def integrate_data(
-        self, market_data, sentiment_data=None, window_size=5, test_split=0.2
-    ):
+    def integrate_data(self, market_data, sentiment_data, lookback_window=30, test_split=0.2):
         """
         Intègre les données de marché et de sentiment pour l'apprentissage par renforcement.
 
         Args:
             market_data (DataFrame): Données de marché prétraitées
             sentiment_data (DataFrame, optional): Données de sentiment
-            window_size (int): Taille de la fenêtre d'observation
+            lookback_window (int): Taille de la fenêtre d'observation
             test_split (float): Proportion des données à utiliser pour le test
 
         Returns:
@@ -202,7 +200,7 @@ class RLDataIntegrator:
         train_data, test_data = prepare_data_for_rl(
             market_data=market_data,
             sentiment_data=sentiment_data,
-            window_size=window_size,
+            window_size=lookback_window,
             test_split=test_split,
         )
 
@@ -524,7 +522,7 @@ class RLDataIntegrator:
         for col in sentiment_columns:
             if col in combined_data.columns:
                 # Utiliser une méthode de remplissage avant/arrière pour les valeurs manquantes
-                combined_data[col] = combined_data[col].fillna(method='ffill').fillna(method='bfill')
+                combined_data[col] = combined_data[col].ffill().bfill()
                 
                 # Si toujours des NaN, remplacer par 0 (neutre)
                 combined_data[col] = combined_data[col].fillna(0)
