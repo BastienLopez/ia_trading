@@ -29,6 +29,12 @@ python -m unittest discover -s ai_trading/tests
 ```bash 
 python -m pytest ai_trading/tests/test_trading_environment.py -v
 ```
+
+# Test all indicateurs PASSED OR FAILED en ligne
+```bash
+python -m pytest ai_trading/tests/test_technical_indicators.py -v
+```
+
 # Exemples 
 ```bash 
 python ai_trading/examples/enhanced_data_pipeline.py
