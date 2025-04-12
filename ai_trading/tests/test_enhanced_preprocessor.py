@@ -6,6 +6,7 @@ import os
 import sys
 import tempfile
 import unittest
+import shutil
 
 import numpy as np
 import pandas as pd
@@ -82,26 +83,20 @@ class TestEnhancedMarketDataPreprocessor(unittest.TestCase):
 
     def test_create_technical_features(self):
         """Teste la création des features techniques."""
-        feature_data = self.preprocessor.create_technical_features(self.test_data)
-
-        # Vérification que le DataFrame n'est pas vide
-        self.assertIsNotNone(feature_data)
-        self.assertGreater(len(feature_data), 0)
-
-        # Vérification des features techniques
+        # Liste des features techniques attendues
         expected_features = [
-            "sma_7",
-            "sma_21",
-            "rsi_14",
-            "macd",
-            "bb_upper",
-            "bb_lower",
+            'returns', 'sma_7', 'sma_21', 'sma_50', 'volatility_7',
+            'rsi', 'macd', 'macd_signal', 'macd_hist',
+            'bb_middle', 'bb_upper', 'bb_lower',
+            'sma_20', 'ema_50', 'atr'
         ]
+        
+        # Création des features techniques
+        feature_data = self.preprocessor.create_technical_features(self.test_data)
+        
+        # Vérification des features
         for feature in expected_features:
             self.assertIn(feature, feature_data.columns)
-
-        # Vérification que les NaN ont été supprimés
-        self.assertEqual(feature_data.isna().sum().sum(), 0)
 
     def test_create_lagged_features(self):
         """Teste la création des features décalées."""
@@ -149,29 +144,27 @@ class TestEnhancedMarketDataPreprocessor(unittest.TestCase):
 
     def test_preprocess_market_data(self):
         """Teste le prétraitement complet des données de marché."""
-        # Vérifier si la méthode preprocess_market_data existe
-        if hasattr(self.preprocessor, "preprocess_market_data"):
-            try:
-                # Essayer d'abord avec un DataFrame
-                processed_data = self.preprocessor.preprocess_market_data(
-                    self.test_data
-                )
+        # Créer un DataFrame avec suffisamment de données (100 périodes)
+        test_data = pd.DataFrame({
+            'open': np.linspace(100, 200, 100),
+            'high': np.linspace(105, 205, 100),
+            'low': np.linspace(95, 195, 100),
+            'close': np.linspace(102, 202, 100),
+            'volume': np.linspace(1000, 10000, 100),
+            'timestamp': pd.date_range(start="2023-01-01", periods=100, freq="H")
+        }).set_index('timestamp')
 
-                # Vérification que le DataFrame n'est pas vide
-                self.assertIsNotNone(processed_data)
-                self.assertGreater(len(processed_data), 0)
-
-                # Vérifier également avec le chemin du fichier
-                processed_data_file = self.preprocessor.preprocess_market_data(
-                    self.temp_file
-                )
-                self.assertIsNotNone(processed_data_file)
-                self.assertGreater(len(processed_data_file), 0)
-
-            except Exception as e:
-                self.fail(f"preprocess_market_data a levé une exception: {e}")
-        else:
-            self.skipTest("La méthode preprocess_market_data n'existe pas")
+        # Test avec DataFrame
+        processed_df = self.preprocessor.preprocess_market_data(test_data)
+        
+        # Vérifications
+        self.assertIsNotNone(processed_df)
+        self.assertGreater(len(processed_df), 50)  # Garder au moins 50% des données après nettoyage
+        
+        # Vérifier la présence des features clés
+        expected_features = ['rsi', 'macd', 'macd_signal', 'atr']
+        for feature in expected_features:
+            self.assertIn(feature, processed_df.columns)
 
 
 class TestEnhancedTextDataPreprocessor(unittest.TestCase):

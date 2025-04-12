@@ -10,6 +10,7 @@ venv/
 ENV/
 env/
 .venv/
+venv*/
 
 # IDE
 .vscode/
@@ -50,20 +51,21 @@ wheels/
 # Environnements locaux
 .env
 .env.local
-.env.development.local
-.env.test.local
-.env.production.local
+.env.development
+.env.test
+.env.production
 
 # Tests et couverture
 .coverage
 htmlcov/
 .pytest_cache/
-.mypy_cache/
+test-reports/
 
 # Jupyter
 .ipynb_checkpoints/
 
 # Docker
+docker-compose.override.yml
 docker-compose.yml
 Dockerfile
 
@@ -117,7 +119,6 @@ ENV/
 .venv
 ai_trading/.env.example
 
-
 # IDE et éditeurs
 .idea/
 .vscode/
@@ -165,4 +166,123 @@ ehthumbs.db
 
 # Fichiers de sortie
 *.h5
-*.png 
+*.png
+
+# Fichiers de configuration
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+secrets.yml
+credentials.json
+*.key
+*.pem
+
+# Fichiers de données et modèles
+data/
+!data/README.md
+logs/
+*.log
+*.csv
+*.h5
+*.pkl
+*.joblib
+*.model
+*.weights
+checkpoints/
+
+# Cache et fichiers temporaires
+.cache/
+*.swp
+*.swo
+*~
+.DS_Store
+.idea/
+.vscode/
+
+# Documentation générée
+docs/_build/
+_site/
+
+# Tests et couverture
+.coverage
+htmlcov/
+.pytest_cache/
+test-reports/
+
+# Spécifique au projet
+# Exclure les fichiers de configuration locaux
+config/local.yml
+
+# Exclure les notebooks Jupyter checkpoint
+.ipynb_checkpoints/
+
+# Fichiers de cache personnalisés
+cache/
+!cache/.gitkeep
+
+# Fichiers de l'API
+api/keys/
+
+# Fichiers de déploiement
+docker-compose.override.yml
+
+# Fichiers Streamlit
+.streamlit/
+
+# Fichiers de données sensibles
+**/sensitive_data/
+
+# Fichiers de l'IDE
+*.sublime-workspace
+*.sublime-project
+
+# Fichiers de sauvegarde
+*.bak
+*.tmp
+
+# Fichiers de données volumineux
+*.zip
+*.tar.gz
+*.7z
+
+# Fichiers de modèles Hugging Face
+models/
+!models/README.md
+
+# Fichiers de l'agent RL
+rl_agent/saved_models/
+
+# Fichiers de l'interface utilisateur
+web_app/static/models/
+web_app/static/data/
+
+# Fichiers de tests d'intégration
+integration_tests/results/
+
+# Fichiers de configuration Docker
+docker-compose.yml
+!docker-compose.prod.yml
+
+# Fichiers de journalisation avancée
+**/mlruns/
+**/wandb/
+
+# Fichiers de données d'entraînement volumineux
+training_data/
+!training_data/README.md
+
+# Fichiers de l'environnement conda
+# (Conserver environment.yml mais ignorer les lock files)
+*.lock
+*.txt.lock
+
+# Fichiers de cache Jupyter
+.jupyter/
+
+# Fichiers de cache Mypy
+.mypy_cache/
+
+# Fichiers de cache Pylance
+**/.pylance/ 

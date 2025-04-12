@@ -15,6 +15,7 @@ Ce module contient l'implémentation d'un système de trading de cryptomonnaies 
   - Normalisation avancée
   - Création de features techniques étendues
   - Prétraitement des données textuelles
+  - Utilisation de `pandas_ta` pour le calcul des indicateurs techniques.
 
 -----------------------------------------------------------------------------------------------------------------------
 

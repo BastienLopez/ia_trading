@@ -110,3 +110,14 @@ LOGGING_CONFIG = {
 
 EMA_RIBBON_PERIODS = [5, 10, 15, 20, 25, 30, 50]
 EMA_GRADIENT_THRESHOLDS = {"bullish": 0.015, "bearish": -0.01}
+
+TECHNICAL_INDICATORS_CONFIG = {
+    'rsi_period': 14,
+    'macd_fast': 12,
+    'macd_slow': 26,
+    'macd_signal': 9,
+    'bb_period': 20,
+    'bb_std': 2.0,
+    'atr_period': 14,
+    'min_data_points': 50
+}

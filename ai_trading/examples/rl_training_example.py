@@ -2,6 +2,7 @@ import sys
 import os
 from datetime import datetime, timedelta
 import logging
+import time
 
 # Ajouter le répertoire parent au chemin pour pouvoir importer les modules
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
@@ -16,6 +17,7 @@ def run_training_example():
     """
     Exemple d'entraînement d'un agent RL sur des données de crypto-monnaie.
     """
+    start_time = time.time()
     print("Démarrage de l'exemple d'entraînement RL...")
 
     # Créer l'intégrateur de données
@@ -69,7 +71,20 @@ def run_training_example():
     agent = DQNAgent(env)
 
     # Entraîner l'agent
-    agent.train(episodes=100)
+    num_episodes = 100
+    for episode in range(num_episodes):
+        episode_rewards = []
+        state = env.reset()
+        done = False
+        
+        while not done:
+            action = agent.act(state)
+            next_state, reward, done, _ = env.step(action)
+            episode_rewards.append(reward)
+            state = next_state
+        
+        avg_reward = sum(episode_rewards) / len(episode_rewards)
+        logger.info(f"Épisode {episode + 1}/{num_episodes}, Récompense moyenne: {avg_reward:.2f}")
 
     # Évaluer l'agent sur les données de test
     test_env = TradingEnvironment(
@@ -90,6 +105,10 @@ def run_training_example():
         state = next_state
 
     print(f"Récompense totale sur les données de test: {total_reward:.2f}")
+
+    end_time = time.time()
+    training_duration = end_time - start_time
+    logger.info(f"Temps d'entraînement total: {training_duration:.2f} secondes")
 
     print("\nExemple d'entraînement terminé!")
 

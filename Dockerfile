@@ -1,5 +1,5 @@
 # Base image
-FROM python:3.11-slim
+FROM python:3.10-slim-bullseye
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE 1
@@ -7,25 +7,9 @@ ENV PYTHONUNBUFFERED 1
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
-    build-essential \
-    wget \
     gcc \
     g++ \
-    make \
-    python3-dev \
-    libffi-dev \
-    libssl-dev \
     && rm -rf /var/lib/apt/lists/*
-
-# Install TA-Lib dependencies
-RUN wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz && \
-    tar -xvzf ta-lib-0.4.0-src.tar.gz && \
-    cd ta-lib/ && \
-    ./configure --prefix=/usr && \
-    make && \
-    make install && \
-    cd .. && \
-    rm -rf ta-lib-0.4.0-src.tar.gz ta-lib/
 
 # Set work directory
 WORKDIR /app
@@ -37,6 +21,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy project
 COPY . .
 
+# Variables d'environnement
+ENV PYTHONPATH=/app
+ENV CRYPTO_PANIC_API_KEY=votre_cle_api
+
 # Create necessary directories
 RUN mkdir -p data logs
 
@@ -44,7 +32,7 @@ RUN mkdir -p data logs
 EXPOSE 8000
 
 # Run the application
-CMD ["python", "-m", "pytest", "ai_trading/tests/", "-v"]
+CMD ["python", "-m", "ai_trading.examples.rl_training_example"]
 
 # Autres commandes possibles en fonction de l'utilisation :
 # Pour entraîner un modèle : 

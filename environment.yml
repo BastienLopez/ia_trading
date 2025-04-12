@@ -1,0 +1,10 @@
+name: ai_trading
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - pip
+  - gcc  # Nécessaire pour pandas_ta
+  - pip:
+    - -r requirements.txt 

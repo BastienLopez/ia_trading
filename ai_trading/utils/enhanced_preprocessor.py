@@ -10,11 +10,14 @@ from typing import Dict, List, Optional, Tuple
 import nltk
 import numpy as np
 import pandas as pd
-import ta  # Bibliothèque pour les indicateurs techniques
+import pandas_ta as ta
 from nltk.corpus import stopwords
 from nltk.stem import WordNetLemmatizer
 from nltk.tokenize import word_tokenize
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
+from joblib import Parallel, delayed
+import pickle
+import hashlib
 
 # Configuration du logging
 logging.basicConfig(level=logging.INFO)
@@ -57,13 +60,6 @@ class EnhancedMarketDataPreprocessor:
         missing_values = df_clean.isna().sum()
         if missing_values.sum() > 0:
             logger.warning(f"Valeurs manquantes détectées: {missing_values}")
-
-            # Conversion des types pour éviter les warnings
-            for col in df_clean.select_dtypes(include=["object"]).columns:
-                try:
-                    df_clean[col] = pd.to_numeric(df_clean[col], errors="ignore")
-                except:
-                    pass
 
             # Inférence des types d'objets avant interpolation (pour éviter le FutureWarning)
             df_clean = df_clean.infer_objects(copy=False)
@@ -144,89 +140,56 @@ class EnhancedMarketDataPreprocessor:
         return df_norm
 
     def create_technical_features(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Crée des features techniques à partir des données de marché.
-
-        Args:
-            df: DataFrame contenant les données de marché
-
-        Returns:
-            DataFrame avec les features techniques ajoutées
-        """
-        logger.info("Création des features techniques")
-
-        # Vérification des colonnes nécessaires
-        required_columns = ["open", "high", "low", "close", "volume"]
-
-        # Si 'close' n'existe pas mais 'price' existe, utiliser 'price' comme 'close'
-        if "close" not in df.columns and "price" in df.columns:
-            df["close"] = df["price"]
-
-        # Vérifier si les colonnes nécessaires existent
-        missing_columns = [col for col in required_columns if col not in df.columns]
-
-        if missing_columns:
-            logger.warning(
-                f"Colonnes manquantes pour les features techniques: {missing_columns}"
-            )
-            # Si certaines colonnes sont manquantes, créer des colonnes de substitution
-            if "open" not in df.columns and "close" in df.columns:
-                df["open"] = df["close"]
-            if "high" not in df.columns and "close" in df.columns:
-                df["high"] = df["close"]
-            if "low" not in df.columns and "close" in df.columns:
-                df["low"] = df["close"]
-            if "volume" not in df.columns:
-                df["volume"] = 0
-
-        # Copie du DataFrame pour éviter les modifications en place
-        df_tech = df.copy()
-
         try:
-            # Calcul des rendements
-            df_tech["returns"] = df_tech["close"].pct_change(fill_method="pad")
+            # Vérifier que le DataFrame a suffisamment de données
+            if len(df) < 20:
+                self.logger.warning("Données insuffisantes pour calculer les indicateurs techniques")
+                return df
 
-            # Moyennes mobiles
-            df_tech["sma_7"] = df_tech["close"].rolling(window=7).mean()
-            df_tech["sma_21"] = df_tech["close"].rolling(window=21).mean()
-            df_tech["sma_50"] = df_tech["close"].rolling(window=50).mean()
+            # Calcul des returns
+            df['returns'] = df['close'].pct_change().fillna(0)
+            
+            # Calcul des moyennes mobiles
+            df['sma_7'] = df['close'].rolling(window=7).mean()
+            df['sma_21'] = df['close'].rolling(window=21).mean()
+            df['sma_50'] = df['close'].rolling(window=50).mean()
+            
+            # Calcul de la volatilité
+            df['volatility_7'] = df['returns'].rolling(window=7).std()
+            
+            # Calcul des indicateurs avec pandas_ta
+            df['rsi'] = df.ta.rsi(length=14)
+            macd = df.ta.macd(fast=12, slow=26, signal=9)
+            df = pd.concat([df, macd], axis=1)
+            
+            bbands = df.ta.bbands(length=20, std=2)
+            df = pd.concat([df, bbands], axis=1)
+            
+            df['atr'] = df.ta.atr(length=14)
+            df['sma_20'] = df['close'].rolling(window=20).mean()
+            df['ema_50'] = df.ta.ema(length=50)
 
-            # Écart-type (volatilité)
-            df_tech["volatility_7"] = df_tech["close"].rolling(window=7).std()
+            # Gestion des noms de colonnes
+            df.rename(columns={
+                'MACD_12_26_9': 'macd',
+                'MACDs_12_26_9': 'macd_signal',
+                'MACDh_12_26_9': 'macd_hist',
+                'BBU_20_2.0': 'bb_upper',
+                'BBM_20_2.0': 'bb_middle',
+                'BBL_20_2.0': 'bb_lower'
+            }, inplace=True)
 
-            # RSI
-            delta = df_tech["close"].diff()
-            gain = delta.where(delta > 0, 0)
-            loss = -delta.where(delta < 0, 0)
-            avg_gain = gain.rolling(window=14).mean()
-            avg_loss = loss.rolling(window=14).mean()
-            rs = avg_gain / avg_loss
-            df_tech["rsi_14"] = 100 - (100 / (1 + rs))
-
-            # MACD
-            ema_12 = df_tech["close"].ewm(span=12, adjust=False).mean()
-            ema_26 = df_tech["close"].ewm(span=26, adjust=False).mean()
-            df_tech["macd"] = ema_12 - ema_26
-            df_tech["macd_signal"] = df_tech["macd"].ewm(span=9, adjust=False).mean()
-            df_tech["macd_hist"] = df_tech["macd"] - df_tech["macd_signal"]
-
-            # Bollinger Bands
-            df_tech["bb_middle"] = df_tech["close"].rolling(window=20).mean()
-            df_tech["bb_std"] = df_tech["close"].rolling(window=20).std()
-            df_tech["bb_upper"] = df_tech["bb_middle"] + 2 * df_tech["bb_std"]
-            df_tech["bb_lower"] = df_tech["bb_middle"] - 2 * df_tech["bb_std"]
-
-            # Suppression des lignes avec des NaN (dues aux fenêtres de calcul)
-            df_tech = df_tech.dropna()
-
-            logger.info(
-                f"Création des features techniques terminée. Nouvelles dimensions: {df_tech.shape}"
-            )
-            return df_tech
+            # Suppression des colonnes intermédiaires
+            df.drop(columns=['BBP_20_2.0'], inplace=True, errors='ignore')
+            
+            # Remplissage des NaN générés par les rolling windows
+            df = df.ffill().bfill()
+            
+            logger.info(f"Création des features techniques terminée. Nouvelles dimensions: {df.shape}")
+            return df
 
         except Exception as e:
-            logger.error(f"Erreur lors de la création des features techniques: {e}")
-            # En cas d'erreur, retourner le DataFrame original
+            logger.error(f"Erreur lors de la création des features techniques: {str(e)}")
             return df
 
     def create_lagged_features(
@@ -368,87 +331,35 @@ class EnhancedMarketDataPreprocessor:
         return train_df, val_df, test_df
 
     def preprocess_market_data(self, market_data, **kwargs):
-        """
-        Prétraite les données de marché complètes.
-
-        Args:
-            market_data: DataFrame ou chemin vers un fichier CSV contenant les données de marché
-            **kwargs: Arguments supplémentaires pour les différentes étapes de prétraitement
-
-        Returns:
-            DataFrame prétraité
-        """
-        logger.info(f"Prétraitement complet des données de marché")
-
-        # Chargement des données si un chemin de fichier est fourni
-        if isinstance(market_data, str):
-            try:
-                if os.path.exists(market_data):
-                    df = pd.read_csv(market_data, index_col=0, parse_dates=True)
-                    logger.info(f"Données chargées depuis {market_data}")
-                else:
-                    logger.error(f"Fichier non trouvé: {market_data}")
-                    return None
-            except Exception as e:
-                logger.error(f"Erreur lors du chargement des données: {e}")
-                return None
-        else:
-            # Si c'est déjà un DataFrame
-            try:
-                df = market_data.copy()
-                logger.info(f"Utilisation du DataFrame fourni, dimensions: {df.shape}")
-            except Exception as e:
-                logger.error(f"Erreur lors de la copie du DataFrame: {e}")
-                return None
-
         try:
+            # Créer le répertoire cache si nécessaire
+            os.makedirs("cache", exist_ok=True)
+            
+            # Gestion des chemins de fichiers
+            if isinstance(market_data, str):
+                if not os.path.exists(market_data):
+                    self.logger.error(f"Fichier introuvable: {market_data}")
+                    return None
+                df = pd.read_csv(market_data)
+            else:
+                df = market_data.copy()
+
             # Nettoyage des données
             df_clean = self.clean_market_data(df)
-
+            
             # Création des features techniques
             df_features = self.create_technical_features(df_clean)
-
+            
             # Création des lags
-            lag_columns = (
-                ["close", "volume"]
-                if "close" in df_features.columns
-                else ["price", "volume"]
-            )
-            lag_columns = [col for col in lag_columns if col in df_features.columns]
-
-            if lag_columns:
-                df_lagged = self.create_lagged_features(
-                    df_features, lag_columns, lags=[1, 2, 3]
-                )
-            else:
-                logger.warning(
-                    "Aucune colonne pour les lags trouvée, utilisation des données sans lags"
-                )
-                df_lagged = df_features
-
-            # Normalisation
-            df_normalized = self.normalize_market_data(df_lagged)
-
-            # Création de la variable cible (si demandé)
-            target_method = kwargs.get("target_method", "direction")
-            target_horizon = kwargs.get("target_horizon", 1)
-
-            if kwargs.get("create_target", False):
-                df_target = self.create_target_variable(
-                    df_normalized, horizon=target_horizon, method=target_method
-                )
-            else:
-                df_target = df_normalized
-
-            logger.info(f"Prétraitement terminé, dimensions finales: {df_target.shape}")
-            return df_target
+            df_lagged = self.create_lagged_features(df_features, ['close', 'volume'], [1, 2])
+            
+            # Création de la variable cible
+            final_df = self.create_target_variable(df_lagged)
+            
+            return final_df.dropna()
 
         except Exception as e:
-            logger.error(f"Erreur lors du prétraitement des données: {e}")
-            # En cas d'erreur, retourner les données nettoyées si disponibles
-            if "df_clean" in locals():
-                logger.warning("Retour des données nettoyées uniquement")
-                return df_clean
+            self.logger.error(f"Erreur lors du prétraitement des données: {str(e)}")
             return None
 
 
