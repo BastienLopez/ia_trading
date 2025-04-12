@@ -30,4 +30,5 @@ jobs:
         
     - name: Run all tests
       run: |
+        export MPLBACKEND=Agg
         pytest ai_trading/tests/ tests/web_app/ -v 

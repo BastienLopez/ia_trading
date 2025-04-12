@@ -65,10 +65,10 @@ python ai_trading/examples/generate_performance_plots.py \
 
 ## 5. Tests avancés
 
-### 5.1 Test de charge (1000 requêtes)
+### 5.1 Test de charge (500 requêtes)
 ```bash
 python ai_trading/tests/load_test.py \
-    --requests 1000 \
+    --requests 500 \
     --output reports/plots/load_test/
 ```
 
@@ -104,6 +104,3 @@ python ai_trading/examples/hyperparameter_tuning.py \
 ```bash
 # Supprimer tous les fichiers générés
 rm -rf reports/ plots/ data/sentiment/
-```
-
-> **Note** : Toutes les visualisations sont sauvegardées au format PNG et HTML interactif
