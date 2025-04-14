@@ -9,8 +9,8 @@ import pandas as pd
 from ai_trading.llm.sentiment_analysis.news_analyzer import NewsAnalyzer
 from ai_trading.llm.sentiment_analysis.social_analyzer import SocialAnalyzer
 from ai_trading.rl.data_processor import prepare_data_for_rl
-from ai_trading.utils.enhanced_data_collector import DataCollector
-from ai_trading.utils.enhanced_preprocessor import DataPreprocessor
+from ai_trading.utils.enhanced_data_collector import EnhancedDataCollector
+from ai_trading.utils.enhanced_preprocessor import EnhancedMarketDataPreprocessor
 
 # Configuration du logger
 logger = logging.getLogger("DataIntegration")
@@ -37,8 +37,8 @@ class RLDataIntegrator:
             config (dict, optional): Configuration pour la collecte et le prétraitement des données
         """
         self.config = config or {}
-        self.data_collector = DataCollector()
-        self.data_preprocessor = DataPreprocessor()
+        self.data_collector = EnhancedDataCollector()
+        self.data_preprocessor = EnhancedMarketDataPreprocessor()
         self.news_analyzer = NewsAnalyzer()
         self.social_analyzer = SocialAnalyzer()
 
@@ -63,11 +63,10 @@ class RLDataIntegrator:
 
         try:
             # Utiliser le collecteur de données existant
-            market_data = self.data_collector.fetch_crypto_data(
-                symbol=symbol,
-                start_date=start_date,
-                end_date=end_date,
-                interval=interval,
+            market_data = self.data_collector.get_merged_price_data(
+                coin_id=symbol.lower(),
+                days=self._calculate_days(start_date, end_date),
+                vs_currency="usd",
             )
 
             logger.info(f"Données de marché collectées: {len(market_data)} points")
@@ -96,13 +95,12 @@ class RLDataIntegrator:
 
         try:
             # Collecter les actualités
-            news_data = self.data_collector.fetch_crypto_news(
-                symbol=symbol, start_date=start_date, end_date=end_date
-            )
+            news_data = self.data_collector.get_crypto_news(limit=20)
 
             # Analyser le sentiment des actualités
-            if news_data is not None and not news_data.empty:
-                news_sentiment = self.news_analyzer.analyze_news(news_data)
+            if news_data:
+                news_df = pd.DataFrame(news_data)
+                news_sentiment = self.news_analyzer.analyze_news_dataframe(news_df)
                 logger.info(
                     f"Sentiment des actualités analysé: {len(news_sentiment)} points"
                 )
@@ -110,20 +108,8 @@ class RLDataIntegrator:
                 news_sentiment = pd.DataFrame()
                 logger.warning("Aucune actualité collectée")
 
-            # Collecter les données sociales (tweets, posts Reddit)
-            social_data = self.data_collector.fetch_social_data(
-                symbol=symbol, start_date=start_date, end_date=end_date
-            )
-
-            # Analyser le sentiment des données sociales
-            if social_data is not None and not social_data.empty:
-                social_sentiment = self.social_analyzer.analyze_social_posts(
-                    social_data
-                )
-                logger.info(f"Sentiment social analysé: {len(social_sentiment)} points")
-            else:
-                social_sentiment = pd.DataFrame()
-                logger.warning("Aucune donnée sociale collectée")
+            # Pour le moment, ne pas collecter les données sociales car la méthode n'existe pas
+            social_sentiment = pd.DataFrame()
 
             # Fusionner les sentiments des actualités et des données sociales
             sentiment_data = self._merge_sentiment_data(
@@ -161,7 +147,7 @@ class RLDataIntegrator:
 
         try:
             # Utiliser le préprocesseur existant
-            preprocessed_data = self.data_preprocessor.preprocess(market_data)
+            preprocessed_data = self.data_preprocessor.preprocess_market_data(market_data)
 
             # Ajouter des indicateurs techniques supplémentaires si nécessaire
             if "rsi" not in preprocessed_data.columns:
@@ -362,6 +348,22 @@ class RLDataIntegrator:
         )
 
         return df
+
+    def _calculate_days(self, start_date, end_date):
+        """
+        Calcule le nombre de jours entre deux dates.
+        
+        Args:
+            start_date (str): Date de début (format: 'YYYY-MM-DD')
+            end_date (str): Date de fin (format: 'YYYY-MM-DD')
+            
+        Returns:
+            int: Nombre de jours entre les deux dates
+        """
+        start = datetime.strptime(start_date, "%Y-%m-%d")
+        end = datetime.strptime(end_date, "%Y-%m-%d")
+        delta = end - start
+        return delta.days
 
     def visualize_integrated_data(self, data, save_dir=None):
         """

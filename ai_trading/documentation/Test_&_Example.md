@@ -35,42 +35,47 @@ python -m pytest ai_trading/tests/test_trading_environment.py -v
 python -m pytest ai_trading/tests/test_technical_indicators.py -v
 ```
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-# Exemples 
- ### 1. Exécution des tests unitaires
+## Exemples disponibles
+
+### 1. Environnement de Trading avec Actions Aléatoires
 ```bash
-# Depuis la racine du projet
-python -m pytest ai_trading/tests/ -v
-```
-
-### 2. Exécution des exemples avec visualisation
-```bash
-# Analyse de sentiment avec graphiques
-python ai_trading/examples/enhanced_sentiment_analysis_example.py --plot
-
-# Pipeline de données améliorée
-python ai_trading/examples/enhanced_data_pipeline.py --visualize
-
-# Exemple d'intégration des données pour RL
-python ai_trading/examples/rl_data_integration_example.py --plot
-
-# Test des stop-loss basés sur l'ATR
-python ai_trading/examples/test_atr_stop_loss.py --backtest
-
-# Entraînement RL avec monitoring
-python ai_trading/examples/rl_training_example.py --epochs 50 --render
-
-# Test de l'environnement de trading
 python ai_trading/examples/test_trading_env.py --episodes 10 --visualize
 ```
 
-### 3. Génération des rapports de test
+### 2. Analyse de Sentiment Améliorée
 ```bash
-# Générer un rapport HTML des tests
-python -m pytest ai_trading/tests/ --html=reports/test_report.html
+python ai_trading/examples/enhanced_sentiment_analysis_example.py --coins bitcoin ethereum --days 14 --plot
 ```
 
-### 4. Exécution de tous les exemples en une seule commande
+### 3. Pipeline de Données Amélioré
 ```bash
-# Depuis la racine du projet
-for file in ai_trading/examples/*.py; do python "$file" --no-plot; done
+python ai_trading/examples/enhanced_data_pipeline.py --symbol ETH --days 60 --interval 1d --output ethereum_data.csv
 ```
+
+### 4. Intégration de Données pour l'Apprentissage par Renforcement
+```bash
+python ai_trading/examples/rl_data_integration_example.py
+```
+
+### 5. Exemple d'Entraînement par Renforcement
+```bash
+python ai_trading/examples/rl_training_example.py --episodes 500 --symbol ETH --model ppo --save
+```
+
+### 6. Test de Stop Loss basé sur ATR
+```bash
+python ai_trading/examples/test_atr_stop_loss.py --symbol ETH --period 21 --multiplier 2.5 --visualize
+```
+
+## Diagnostics et débogage
+
+1. **Erreur avec `get_crypto_news(coin=coin)`**:
+   - Message d'erreur: `TypeError: EnhancedDataCollector.get_crypto_news() got an unexpected keyword argument 'coin'`
+   - Solution: Retirez le paramètre `coin` et utilisez simplement `get_crypto_news(limit=10)`
+
+2. **Erreur avec `integrate_data(lookback_window=10)`**:
+   - Message d'erreur: `TypeError: RLDataIntegrator.integrate_data() got an unexpected keyword argument 'lookback_window'`
+   - Solution: Retirez le paramètre `lookback_window` de l'appel
+
+3. **Erreur avec `fetch_crypto_data` ou `fetch_crypto_news`**:
+   - Solution: Utilisez `get_merged_price_data` et `get_crypto_news` à la place

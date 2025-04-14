@@ -56,7 +56,7 @@ def main():
             logger.warning(f"Aucune donnée de prix disponible pour {coin}")
 
         # Récupération des actualités
-        news = collector.get_crypto_news(coin=coin, limit=10)
+        news = collector.get_crypto_news(limit=10)
         if news:
             news_df = pd.DataFrame(news)
             news_df.to_csv(f"data/raw/{coin}_news.csv", index=False)

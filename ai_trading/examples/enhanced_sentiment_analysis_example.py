@@ -50,17 +50,19 @@ def collect_news(coins: list, days: int = 7, limit_per_coin: int = 10) -> pd.Dat
 
         # Récupération des actualités
         try:
-            news = collector.get_crypto_news(coin)
+            news = collector.get_crypto_news(limit=limit_per_coin)
+            
+            # Ajout manuel du coin à chaque actualité
+            if news:
+                for item in news:
+                    item["coin"] = coin
+                all_news.extend(news)
+                logger.info(f"  - {len(news)} actualités récupérées")
+            else:
+                logger.warning(f"  - Aucune actualité récupérée pour {coin}")
         except Exception as e:
             logger.error(f"Erreur lors de la récupération des actualités pour {coin}: {e}")
             news = []
-        if news:
-            for item in news:
-                item["coin"] = coin
-            all_news.extend(news)
-            logger.info(f"  - {len(news)} actualités récupérées")
-        else:
-            logger.warning(f"  - Aucune actualité récupérée pour {coin}")
 
     if not all_news:
         logger.error("Aucune actualité récupérée")
@@ -104,10 +106,20 @@ def analyze_news(
     analyzer = EnhancedNewsAnalyzer(use_gpu=use_gpu, enable_cache=enable_cache)
 
     # Analyse du DataFrame d'actualités
+    # Vérifier les noms des colonnes dans notre DataFrame
+    if 'content' in news_df.columns and 'title' not in news_df.columns:
+        # Renommer content en body si nécessaire
+        news_df = news_df.rename(columns={'content': 'body'})
+    
+    if 'body' not in news_df.columns and 'content' not in news_df.columns:
+        # Si ni body ni content ne sont présents, utiliser une colonne vide
+        news_df['body'] = ""
+    
+    # Utiliser la méthode analyze_news_dataframe qui est conçue pour les DataFrames
     enriched_df = analyzer.analyze_news_dataframe(news_df)
 
     # Génération du rapport
-    report = analyzer.generate_sentiment_report(enriched_df)
+    report = analyzer.generate_report(enriched_df)
 
     # Affichage du résumé
     logger.info("\nRésumé de l'analyse de sentiment:")
@@ -116,24 +128,28 @@ def analyze_news(
     logger.info(f"Sentiment moyen: {report['average_sentiment']:.2f}")
 
     # Affichage des cryptomonnaies les plus mentionnées
-    if report["crypto_mentions"]:
+    if "crypto_mentions" in report and report["crypto_mentions"]:
         logger.info("\nCryptomonnaies les plus mentionnées:")
         for crypto, count in report["crypto_mentions"].items():
             logger.info(f"- {crypto}: {count} mentions")
 
     # Affichage des articles les plus positifs et négatifs
-    if "most_positive_article" in report and "title" in report["most_positive_article"]:
+    if "most_positive_article" in report and report["most_positive_article"] and "title" in report["most_positive_article"]:
         logger.info("\nArticle le plus positif:")
         logger.info(f"- {report['most_positive_article']['title']}")
-        logger.info(f"- Score: {report['most_positive_article']['score']:.2f}")
+        score_key = "score" if "score" in report['most_positive_article'] else "sentiment_score"
+        if score_key in report['most_positive_article']:
+            logger.info(f"- Score: {report['most_positive_article'][score_key]:.2f}")
 
-    if "most_negative_article" in report and "title" in report["most_negative_article"]:
+    if "most_negative_article" in report and report["most_negative_article"] and "title" in report["most_negative_article"]:
         logger.info("\nArticle le plus négatif:")
         logger.info(f"- {report['most_negative_article']['title']}")
-        logger.info(f"- Score: {report['most_negative_article']['score']:.2f}")
+        score_key = "score" if "score" in report['most_negative_article'] else "sentiment_score"
+        if score_key in report['most_negative_article']:
+            logger.info(f"- Score: {report['most_negative_article'][score_key]:.2f}")
 
     # Affichage du sentiment par cryptomonnaie
-    if report["sentiment_by_crypto"]:
+    if "sentiment_by_crypto" in report and report["sentiment_by_crypto"]:
         logger.info("\nSentiment par cryptomonnaie:")
         for crypto, data in report["sentiment_by_crypto"].items():
             logger.info(
@@ -146,16 +162,70 @@ def analyze_news(
 def analyze_news_demo():
     analyzer = NewsAnalyzer()
     # Exemple d'analyse d'actualités
-    news_data = [...]  # Données d'actualités
-    results = analyzer.analyze(news_data)
+    news_data = [
+        {
+            "title": "Bitcoin surpasses $65,000 as institutional adoption increases",
+            "body": "Bitcoin has reached a new all-time high, exceeding $65,000 per coin. This surge is attributed to increasing institutional adoption and growing interest from traditional finance."
+        },
+        {
+            "title": "Ethereum upgrade improves network scalability",
+            "body": "The recent Ethereum network upgrade has significantly improved transaction throughput and reduced gas fees, addressing long-standing scalability concerns."
+        }
+    ]
+    results = analyzer.analyze_news(news_data)
     print(results)
 
 
 def analyze_social_media():
-    analyzer = SocialAnalyzer()
-    # Exemple d'analyse de réseaux sociaux
-    social_data = [...]  # Données de réseaux sociaux
-    results = analyzer.analyze(social_data)
+    analyzer = SocialAnalyzer(platform="twitter")
+    # Exemple d'analyse de réseaux sociaux pour Twitter
+    social_data = [
+        {
+            "full_text": "Le Bitcoin est en train de révolutionner le système financier mondial! #BTC #ToTheMoon",
+            "retweet_count": 150,
+            "favorite_count": 300,
+            "reply_count": 45,
+            "created_at": "2023-09-15T14:30:00Z",
+            "user": {
+                "screen_name": "crypto_enthusiast",
+                "followers_count": 15000,
+                "verified": True,
+            }
+        },
+        {
+            "full_text": "Je suis inquiet de la volatilité récente des marchés crypto. Que pensez-vous de la correction actuelle?",
+            "retweet_count": 50,
+            "favorite_count": 100,
+            "reply_count": 25,
+            "created_at": "2023-09-16T09:15:00Z",
+            "user": {
+                "screen_name": "investor_123",
+                "followers_count": 5000,
+                "verified": False,
+            }
+        }
+    ]
+    results = analyzer.analyze_social_posts(social_data)
+    print(results)
+
+
+def enhanced_analyze_news_demo():
+    analyzer = EnhancedNewsAnalyzer()
+    # Exemple d'analyse d'actualités avec l'analyseur amélioré
+    news_data = [
+        {
+            "title": "Bitcoin atteint un nouveau sommet historique",
+            "body": "Le prix du Bitcoin a atteint un nouveau sommet historique aujourd'hui, dépassant les 70 000 dollars.",
+            "published_at": "2023-09-15T14:30:00Z"
+        },
+        {
+            "title": "Ethereum 2.0 améliore considérablement l'évolutivité",
+            "body": "La mise à jour d'Ethereum 2.0 a permis d'améliorer l'évolutivité et de réduire les frais de transaction.",
+            "published_at": "2023-09-16T09:15:00Z"
+        }
+    ]
+    results = analyzer.analyze_news(news_data)
+    print("Résultats de l'analyse améliorée:")
     print(results)
 
 
@@ -186,6 +256,7 @@ def main():
         "--gpu", action="store_true", help="Utiliser le GPU pour l'inférence"
     )
     parser.add_argument("--no-cache", action="store_true", help="Désactiver le cache")
+    parser.add_argument("--plot", action="store_true", help="Générer un graphique de visualisation des sentiments")
     args = parser.parse_args()
 
     # Création des dossiers de données
@@ -221,6 +292,38 @@ def main():
     enriched_df.to_csv(analyzed_file, index=False)
     logger.info(f"Actualités analysées sauvegardées dans {analyzed_file}")
 
+    # Génération d'un graphique si demandé
+    if args.plot:
+        logger.info("\nGénération du graphique de visualisation des sentiments")
+        try:
+            import matplotlib.pyplot as plt
+            import seaborn as sns
+            import numpy as np
+            
+            # Créer un dossier pour les visualisations
+            os.makedirs("data/sentiment/visualizations", exist_ok=True)
+            
+            # Visualisation des scores de sentiment par cryptomonnaie
+            plt.figure(figsize=(12, 8))
+            
+            if 'sentiment_score' in enriched_df.columns and 'coin' in enriched_df.columns:
+                sns.boxplot(x='coin', y='sentiment_score', data=enriched_df)
+                plt.title('Distribution des scores de sentiment par cryptomonnaie')
+                plt.xlabel('Cryptomonnaie')
+                plt.ylabel('Score de sentiment')
+                plt.xticks(rotation=45)
+                
+                # Sauvegarde du graphique
+                viz_file = f"data/sentiment/visualizations/sentiment_viz_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+                plt.tight_layout()
+                plt.savefig(viz_file)
+                logger.info(f"Graphique sauvegardé dans {viz_file}")
+            else:
+                logger.warning("Impossible de générer le graphique : colonnes requises manquantes dans les données analysées")
+                
+        except Exception as e:
+            logger.error(f"Erreur lors de la génération du graphique : {e}")
+
     logger.info("\nAnalyse de sentiment terminée avec succès!")
     logger.info(
         "Les visualisations ont été sauvegardées dans data/sentiment/visualizations/"
@@ -229,6 +332,7 @@ def main():
 
     analyze_news_demo()
     analyze_social_media()
+    enhanced_analyze_news_demo()
 
 
 if __name__ == "__main__":

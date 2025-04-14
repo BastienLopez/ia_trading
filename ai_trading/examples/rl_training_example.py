@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../.
 from ai_trading.rl.data_integration import RLDataIntegrator
 from ai_trading.rl_agent import TradingEnvironment
 from ai_trading.rl import DQNAgent
+from ai_trading.utils.enhanced_data_collector import EnhancedDataCollector
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +52,6 @@ def run_training_example():
     train_data, test_data = integrator.integrate_data(
         market_data=preprocessed_market_data,
         sentiment_data=sentiment_data,
-        lookback_window=10,
         test_split=0.2,
     )
 
