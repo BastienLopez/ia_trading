@@ -74,9 +74,9 @@ Ce module contient l'implémentation d'un système de trading de cryptomonnaies 
   - [x] Créer une classe `RiskManager`
 
   ### 6. **Amélioration de l'agent**
-  - [ ] Mémoire de replay priorisée pour DQN
-  - [ ] Exploration avancée : UCB, exploration par nouveauté
-  - [ ] Double DQN, Dueling DQN
+  - [x] Mémoire de replay priorisée pour DQN
+  - [x] Exploration avancée : UCB, exploration par nouveauté
+  - [x] Double DQN, Dueling DQN
   - [ ] Implémenter Rainbow DQN (combinaison d'améliorations)
   - [ ] Ajouter PPO/SAC pour les actions continues
   - [ ] Intégrer Noisy Networks pour l'exploration
