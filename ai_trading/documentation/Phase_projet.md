@@ -64,14 +64,14 @@ Ce module contient l'implémentation d'un système de trading de cryptomonnaies 
   - [x] Ajouter des limites d'exposition par actif
 
   ### 4. **Récompenses plus sophistiquées**
-  - [ ] Utiliser le ratio de Sharpe
-  - [ ] Pénaliser les transactions trop fréquentes (frais fixes)
-  - [ ] Récompense basée sur le drawdown
+  - [x] Utiliser le ratio de Sharpe
+  - [x] Pénaliser les transactions trop fréquentes (frais fixes)
+  - [x] Récompense basée sur le drawdown
 
   ### 5. **Gestion du risque basique**
-  - [ ] Implémenter stop-loss et take-profit
-  - [ ] Ajouter une limite de perte par trade
-  - [ ] Créer une classe `RiskManager`
+  - [x] Implémenter stop-loss et take-profit
+  - [x] Ajouter une limite de perte par trade
+  - [x] Créer une classe `RiskManager`
 
   ### 6. **Amélioration de l'agent**
   - [ ] Mémoire de replay priorisée pour DQN

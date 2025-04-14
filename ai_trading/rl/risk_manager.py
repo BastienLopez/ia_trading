@@ -478,3 +478,14 @@ class RiskManager:
             logger.info(f"Ajustement de l'action: {action:.2f} -> {adjusted_action:.2f}")
             return adjusted_action
         return action 
+
+    def reset(self):
+        """
+        Réinitialise l'état du gestionnaire de risques.
+        """
+        # Réinitialisation du tracking des performances
+        self.peak_value = 0
+        self.current_drawdown = 0
+        
+        # Réinitialisation du suivi des positions
+        self.positions = {} 

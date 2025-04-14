@@ -168,31 +168,39 @@ class TradingEnvironment(gym.Env):
 
     def reset(self, seed=None):
         """
-        Réinitialise l'environnement au début d'un épisode.
-
+        Réinitialise l'environnement.
+        
+        Args:
+            seed (int, optional): Graine aléatoire pour la reproductibilité
+            
         Returns:
-            observation (np.array): L'état initial
-            info (dict): Informations supplémentaires
+            tuple: (observation, info)
         """
-        # Réinitialiser le générateur aléatoire si un seed est fourni
+        # Graine aléatoire pour gym
         if seed is not None:
             super().reset(seed=seed)
-            
-        # Réinitialiser l'indice de temps
+        
+        # Réinitialiser l'état
         self.current_step = self.window_size
-
-        # Réinitialiser le portefeuille
         self.balance = self.initial_balance
-        self.crypto_held = 0
+        self.crypto_held = 0.0
         self.portfolio_value_history = [self.initial_balance]
-        self.action_history = []
-
-        # Obtenir l'observation initiale
+        
+        # Réinitialiser le gestionnaire de risque
+        if self.use_risk_manager:
+            self.risk_manager.reset()
+        
+        # Réinitialiser les attributs pour le suivi des transactions
+        self.previous_crypto_ratio = 0.0
+        self.last_transaction_step = 0
+        
+        # Récupérer la première observation
         observation = self._get_observation()
-
-        logger.debug(f"Environnement réinitialisé. Observation initiale: {observation}")
-
-        return observation, {}  # Retourner l'observation et un dict info vide
+        
+        # Information supplémentaire
+        info = {}
+        
+        return observation, info
 
     def step(self, action):
         """
@@ -563,7 +571,11 @@ class TradingEnvironment(gym.Env):
 
     def _calculate_reward(self, previous_portfolio_value, current_portfolio_value):
         """
-        Calcule la récompense en fonction de la variation de la valeur du portefeuille.
+        Calcule la récompense en fonction de plusieurs métriques:
+        1. Variation de la valeur du portefeuille
+        2. Ratio de Sharpe pour récompenser la performance ajustée au risque
+        3. Pénalité pour les transactions trop fréquentes
+        4. Pénalité basée sur le drawdown
         
         Args:
             previous_portfolio_value (float): Valeur précédente du portefeuille
@@ -572,19 +584,62 @@ class TradingEnvironment(gym.Env):
         Returns:
             float: Récompense
         """
-        # Calculer le rendement
+        # 1. Calcul du rendement simple
         if previous_portfolio_value == 0:
             return 0
         
-        # Rendement simple
         return_pct = (current_portfolio_value - previous_portfolio_value) / previous_portfolio_value
         
         # Récompense de base
         reward = return_pct * 100  # Multiplier par 100 pour avoir une échelle plus grande
         
-        # Ajouter des bonus/malus en fonction de la tendance récente
+        # 2. Composante du ratio de Sharpe
+        if len(self.portfolio_value_history) >= 10:  # Avoir suffisamment de données
+            # Calculer les rendements des 10 dernières périodes
+            recent_values = self.portfolio_value_history[-10:]
+            returns = np.diff(recent_values) / recent_values[:-1]
+            
+            # Éviter la division par zéro
+            std_dev = np.std(returns)
+            if std_dev > 0:
+                # Un mini ratio de Sharpe calculé sur les derniers rendements
+                sharpe_component = np.mean(returns) / std_dev
+                # Normaliser et ajouter à la récompense
+                reward += sharpe_component * 10  # Pondération du Sharpe
+        
+        # 3. Pénalité pour les transactions trop fréquentes
+        # Vérifier si une transaction a été effectuée
+        if hasattr(self, 'last_transaction_step'):
+            # Si moins de 3 étapes depuis la dernière transaction, appliquer une pénalité
+            time_since_last_trade = self.current_step - self.last_transaction_step
+            if time_since_last_trade < 3:
+                # Pénalité inversement proportionnelle au temps écoulé
+                trading_frequency_penalty = 1.0 / (time_since_last_trade + 1)
+                reward -= trading_frequency_penalty * 5  # Pondération de la pénalité
+        
+        # Mettre à jour l'étape de la dernière transaction si l'agent a effectué une transaction
+        # Détecter une transaction en vérifiant si la composition du portefeuille a changé
+        current_crypto_ratio = self.crypto_held * self.df.iloc[self.current_step]["close"] / current_portfolio_value
+        if hasattr(self, 'previous_crypto_ratio'):
+            if abs(current_crypto_ratio - self.previous_crypto_ratio) > 0.01:  # Seuil de 1%
+                self.last_transaction_step = self.current_step
+        # Stocker le ratio actuel pour la prochaine comparaison
+        self.previous_crypto_ratio = current_crypto_ratio
+        
+        # 4. Pénalité basée sur le drawdown
+        if len(self.portfolio_value_history) >= 2:
+            # Calculer le drawdown actuel
+            peak_value = max(self.portfolio_value_history)
+            current_drawdown = (peak_value - current_portfolio_value) / peak_value
+            
+            # Pénalité proportionnelle au drawdown
+            if current_drawdown > 0.05:  # Seuil de 5%
+                # Plus le drawdown est important, plus la pénalité est sévère
+                drawdown_penalty = current_drawdown * 20  # Pondération de la pénalité
+                reward -= drawdown_penalty
+        
+        # Ajouter des bonus/malus en fonction de la tendance récente (fonctionnalité existante)
         if len(self.portfolio_value_history) >= 21:
-            # S'assurer que les tableaux ont la même taille
             recent_values = self.portfolio_value_history[-21:]
             recent_returns = np.diff(recent_values) / recent_values[:-1]
             
