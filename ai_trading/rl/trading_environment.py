@@ -1,8 +1,13 @@
 import logging
-
-import gymnasium as gym
+import os
 import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+import gymnasium as gym
 from gymnasium import spaces
+from typing import Dict, List, Tuple, Optional, Union, Any
+import datetime
 
 # Configuration du logger
 logger = logging.getLogger("TradingEnvironment")
@@ -24,103 +29,94 @@ from ai_trading.rl.risk_manager import RiskManager
 # Ajouter l'import
 from ai_trading.rl.adaptive_normalization import AdaptiveNormalizer
 
+# Définir le chemin pour les visualisations
+VISUALIZATION_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'visualizations', 'trading_env')
+# Créer le répertoire s'il n'existe pas
+os.makedirs(VISUALIZATION_DIR, exist_ok=True)
+
 class TradingEnvironment(gym.Env):
     """
     Environnement de trading pour l'apprentissage par renforcement.
-    Version améliorée avec actions d'achat/vente partielles.
+    
+    Cet environnement simule un marché de trading avec des données réelles,
+    où un agent peut acheter, vendre ou conserver des actifs. 
+    L'objectif est de maximiser la valeur du portefeuille.
     """
 
     def __init__(
         self,
         df,
-        initial_balance=10000,
+        initial_balance=10000.0,
         transaction_fee=0.001,
-        window_size=50,
+        window_size=20,
+        include_position=True,
+        include_balance=True,
         include_technical_indicators=True,
-        action_type="discrete",
-        n_discrete_actions=3,
-        max_crypto_purchase_percent=0.3,
-        use_risk_manager=True,
-        use_adaptive_normalization=True,
-        risk_config=None,
+        risk_management=True,
+        normalize_observation=True,
+        reward_function="simple",  # Options: "simple", "sharpe", "transaction_penalty", "drawdown"
+        risk_aversion=0.1,         # Paramètre pour le coefficient de risque dans la fonction de récompense
+        transaction_penalty=0.001, # Pénalité fixe pour chaque transaction
+        lookback_window=20,        # Fenêtre pour calculer le ratio de Sharpe
+        action_type="discrete",    # Type d'action: "discrete" ou "continuous"
+        n_discrete_actions=5,      # Nombre d'actions discrètes par catégorie (achat/vente)
+        **kwargs
     ):
         """
         Initialise l'environnement de trading.
 
         Args:
-            df (DataFrame): Données historiques avec au moins une colonne 'close' pour les prix
-            initial_balance (float): Solde initial en USD
-            transaction_fee (float): Frais de transaction (pourcentage)
-            window_size (int): Nombre de périodes précédentes à inclure dans l'observation
-            include_technical_indicators (bool): Inclure des indicateurs techniques dans l'observation
-            action_type (str): Type d'espace d'action ('discrete' ou 'continuous')
-            n_discrete_actions (int): Nombre d'actions discrètes pour chaque direction (achat/vente)
-            max_crypto_purchase_percent (float): Pourcentage maximum du portefeuille à investir en une seule transaction
-            use_risk_manager (bool): Utiliser le gestionnaire de risque
-            use_adaptive_normalization (bool): Utiliser le normalisateur adaptatif
-            risk_config (dict, optional): Configuration du gestionnaire de risques
+            df (pd.DataFrame): DataFrame contenant les données du marché
+            initial_balance (float): Solde initial du portefeuille
+            transaction_fee (float): Frais de transaction en pourcentage
+            window_size (int): Taille de la fenêtre d'observation
+            include_position (bool): Inclure la position actuelle dans l'observation
+            include_balance (bool): Inclure le solde dans l'observation
+            include_technical_indicators (bool): Inclure les indicateurs techniques dans l'observation
+            risk_management (bool): Activer la gestion des risques
+            normalize_observation (bool): Normaliser les observations
+            reward_function (str): Fonction de récompense à utiliser
+            risk_aversion (float): Coefficient de risque pour la fonction de récompense
+            transaction_penalty (float): Pénalité fixe pour chaque transaction
+            lookback_window (int): Fenêtre pour calculer le ratio de Sharpe
+            action_type (str): Type d'action ("discrete" ou "continuous")
+            n_discrete_actions (int): Nombre d'actions discrètes par catégorie
         """
         super(TradingEnvironment, self).__init__()
 
-        # Validation des paramètres
-        if window_size < 1:
-            raise ValueError("window_size doit être >= 1")
-        if not 0 <= transaction_fee <= 1:
-            raise ValueError("transaction_fee doit être entre 0 et 1")
-
-        # Vérifier que le DataFrame contient les colonnes nécessaires
-        required_columns = ["close"]
-        for column in required_columns:
-            if column not in df.columns:
-                raise ValueError(f"Le DataFrame doit contenir une colonne '{column}'")
-
-        self.df = df
+        # Valider les paramètres
+        assert len(df) > window_size, f"Le DataFrame doit contenir plus de {window_size} points de données"
+        assert initial_balance > 0, "Le solde initial doit être positif"
+        assert 0 <= transaction_fee < 1, "Les frais de transaction doivent être entre 0 et 1"
+        assert reward_function in ["simple", "sharpe", "transaction_penalty", "drawdown"], "Fonction de récompense invalide"
+        assert action_type in ["discrete", "continuous"], "Type d'action invalide, doit être 'discrete' ou 'continuous'"
+        
+        # Stocker les paramètres
+        self.df = df.copy()
         self.initial_balance = initial_balance
         self.transaction_fee = transaction_fee
         self.window_size = window_size
+        self.include_position = include_position
+        self.include_balance = include_balance
         self.include_technical_indicators = include_technical_indicators
-        self.action_type = action_type
-        self.n_discrete_actions = n_discrete_actions
-        self.max_crypto_purchase_percent = max_crypto_purchase_percent
-
-        # Initialiser le gestionnaire de risque
-        self.use_risk_manager = use_risk_manager
-        self.risk_manager = RiskManager(config=risk_config) if use_risk_manager else None
-
-        # Initialiser le normalisateur adaptatif
-        self.use_adaptive_normalization = use_adaptive_normalization
-        if use_adaptive_normalization:
-            # Créer une liste de noms de features
-            feature_names = ['price', 'volume']
-            
-            # Ajouter les noms des indicateurs techniques
-            indicator_names = [
-                'ema9', 'ema21', 'ema50', 'ema200', 
-                'macd_line', 'macd_signal', 'macd_histogram',
-                'momentum', 'adx', 'plus_di', 'minus_di',
-                'upper_bb', 'middle_bb', 'lower_bb', 'atr',
-                'stoch_k', 'stoch_d', 'obv', 'volume_avg',
-                'mfi', 'rsi', 'cci'
-            ]
-            feature_names.extend(indicator_names)
-            
-            # Ajouter les noms des features de sentiment
-            sentiment_names = [
-                'compound_score', 'positive_score', 'negative_score', 
-                'neutral_score', 'sentiment_volume', 'sentiment_change'
-            ]
-            feature_names.extend(sentiment_names)
-            
-            # Ajouter les noms des features de portefeuille
-            portfolio_names = ['balance', 'crypto_value', 'portfolio_value']
-            feature_names.extend(portfolio_names)
-            
-            self.normalizer = AdaptiveNormalizer(
-                window_size=1000,
-                method='minmax',
-                clip_values=True,
-                feature_names=feature_names
-            )
+        self.risk_management = risk_management
+        self.use_risk_manager = risk_management  # Alias pour compatibilité
+        self.normalize_observation = normalize_observation
+        self.use_adaptive_normalization = normalize_observation  # Alias pour compatibilité
+        self.reward_function = reward_function
+        self.risk_aversion = risk_aversion
+        self.transaction_penalty = transaction_penalty
+        self.lookback_window = lookback_window
+        self.action_type = action_type  # Stocker le type d'action
+        self.n_discrete_actions = n_discrete_actions  # Stocker le nombre d'actions discrètes
+        
+        # Variables supplémentaires pour le calcul des récompenses
+        self.portfolio_value_history = []
+        self.returns_history = []
+        self.actions_history = []
+        self.transaction_count = 0
+        self.last_transaction_step = -1
+        self.max_portfolio_value = 0
 
         # Définir l'espace d'action selon le type
         if action_type == "discrete":
@@ -166,40 +162,39 @@ class TradingEnvironment(gym.Env):
             low=-np.inf, high=np.inf, shape=(n_features,), dtype=np.float32
         )
 
-    def reset(self, seed=None):
+    def reset(self, seed=None, options=None):
         """
-        Réinitialise l'environnement.
+        Réinitialise l'environnement à l'état initial.
         
         Args:
-            seed (int, optional): Graine aléatoire pour la reproductibilité
-            
+            seed: Graine aléatoire pour la reproductibilité
+            options: Options supplémentaires pour la réinitialisation
+
         Returns:
-            tuple: (observation, info)
+            observation: L'observation initiale
+            info: Informations supplémentaires
         """
-        # Graine aléatoire pour gym
-        if seed is not None:
-            super().reset(seed=seed)
-        
-        # Réinitialiser l'état
+        super().reset(seed=seed)
+            
         self.current_step = self.window_size
         self.balance = self.initial_balance
-        self.crypto_held = 0.0
+        self.crypto_held = 0
+        self.max_portfolio_value = self.initial_balance
         self.portfolio_value_history = [self.initial_balance]
+        self.returns_history = []
+        self.actions_history = []
+        self.transaction_count = 0
+        self.last_transaction_step = -1
         
-        # Réinitialiser le gestionnaire de risque
-        if self.use_risk_manager:
-            self.risk_manager.reset()
+        if self.risk_management:
+            self.risk_manager = RiskManager()
         
-        # Réinitialiser les attributs pour le suivi des transactions
-        self.previous_crypto_ratio = 0.0
-        self.last_transaction_step = 0
+        if self.normalize_observation and self.include_technical_indicators:
+            self.normalizer = AdaptiveNormalizer()
         
-        # Récupérer la première observation
         observation = self._get_observation()
-        
-        # Information supplémentaire
         info = {}
-        
+
         return observation, info
 
     def step(self, action):
@@ -266,7 +261,7 @@ class TradingEnvironment(gym.Env):
 
         # Calculer la récompense
         current_portfolio_value = self.get_portfolio_value()
-        reward = self._calculate_reward(previous_portfolio_value, current_portfolio_value)
+        reward = self._calculate_reward(action)
 
         # Enregistrer la valeur du portefeuille
         self.portfolio_value_history.append(current_portfolio_value)
@@ -529,26 +524,72 @@ class TradingEnvironment(gym.Env):
         
         return observation
 
-    def render(self, mode="human"):
+    def render(self, mode='human'):
         """
-        Affiche l'état actuel de l'environnement.
-
-        Args:
-            mode (str): Mode d'affichage
+        Affiche l'état actuel de l'environnement pour visualisation.
         """
-        if mode == "human":
-            current_price = self.df.iloc[self.current_step]["close"]
-            portfolio_value = self.balance + self.crypto_held * current_price
+        if self.current_step >= len(self.df):
+            return
 
-            print(f"Step: {self.current_step}")
-            print(f"Price: ${current_price:.2f}")
-            print(f"Crypto held: {self.crypto_held:.6f}")
-            print(f"Balance: ${self.balance:.2f}")
-            print(f"Portfolio value: ${portfolio_value:.2f}")
-            print(
-                f"Profit/Loss: {((portfolio_value / self.initial_balance) - 1) * 100:.2f}%"
-            )
-            print("-" * 50)
+        fig = plt.figure(figsize=(16, 8))
+        
+        # Sous-graphique pour le prix et les actions
+        price_ax = plt.subplot2grid((4, 1), (0, 0), rowspan=2)
+        action_ax = plt.subplot2grid((4, 1), (2, 0), rowspan=1, sharex=price_ax)
+        portfolio_ax = plt.subplot2grid((4, 1), (3, 0), rowspan=1, sharex=price_ax)
+        
+        # Tracer le prix
+        price_subset = self.df.iloc[max(0, self.current_step - 30):self.current_step + 1]
+        price_ax.plot(price_subset.index, price_subset['close'], 'b-')
+        price_ax.set_title(f'Prix {self.df.columns[0]} - Étape {self.current_step}')
+        
+        # Tracer les indicateurs techniques si activés
+        if self.include_technical_indicators and hasattr(self, 'technical_indicators'):
+            for indicator in self.technical_indicators:
+                if indicator in self.df.columns:
+                    price_ax.plot(price_subset.index, price_subset[indicator], alpha=0.7, 
+                             label=indicator)
+            price_ax.legend(loc='upper left')
+        
+        # Tracer les actions
+        action_colors = {0: 'gray', 1: 'green', 2: 'red'}  # Hold, Buy, Sell
+        actions = self.actions_history[-30:] if len(self.actions_history) > 0 else []
+        if actions:
+            action_indices = price_subset.index[-len(actions):]
+            for i, action in enumerate(actions):
+                if i < len(action_indices):  # Assurer que nous avons un indice correspondant
+                    action_ax.bar(action_indices[i], 1, color=action_colors.get(action, 'gray'))
+        action_ax.set_title('Actions (Gris=Hold, Vert=Achat, Rouge=Vente)')
+        action_ax.set_yticks([])
+        
+        # Tracer la valeur du portefeuille
+        portfolio_values = self.portfolio_value_history[-30:] if len(self.portfolio_value_history) > 0 else []
+        if portfolio_values:
+            portfolio_indices = price_subset.index[-len(portfolio_values):]
+            portfolio_ax.plot(portfolio_indices, portfolio_values, 'g-')
+        portfolio_ax.set_title(f'Valeur du portefeuille: ${self.get_portfolio_value():.2f}')
+        
+        # Formater les dates si l'index est un DatetimeIndex
+        if isinstance(self.df.index, pd.DatetimeIndex):
+            for ax in [price_ax, action_ax, portfolio_ax]:
+                ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+                ax.xaxis.set_major_locator(mdates.WeekdayLocator(interval=max(1, len(price_subset) // 5)))
+        
+        plt.tight_layout()
+        
+        # Sauvegarder le graphique
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        step_str = f"step_{self.current_step:04d}"
+        filename = f"trading_env_{step_str}_{timestamp}.png"
+        output_path = os.path.join(VISUALIZATION_DIR, filename)
+        plt.savefig(output_path)
+        
+        if mode == 'human':
+            plt.pause(0.01)
+        else:
+            plt.close()
+        
+        return output_path
 
     def get_portfolio_value(self):
         """
@@ -569,114 +610,265 @@ class TradingEnvironment(gym.Env):
         """
         return self.portfolio_value_history
 
-    def _calculate_reward(self, previous_portfolio_value, current_portfolio_value):
+    def get_portfolio_value_history(self):
         """
-        Calcule la récompense en fonction de plusieurs métriques:
-        1. Variation de la valeur du portefeuille
-        2. Ratio de Sharpe pour récompenser la performance ajustée au risque
-        3. Pénalité pour les transactions trop fréquentes
-        4. Pénalité basée sur le drawdown
+        Alias pour get_portfolio_history().
+        Retourne l'historique de la valeur du portefeuille.
+
+        Returns:
+            list: Historique des valeurs du portefeuille
+        """
+        return self.portfolio_value_history
+
+    def _calculate_reward(self, action=None):
+        """
+        Calcule la récompense basée sur la valeur actuelle du portefeuille et la politique de récompense.
         
         Args:
-            previous_portfolio_value (float): Valeur précédente du portefeuille
-            current_portfolio_value (float): Valeur actuelle du portefeuille
+            action: L'action qui a été prise (pour les pénalités liées aux actions)
             
         Returns:
-            float: Récompense
+            float: La récompense calculée
         """
-        # 1. Calcul du rendement simple
-        if previous_portfolio_value == 0:
-            return 0
+        # Calculer la valeur actuelle du portefeuille
+        current_price = self.df.iloc[self.current_step]["close"]
+        current_value = self.balance + self.crypto_held * current_price
         
-        return_pct = (current_portfolio_value - previous_portfolio_value) / previous_portfolio_value
+        # Enregistrer la valeur du portefeuille
+        self.portfolio_value_history.append(current_value)
         
-        # Récompense de base
-        reward = return_pct * 100  # Multiplier par 100 pour avoir une échelle plus grande
+        # Mettre à jour la valeur maximale du portefeuille pour le calcul du drawdown
+        if current_value > self.max_portfolio_value:
+            self.max_portfolio_value = current_value
         
-        # 2. Composante du ratio de Sharpe
-        if len(self.portfolio_value_history) >= 10:  # Avoir suffisamment de données
-            # Calculer les rendements des 10 dernières périodes
-            recent_values = self.portfolio_value_history[-10:]
-            returns = np.diff(recent_values) / recent_values[:-1]
-            
-            # Éviter la division par zéro
-            std_dev = np.std(returns)
-            if std_dev > 0:
-                # Un mini ratio de Sharpe calculé sur les derniers rendements
-                sharpe_component = np.mean(returns) / std_dev
-                # Normaliser et ajouter à la récompense
-                reward += sharpe_component * 10  # Pondération du Sharpe
+        # Si c'est le premier pas ou si nous n'avons pas d'historique suffisant, retourner une récompense nulle
+        if len(self.portfolio_value_history) < 2:
+            return 0.0
         
-        # 3. Pénalité pour les transactions trop fréquentes
-        # Vérifier si une transaction a été effectuée
-        if hasattr(self, 'last_transaction_step'):
-            # Si moins de 3 étapes depuis la dernière transaction, appliquer une pénalité
-            time_since_last_trade = self.current_step - self.last_transaction_step
-            if time_since_last_trade < 3:
-                # Pénalité inversement proportionnelle au temps écoulé
-                trading_frequency_penalty = 1.0 / (time_since_last_trade + 1)
-                reward -= trading_frequency_penalty * 5  # Pondération de la pénalité
+        # Calculer le retour en pourcentage
+        previous_value = self.portfolio_value_history[-2]
+        pct_change = (current_value - previous_value) / previous_value if previous_value > 0 else 0
+        self.returns_history.append(pct_change)
         
-        # Mettre à jour l'étape de la dernière transaction si l'agent a effectué une transaction
-        # Détecter une transaction en vérifiant si la composition du portefeuille a changé
-        current_crypto_ratio = self.crypto_held * self.df.iloc[self.current_step]["close"] / current_portfolio_value
-        if hasattr(self, 'previous_crypto_ratio'):
-            if abs(current_crypto_ratio - self.previous_crypto_ratio) > 0.01:  # Seuil de 1%
-                self.last_transaction_step = self.current_step
-        # Stocker le ratio actuel pour la prochaine comparaison
-        self.previous_crypto_ratio = current_crypto_ratio
-        
-        # 4. Pénalité basée sur le drawdown
-        if len(self.portfolio_value_history) >= 2:
-            # Calculer le drawdown actuel
-            peak_value = max(self.portfolio_value_history)
-            current_drawdown = (peak_value - current_portfolio_value) / peak_value
-            
-            # Pénalité proportionnelle au drawdown
-            if current_drawdown > 0.05:  # Seuil de 5%
-                # Plus le drawdown est important, plus la pénalité est sévère
-                drawdown_penalty = current_drawdown * 20  # Pondération de la pénalité
-                reward -= drawdown_penalty
-        
-        # Ajouter des bonus/malus en fonction de la tendance récente (fonctionnalité existante)
-        if len(self.portfolio_value_history) >= 21:
-            recent_values = self.portfolio_value_history[-21:]
-            recent_returns = np.diff(recent_values) / recent_values[:-1]
-            
-            # Bonus pour une tendance positive constante
-            if np.all(recent_returns[-5:] > 0):
-                reward += 0.5
-            
-            # Malus pour une tendance négative constante
-            if np.all(recent_returns[-5:] < 0):
-                reward -= 0.5
+        # Choisir la fonction de récompense appropriée
+        if self.reward_function == "simple":
+            reward = self._simple_reward(pct_change)
+        elif self.reward_function == "sharpe":
+            reward = self._sharpe_reward()
+        elif self.reward_function == "transaction_penalty":
+            reward = self._transaction_penalty_reward(pct_change, action)
+        elif self.reward_function == "drawdown":
+            reward = self._drawdown_reward(pct_change)
+        else:
+            reward = self._simple_reward(pct_change)
         
         return reward
 
-    def visualize_indicators(self, start_step=None, end_step=None):
+    def _simple_reward(self, pct_change):
+        """
+        Fonction de récompense simple basée sur le changement de valeur du portefeuille.
+        
+        Args:
+            pct_change: Changement en pourcentage de la valeur du portefeuille
+            
+        Returns:
+            float: La récompense calculée
+        """
+        # Récompense de base: changement en pourcentage de la valeur du portefeuille
+        reward = pct_change
+        
+        # Ajout de bonus/malus basés sur la tendance récente
+        if len(self.returns_history) >= 3:
+            # Bonus pour une tendance positive constante
+            if all(r > 0 for r in self.returns_history[-3:]):
+                reward *= 1.1  # Bonus de 10%
+            
+            # Malus pour une tendance négative constante
+            elif all(r < 0 for r in self.returns_history[-3:]):
+                reward *= 0.9  # Malus de 10%
+        
+        return reward
+
+    def _sharpe_reward(self):
+        """
+        Fonction de récompense basée sur le ratio de Sharpe.
+        
+        Returns:
+            float: La récompense calculée basée sur le ratio de Sharpe
+        """
+        # Vérifier que nous avons suffisamment d'historique pour calculer le ratio de Sharpe
+        if len(self.returns_history) < self.lookback_window:
+            return 0.0
+        
+        # Calculer le ratio de Sharpe sur la fenêtre de lookback
+        returns = np.array(self.returns_history[-self.lookback_window:])
+        
+        # Éviter les divisions par zéro
+        if np.std(returns) == 0:
+            if np.mean(returns) > 0:
+                return 1.0  # Récompense positive si les rendements sont positifs mais constants
+            elif np.mean(returns) < 0:
+                return -1.0  # Récompense négative si les rendements sont négatifs mais constants
+            else:
+                return 0.0  # Pas de récompense si les rendements sont tous nuls
+        
+        # Calculer le ratio de Sharpe (version simplifiée sans taux sans risque)
+        sharpe_ratio = np.mean(returns) / np.std(returns) * np.sqrt(252)  # Annualisé (252 jours de trading)
+        
+        # Normaliser la récompense pour éviter les valeurs extrêmes
+        reward = np.clip(sharpe_ratio, -10, 10)
+        
+        return reward
+
+    def _transaction_penalty_reward(self, pct_change, action):
+        """
+        Fonction de récompense avec pénalité pour les transactions fréquentes.
+        
+        Args:
+            pct_change: Changement en pourcentage de la valeur du portefeuille
+            action: L'action qui a été prise
+            
+        Returns:
+            float: La récompense calculée avec pénalité pour les transactions
+        """
+        # Récompense de base
+        reward = pct_change
+        
+        # Appliquer une pénalité si une transaction a été effectuée (action 1=achat ou 2=vente)
+        if action in [1, 2]:
+            # Incrémenter le compteur de transactions
+            self.transaction_count += 1
+            
+            # Calculer la pénalité basée sur la fréquence des transactions
+            steps_since_last_transaction = self.current_step - self.last_transaction_step if self.last_transaction_step > 0 else self.window_size
+            
+            # Plus la transaction est proche de la précédente, plus la pénalité est élevée
+            frequency_penalty = self.transaction_penalty * (1.0 / max(1, steps_since_last_transaction))
+            
+            # Appliquer la pénalité
+            reward -= frequency_penalty
+            
+            # Mettre à jour le pas de la dernière transaction
+            self.last_transaction_step = self.current_step
+        
+        return reward
+
+    def _drawdown_reward(self, pct_change):
+        """
+        Fonction de récompense qui pénalise les drawdowns importants.
+        
+        Args:
+            pct_change: Changement en pourcentage de la valeur du portefeuille
+            
+        Returns:
+            float: La récompense calculée avec pénalité pour les drawdowns
+        """
+        # Récompense de base
+        reward = pct_change
+        
+        # Calculer le drawdown actuel
+        current_value = self.portfolio_value_history[-1]
+        drawdown = (self.max_portfolio_value - current_value) / self.max_portfolio_value if self.max_portfolio_value > 0 else 0
+        
+        # Pénaliser les drawdowns importants
+        drawdown_penalty = self.risk_aversion * drawdown * drawdown  # Pénalité quadratique
+        
+        # Appliquer la pénalité
+        reward -= drawdown_penalty
+        
+        return reward
+
+    def visualize_technical_indicators(self, window_size=100):
         """
         Visualise les indicateurs techniques utilisés dans l'environnement.
         
         Args:
-            start_step (int, optional): Pas de temps de début pour la visualisation.
-            end_step (int, optional): Pas de temps de fin pour la visualisation.
+            window_size: Nombre de périodes à afficher
         """
-        if start_step is None:
-            start_step = self.window_size
-        if end_step is None:
-            end_step = len(self.df) - 1
+        if not self.include_technical_indicators:
+            logger.warning("Les indicateurs techniques ne sont pas activés dans cet environnement.")
+            return
         
-        # Extraire les données pour la visualisation
-        data = self.df.iloc[start_step:end_step+1].copy()
+        start_idx = max(0, self.current_step - window_size)
+        end_idx = min(self.current_step + 1, len(self.df))
+        subset = self.df.iloc[start_idx:end_idx]
         
-        # Initialiser la classe d'indicateurs
-        indicators = TechnicalIndicators(data)
+        # Organiser les indicateurs par type
+        trend_indicators = ['sma', 'ema', 'wma', 'macd', 'macd_signal', 'macd_hist']
+        oscillator_indicators = ['rsi', 'stoch_k', 'stoch_d', 'cci', 'williams_r']
+        volatility_indicators = ['atr', 'bollinger_upper', 'bollinger_middle', 'bollinger_lower']
+        volume_indicators = ['obv', 'volume']
         
-        # Importer la fonction de visualisation
-        from ai_trading.examples.visualize_indicators import plot_indicators
+        # Créer un graphique avec sous-graphiques pour chaque type d'indicateur
+        fig, axs = plt.subplots(5, 1, figsize=(15, 20), sharex=True)
         
-        # Tracer les indicateurs
-        plot_indicators(data, indicators)
+        # Prix (avec quelques indicateurs de tendance superposés)
+        axs[0].plot(subset.index, subset['close'], 'k-', label='Prix')
+        for ind in trend_indicators:
+            if ind in subset.columns:
+                axs[0].plot(subset.index, subset[ind], alpha=0.7, label=ind)
+        axs[0].set_title('Prix et indicateurs de tendance')
+        axs[0].legend(loc='upper left')
+        
+        # Bandes de Bollinger (si disponibles)
+        if 'bollinger_upper' in subset.columns and 'bollinger_lower' in subset.columns:
+            axs[1].plot(subset.index, subset['close'], 'k-', label='Prix')
+            axs[1].plot(subset.index, subset['bollinger_upper'], 'r-', alpha=0.5, label='BB Upper')
+            axs[1].plot(subset.index, subset['bollinger_middle'], 'g--', alpha=0.5, label='BB Middle')
+            axs[1].plot(subset.index, subset['bollinger_lower'], 'b-', alpha=0.5, label='BB Lower')
+            axs[1].fill_between(subset.index, subset['bollinger_upper'], subset['bollinger_lower'], 
+                            color='gray', alpha=0.2)
+            axs[1].set_title('Bandes de Bollinger')
+            axs[1].legend(loc='upper left')
+        
+        # Oscillateurs
+        osc_plotted = False
+        for ind in oscillator_indicators:
+            if ind in subset.columns:
+                axs[2].plot(subset.index, subset[ind], label=ind)
+                osc_plotted = True
+        if osc_plotted:
+            axs[2].set_title('Oscillateurs')
+            # Ajouter des lignes horizontales pour les niveaux courants
+            if 'rsi' in subset.columns:
+                axs[2].axhline(y=70, color='r', linestyle='-', alpha=0.3)
+                axs[2].axhline(y=30, color='g', linestyle='-', alpha=0.3)
+            if 'stoch_k' in subset.columns:
+                axs[2].axhline(y=80, color='r', linestyle='--', alpha=0.3)
+                axs[2].axhline(y=20, color='g', linestyle='--', alpha=0.3)
+            axs[2].legend(loc='upper left')
+        else:
+            axs[2].set_visible(False)
+        
+        # Indicateurs de volatilité
+        vol_plotted = False
+        for ind in volatility_indicators:
+            if ind == 'atr' and ind in subset.columns:
+                axs[3].plot(subset.index, subset[ind], label=ind)
+                vol_plotted = True
+        if vol_plotted:
+            axs[3].set_title('Indicateurs de volatilité (ATR)')
+            axs[3].legend(loc='upper left')
+        else:
+            axs[3].set_visible(False)
+        
+        # Volume
+        if 'volume' in subset.columns:
+            axs[4].bar(subset.index, subset['volume'], color='b', alpha=0.5, label='Volume')
+            axs[4].set_title('Volume')
+        else:
+            axs[4].set_visible(False)
+        
+        plt.tight_layout()
+        
+        # Sauvegarder le graphique
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"technical_indicators_{timestamp}.png"
+        output_path = os.path.join(VISUALIZATION_DIR, filename)
+        plt.savefig(output_path)
+        plt.close()
+        
+        return output_path
 
     def _close_position(self, price):
         # ...
@@ -687,3 +879,4 @@ class TradingEnvironment(gym.Env):
             self.risk_manager.clear_position(position_id)
         
         # ...
+

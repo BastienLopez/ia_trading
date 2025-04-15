@@ -1,7 +1,0 @@
-{
-    "editor.formatOnSave": true,
-    "python.formatting.provider": "black",
-    "python.sortImports.path": "isort",
-    "python.linting.flake8Enabled": true,
-    "python.linting.enabled": true
-} 

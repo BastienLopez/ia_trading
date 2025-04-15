@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -6,6 +7,10 @@ from datetime import datetime, timedelta
 # Importer le gestionnaire de risques
 from .risk_manager import RiskManager
 from .technical_indicators import TechnicalIndicators
+
+# Définir le répertoire pour les visualisations
+VISUALIZATION_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'visualizations', 'misc')
+os.makedirs(VISUALIZATION_DIR, exist_ok=True)
 
 def generate_test_data(periods=100, trend='bullish', volatility=0.02, seed=42):
     """
@@ -191,10 +196,10 @@ def test_trailing_stop():
     plt.ylabel('Prix')
     plt.legend()
     plt.grid(True)
-    plt.savefig('trailing_stop_evolution.png')
+    plt.savefig(os.path.join(VISUALIZATION_DIR, 'trailing_stop_evolution.png'))
     plt.close()
     
-    print("Graphique sauvegardé dans 'trailing_stop_evolution.png'")
+    print(f"Graphique sauvegardé dans '{os.path.join(VISUALIZATION_DIR, 'trailing_stop_evolution.png')}'")
     
     return risk_manager, df
 
@@ -422,10 +427,10 @@ def test_risk_manager_integration():
         plt.xlabel('Nombre de trades')
         plt.ylabel('Capital ($)')
         plt.grid(True)
-        plt.savefig('risk_management_capital.png')
+        plt.savefig(os.path.join(VISUALIZATION_DIR, 'risk_management_capital.png'))
         plt.close()
         
-        print("Graphique de l'évolution du capital sauvegardé dans 'risk_management_capital.png'")
+        print(f"Graphique de l'évolution du capital sauvegardé dans '{os.path.join(VISUALIZATION_DIR, 'risk_management_capital.png')}'")
     
     return risk_manager, df, trade_results
 

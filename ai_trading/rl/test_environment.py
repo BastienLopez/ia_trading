@@ -1,10 +1,16 @@
+import os
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from tqdm import tqdm
 
 # Utiliser des imports relatifs
 from .trading_environment import TradingEnvironment
 from .data_integration import RLDataIntegrator
+
+# Définir le répertoire pour les visualisations
+VISUALIZATION_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'visualizations', 'evaluation')
+os.makedirs(VISUALIZATION_DIR, exist_ok=True)
 
 def test_random_actions():
     """Teste l'environnement avec des actions aléatoires."""
@@ -157,10 +163,10 @@ def test_sophisticated_rewards():
     plt.title("Comparaison des récompenses entre les deux stratégies")
     plt.legend()
     plt.grid(True)
-    plt.savefig("reward_comparison.png")
+    plt.savefig(os.path.join(VISUALIZATION_DIR, "reward_comparison.png"))
     plt.close()
     
-    print("Graphique sauvegardé dans 'reward_comparison.png'")
+    print(f"Graphique sauvegardé dans '{os.path.join(VISUALIZATION_DIR, 'reward_comparison.png')}'")
 
 
 if __name__ == "__main__":

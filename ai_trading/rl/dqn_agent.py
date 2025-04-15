@@ -117,15 +117,59 @@ class DQNAgent:
 
     def remember(self, state, action, reward, next_state, done):
         """
-        Stocke l'expérience dans la mémoire de replay.
-
+        Stocke une expérience dans la mémoire.
+        
         Args:
-            state: État actuel
-            action: Action prise
-            reward: Récompense reçue
-            next_state: État suivant
-            done: Si l'épisode est terminé
+            state (numpy.array or tuple): État avant l'action
+            action (int): Action effectuée
+            reward (float): Récompense obtenue
+            next_state (numpy.array or tuple): État après l'action
+            done (bool): Si l'épisode est terminé
         """
+        # Traiter l'état si c'est un tuple
+        if isinstance(state, tuple):
+            if len(state) > 0:
+                # Si le premier élément est un array, on utilise celui-là
+                if hasattr(state[0], 'shape'):
+                    state = state[0]
+                else:
+                    # Sinon, on essaie de prendre le premier élément du tuple
+                    try:
+                        state = np.array([state[0]])
+                    except:
+                        logger.error(f"Impossible de convertir state en array numpy, type: {type(state)}")
+                        return
+        
+        # Traiter next_state si c'est un tuple
+        if isinstance(next_state, tuple):
+            if len(next_state) > 0:
+                # Si le premier élément est un array, on utilise celui-là
+                if hasattr(next_state[0], 'shape'):
+                    next_state = next_state[0]
+                else:
+                    # Sinon, on essaie de prendre le premier élément du tuple
+                    try:
+                        next_state = np.array([next_state[0]])
+                    except:
+                        logger.error(f"Impossible de convertir next_state en array numpy, type: {type(next_state)}")
+                        return
+        
+        # Assurons-nous que state et next_state sont des arrays numpy
+        if not isinstance(state, np.ndarray):
+            try:
+                state = np.array(state)
+            except:
+                logger.error(f"Impossible de convertir state en array numpy dans remember, type: {type(state)}")
+                return
+        
+        if not isinstance(next_state, np.ndarray):
+            try:
+                next_state = np.array(next_state)
+            except:
+                logger.error(f"Impossible de convertir next_state en array numpy dans remember, type: {type(next_state)}")
+                return
+        
+        # Ajouter l'expérience à la mémoire
         self.memory.append((state, action, reward, next_state, done))
 
     def act(self, state):
@@ -133,11 +177,30 @@ class DQNAgent:
         Choisit une action en fonction de l'état actuel.
         
         Args:
-            state (numpy.array): État actuel.
+            state (numpy.array or tuple): État actuel.
             
         Returns:
             int: Action choisie.
         """
+        # Gérer le cas où state est un tuple
+        if isinstance(state, tuple):
+            if len(state) > 0:
+                # Si le premier élément est un array, on utilise celui-là
+                if hasattr(state[0], 'shape'):
+                    state = state[0]
+                else:
+                    # Sinon, on essaie de prendre le premier élément du tuple
+                    state = np.array([state[0]])
+        
+        # Assurons-nous que state est un array numpy
+        if not isinstance(state, np.ndarray):
+            try:
+                state = np.array(state)
+            except:
+                logger.error(f"Impossible de convertir state en array numpy, type: {type(state)}")
+                # Fallback en cas d'échec: action aléatoire
+                return random.randrange(self.action_size)
+        
         # S'assurer que l'état a la bonne forme pour le modèle
         if len(state.shape) == 1:
             state = np.reshape(state, [1, len(state)])
@@ -149,6 +212,19 @@ class DQNAgent:
         # Exploitation: choisir la meilleure action
         act_values = self.model.predict(state, verbose=0)
         return np.argmax(act_values[0])
+
+    def select_action(self, state):
+        """
+        Alias pour act().
+        Choisit une action en fonction de l'état actuel.
+        
+        Args:
+            state (numpy.array): État actuel.
+            
+        Returns:
+            int: Action choisie.
+        """
+        return self.act(state)
 
     def replay(self, batch_size=None):
         """
@@ -198,21 +274,35 @@ class DQNAgent:
                 next_state_reshaped = np.reshape(next_state, [1, len(next_state)])
                 t = self.target_model.predict(next_state_reshaped, verbose=0)[0]
                 target[action] = reward + self.gamma * np.amax(t)
-
+            
+            # Stocker pour l'entraînement par lot
             states[i] = state
             targets[i] = target
-
+        
         # Entraîner le modèle
-        history = self.model.fit(states, targets, epochs=1, verbose=0)
-        loss = history.history["loss"][0]
+        history = self.model.fit(states, targets, batch_size=batch_size, verbose=0)
+        
+        # Enregistrer la perte
+        loss = history.history['loss'][0]
         self.loss_history.append(loss)
-
+        
         # Décroître epsilon
-        if self.epsilon > self.epsilon_min:
-            self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
-            self.epsilon_history.append(self.epsilon)
-
+        self.decay_epsilon()
+        
         return loss
+    
+    def learn(self, batch_size=None):
+        """
+        Alias pour replay().
+        Entraîne le modèle sur un batch d'expériences.
+
+        Args:
+            batch_size (int, optional): Taille du batch. Si None, utilise self.batch_size
+
+        Returns:
+            float: Perte moyenne du batch
+        """
+        return self.replay(batch_size)
 
     def load(self, name):
         """

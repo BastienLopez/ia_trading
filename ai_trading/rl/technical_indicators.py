@@ -644,6 +644,35 @@ class TechnicalIndicators:
                 indicators_df[col] = self.normalize_indicator(indicators_df[col])
         
         return indicators_df
+    
+    def add_all_indicators(self, data):
+        """
+        Ajoute tous les indicateurs techniques au DataFrame fourni.
+        
+        Args:
+            data (pandas.DataFrame): DataFrame contenant les données OHLCV.
+                
+        Returns:
+            pandas.DataFrame: DataFrame avec les indicateurs techniques ajoutés.
+        """
+        logger.info("Ajout de tous les indicateurs techniques au DataFrame fourni")
+        
+        # Stocker les données originales
+        self.set_data(data)
+        
+        if not self.validate_data():
+            return data
+        
+        # Calculer tous les indicateurs
+        indicators_df = self.get_all_indicators()
+        
+        # Fusionner avec les données originales
+        result = data.copy()
+        for col in indicators_df.columns:
+            if col not in result.columns:
+                result[col] = indicators_df[col]
+        
+        return result
 
     def calculate_volume_profile(self, n_bins=10, lookback=20):
         """

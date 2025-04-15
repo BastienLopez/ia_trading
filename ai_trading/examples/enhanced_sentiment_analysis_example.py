@@ -300,34 +300,34 @@ def main():
             import seaborn as sns
             import numpy as np
             
-            # Créer un dossier pour les visualisations
-            os.makedirs("data/sentiment/visualizations", exist_ok=True)
-            
-            # Visualisation des scores de sentiment par cryptomonnaie
-            plt.figure(figsize=(12, 8))
-            
-            if 'sentiment_score' in enriched_df.columns and 'coin' in enriched_df.columns:
-                sns.boxplot(x='coin', y='sentiment_score', data=enriched_df)
-                plt.title('Distribution des scores de sentiment par cryptomonnaie')
-                plt.xlabel('Cryptomonnaie')
-                plt.ylabel('Score de sentiment')
-                plt.xticks(rotation=45)
-                
-                # Sauvegarde du graphique
-                viz_file = f"data/sentiment/visualizations/sentiment_viz_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
-                plt.tight_layout()
-                plt.savefig(viz_file)
-                logger.info(f"Graphique sauvegardé dans {viz_file}")
-            else:
-                logger.warning("Impossible de générer le graphique : colonnes requises manquantes dans les données analysées")
+            # Visualisation des sentiments par crypto-monnaie
+            try:
+                if enriched_df is not None:
+                    plt.figure(figsize=(12, 8))
+                    sns.boxplot(x='coin', y='sentiment_score', data=enriched_df)
+                    plt.title('Distribution des scores de sentiment par cryptomonnaie')
+                    plt.xlabel('Cryptomonnaie')
+                    plt.ylabel('Score de sentiment')
+                    plt.xticks(rotation=45)
+                    
+                    # Créer le répertoire visualizations/sentiment s'il n'existe pas
+                    visualization_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'visualizations', 'sentiment')
+                    if not os.path.exists(visualization_dir):
+                        os.makedirs(visualization_dir)
+                    
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    viz_path = os.path.join(visualization_dir, f"sentiment_viz_{timestamp}.png")
+                    plt.savefig(viz_path)
+                    plt.close()
+                    
+                    logger.info(f"Visualisation de sentiment enregistrée: {viz_path}")
+            except Exception as e:
+                logger.error(f"Erreur lors de la génération du graphique : {e}")
                 
         except Exception as e:
             logger.error(f"Erreur lors de la génération du graphique : {e}")
 
     logger.info("\nAnalyse de sentiment terminée avec succès!")
-    logger.info(
-        "Les visualisations ont été sauvegardées dans data/sentiment/visualizations/"
-    )
     logger.info("Le rapport complet a été sauvegardé dans data/sentiment/reports/")
 
     analyze_news_demo()

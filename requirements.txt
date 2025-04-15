@@ -1,4 +1,47 @@
-# Bibliothèques principales pour le projet
+# Bibliothèques d'analyse de données
+numpy>=1.23.5,<2.0.0
+pandas>=1.5.3
+matplotlib>=3.7.0
+seaborn>=0.12.2
+scikit-learn>=1.2.2
+scipy>=1.10.0
+statsmodels>=0.13.0
+python-dateutil>=2.8.2
+pytz>=2021.1
+
+# Trading et analyse technique
+ccxt==4.4.72
+ta>=0.10.0
+# TA-Lib est installé séparément via apt/brew ou le script d'installation
+
+# Apprentissage par renforcement
+tensorflow==2.16.1
+keras==3.3.3
+gymnasium==0.29.1
+stable-baselines3==2.2.1
+tf-keras==2.15.0
+torch>=2.0.1
+optuna>=2.10.0
+
+# API et collecte de données
+requests>=2.31.0
+pycoingecko==2.2.0
+beautifulsoup4==4.12.3
+tweepy>=4.4.0
+praw>=7.5.0
+newsapi-python==0.2.7
+
+# Traitement du langage naturel
+nltk>=3.8.1
+textblob>=0.15.3
+transformers>=4.28.1
+sentence-transformers==2.2.2
+emoji==0.6.0
+spacy>=3.2.0
+huggingface-hub>=0.4.0
+xformers>=0.0.22
+
+# Web et API
 flask==2.3.3
 jinja2==3.1.2
 werkzeug==2.3.7
@@ -6,113 +49,32 @@ itsdangerous==2.1.2
 flask-wtf==1.1.1
 flask-login==0.6.2
 flask-cors==4.0.0
-
-# API et requêtes HTTP
-requests==2.31.0
+flask-socketio==5.3.6
+python-socketio==5.11.2
+websocket-client==1.7.0
 fastapi==0.115.0
 uvicorn==0.27.1
 starlette==0.38.6
 httpx==0.27.0
 
-# Bibliothèques d'analyse de données
-numpy>=1.21.0
-pandas>=1.3.0
-matplotlib>=3.4.0
-seaborn>=0.11.0
-scikit-learn>=1.0.0
-
-# Traitement des données et analyse
-ta>=0.10.0  # Indicateurs techniques
-statsmodels>=0.13.0  # Modèles statistiques
-scipy>=1.7.0  # Calculs scientifiques
-pytz>=2021.1  # Gestion des fuseaux horaires
-
-# Apprentissage par renforcement
-tensorflow>=2.10.0  # Pour l'agent DQN
-stable-baselines3>=1.5.0  # Implémentations d'algorithmes RL
-gymnasium>=0.26.0  # Environnements standardisés
-optuna>=2.10.0  # Optimisation des hyperparamètres
-
-# Collecte de données
-requests>=2.26.0
-beautifulsoup4>=4.10.0
-tweepy>=4.4.0
-praw>=7.5.0
-ccxt>=1.60.0  # Pour les données de crypto-monnaies
-
-# Traitement du langage naturel
-nltk>=3.6.0
-textblob>=0.15.3
-transformers>=4.25.0  # Pour les modèles de sentiment avancés
-torch>=1.10.0  # Requis pour transformers
-
 # Visualisation
 plotly>=5.3.0
-dash>=2.0.0  # Pour les tableaux de bord interactifs (futur)
+dash>=2.0.0
 
-# Tests et qualité du code
-pytest>=7.0.0
+# Tests et développement
+pytest==8.2.0
+pytest-cov==6.1.0
 black>=21.9b0
 isort>=5.9.0
 autoflake>=1.4.0
+jupyter==1.0.0
 
 # Utilitaires
-tqdm>=4.62.0  # Barres de progression
-joblib>=1.1.0  # Parallélisation
-python-dotenv>=0.19.0  # Gestion des variables d'environnement
-
-# Analyse de données et ML
-numpy>=1.23.5,<2.0.0
-pandas>=1.5.3
-scikit-learn>=1.2.2
-scipy>=1.10.0
-tensorflow==2.16.1
-keras==3.3.3
-xgboost==1.7.6
-lightgbm==4.1.0
-torch>=2.0.1
-transformers>=4.28.1
-sentence-transformers==2.2.2
-nltk>=3.8.1
-emoji==0.6.0
-
-# API et collecte de données
-pycoingecko==2.2.0
-newsapi-python==0.2.7
-beautifulsoup4==4.12.3
-
-# Trading et analyse technique
-ccxt==4.4.72
-# TA-Lib (décommenter si installé)
-# TA-Lib==0.4.24
-
-# Visualisation
-matplotlib>=3.7.0
-seaborn>=0.12.2
-
-# Développement et tests
-pytest==8.2.0
-pytest-cov==6.1.0
-jupyter==1.0.0
-python-dotenv==1.0.1
 tqdm==4.66.1
-
-# New packages
-huggingface-hub>=0.4.0
-xformers>=0.0.22
-python-dateutil>=2.8.2
-
-# Added from the code block
-flask-socketio==5.3.6
-tf-keras==2.15.0
-python-socketio==5.11.2
-websocket-client==1.7.0
-
-# Remplacer gym par gymnasium et ajouter les dépendances manquantes
-gymnasium==0.29.1
-stable-baselines3==2.2.1
-tensorflow==2.16.1
+joblib>=1.1.0
+python-dotenv==1.0.1
 importlib-metadata==4.12.0
 
-# New additions from the code block
-spacy>=3.2.0
+# ML avancé
+xgboost==1.7.6
+lightgbm==4.1.0

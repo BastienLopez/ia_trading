@@ -7,6 +7,11 @@ import matplotlib.pyplot as plt
 # Ajouter le chemin du projet au PYTHONPATH
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
+# Définir le chemin pour les visualisations
+VISUALIZATION_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'visualizations', 'rewards')
+# Créer le répertoire s'il n'existe pas
+os.makedirs(VISUALIZATION_DIR, exist_ok=True)
+
 from ai_trading.rl.advanced_rewards import (
     SharpeRatioReward,
     TransactionCostReward,
@@ -137,66 +142,76 @@ def test_drawdown_reward():
               f"Récompense: {reward:.4f}")
 
 def plot_rewards_comparison():
-    """Trace un graphique comparant les différentes récompenses"""
-    # Générer des données pour un scénario complet
-    days = 60
-    df = generate_synthetic_data(days, volatility=0.02, trend=0.0005)
+    """Trace et compare les trois types de récompenses sur les mêmes données."""
+    print("Comparaison des différentes fonctions de récompense...")
     
-    # Initialiser les calculateurs de récompense
-    sharpe_reward = SharpeRatioReward(risk_free_rate=0.01, window_size=10)
-    transaction_reward = TransactionCostReward(base_cost=0.001, frequency_penalty=0.0005)
-    drawdown_reward = DrawdownReward(penalty_factor=2.0)
+    # Générer des données synthétiques
+    df = generate_synthetic_data(n_days=100, volatility=0.03, trend=0.0005)
     
-    # Calculer les récompenses pour chaque jour
+    # Initialiser les objets de récompense
+    sharpe_reward = SharpeRatioReward(lookback_window=5)
+    transaction_reward = TransactionCostReward(transaction_cost=0.01)
+    drawdown_reward = DrawdownReward(max_allowed_drawdown=0.1)
+    
+    # Simuler des actions aléatoires et calculer les récompenses
+    actions = np.random.choice([0, 1, 2], size=len(df))  # 0: hold, 1: buy, 2: sell
+    positions = np.zeros(len(df))
+    cash = np.ones(len(df)) * 10000  # 10,000 de cash initial
+    
+    for i in range(1, len(df)):
+        if actions[i] == 1 and cash[i-1] > 0:  # Acheter
+            # Dépenser 50% du cash disponible
+            spent = cash[i-1] * 0.5
+            positions[i] = positions[i-1] + spent / df['close'][i]
+            cash[i] = cash[i-1] - spent
+        elif actions[i] == 2 and positions[i-1] > 0:  # Vendre
+            # Vendre 50% des positions
+            sold = positions[i-1] * 0.5
+            positions[i] = positions[i-1] - sold
+            cash[i] = cash[i-1] + sold * df['close'][i]
+        else:  # Hold
+            positions[i] = positions[i-1]
+            cash[i] = cash[i-1]
+    
+    # Calculer la valeur du portefeuille
+    portfolio_value = cash + positions * df['close'].values
+    
+    # Calculer les récompenses pour chaque pas de temps
     sharpe_rewards = []
     transaction_rewards = []
     drawdown_rewards = []
     
-    # Actions simulées (alternance achat/vente/hold)
-    actions = [0, 1, 0, 2, 0] * (days // 5 + 1)
-    
-    # Pour chaque jour, calculer les récompenses
-    portfolio_value = 10000
-    portfolio_values = [portfolio_value]
-    
-    for i in range(1, days):
-        # Calculer le PnL basé sur le changement de prix
-        price_change = (df['close'].iloc[i] / df['close'].iloc[i-1]) - 1
-        pnl = price_change
+    for i in range(1, len(df)):
+        # Info pour chaque étape
+        info = {
+            'portfolio_value': portfolio_value[i],
+            'previous_portfolio_value': portfolio_value[i-1],
+            'position': positions[i],
+            'cash': cash[i],
+            'price': df['close'][i],
+            'previous_position': positions[i-1],
+            'action': actions[i]
+        }
         
-        # Mettre à jour la valeur du portefeuille (simplifié)
-        portfolio_value = portfolio_value * (1 + pnl)
-        portfolio_values.append(portfolio_value)
-        
-        # Calculer les différentes récompenses
-        action = actions[i]
-        
-        # Sharpe
-        sr_reward = sharpe_reward.calculate(pnl)
-        sharpe_rewards.append(sr_reward)
-        
-        # Transaction
-        tc_reward = transaction_reward.calculate(pnl, action, portfolio_value * 0.5)
-        transaction_rewards.append(tc_reward)
-        
-        # Drawdown
-        dd_reward = drawdown_reward.calculate(pnl, portfolio_value)
-        drawdown_rewards.append(dd_reward)
+        # Calculer les récompenses
+        sharpe_rewards.append(sharpe_reward.calculate_reward(info))
+        transaction_rewards.append(transaction_reward.calculate_reward(info))
+        drawdown_rewards.append(drawdown_reward.calculate_reward(info))
     
-    # Créer un graphique pour comparer les récompenses
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10), sharex=True)
+    # Tracer les résultats
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10))
     
-    # Tracer les prix
-    ax1.plot(df.index[1:], df['close'].values[1:], label='Prix', color='blue')
-    ax1.set_title('Prix et valeur du portefeuille')
-    ax1.set_ylabel('Prix')
-    ax1.legend(loc='upper left')
+    # Tracer le prix et la valeur du portefeuille
+    ax1.plot(df.index, df['close'], label='Prix', color='blue')
+    ax1.set_ylabel('Prix', color='blue')
+    ax1.tick_params(axis='y', labelcolor='blue')
     
-    # Ajouter la valeur du portefeuille sur un axe secondaire
-    ax1_2 = ax1.twinx()
-    ax1_2.plot(df.index[1:], portfolio_values[1:], label='Portefeuille', color='green', linestyle='--')
-    ax1_2.set_ylabel('Valeur du portefeuille')
-    ax1_2.legend(loc='upper right')
+    ax1_twin = ax1.twinx()
+    ax1_twin.plot(df.index, portfolio_value, label='Valeur du portefeuille', color='green')
+    ax1_twin.set_ylabel('Valeur du portefeuille', color='green')
+    ax1_twin.tick_params(axis='y', labelcolor='green')
+    ax1.set_title('Prix et Valeur du portefeuille')
+    ax1.grid(True)
     
     # Tracer les récompenses
     ax2.plot(df.index[1:], sharpe_rewards, label='Sharpe', color='orange')
@@ -209,10 +224,11 @@ def plot_rewards_comparison():
     ax2.grid(True)
     
     plt.tight_layout()
-    plt.savefig('reward_comparison.png')
+    reward_comparison_path = os.path.join(VISUALIZATION_DIR, 'reward_comparison.png')
+    plt.savefig(reward_comparison_path)
     plt.close()
     
-    print("\nGraphique de comparaison des récompenses enregistré sous 'reward_comparison.png'")
+    print(f"\nGraphique de comparaison des récompenses enregistré sous '{reward_comparison_path}'")
 
 if __name__ == "__main__":
     # Tester chaque type de récompense

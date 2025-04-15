@@ -10,10 +10,13 @@ services:
       - .env
     volumes:
       - ./ai_trading:/app/ai_trading
+      - ./web_app:/app/web_app
       - ./data:/app/data
+      - ./tradingview:/app/tradingview
     depends_on:
       - redis
       - db
+    command: python -m web_app.app
 
   redis:
     image: redis:alpine
@@ -35,10 +38,14 @@ services:
 
   tests:
     build: .
+    container_name: trading_tests
     volumes:
-      - .:/app
+      - ./ai_trading:/app/ai_trading
+      - ./tests:/app/tests
+      - ./data:/app/data
     environment:
       - PYTHONPATH=/app
+    command: python -m pytest tests/ -v
 
 volumes:
   postgres_data: 

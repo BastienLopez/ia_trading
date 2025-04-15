@@ -34,18 +34,30 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy project
-COPY . .
+# Install the project as a package
+COPY setup.py .
+RUN pip install -e .
+
+# Copy project files, keeping only the essential directories
+COPY ai_trading /app/ai_trading
+COPY web_app /app/web_app
+COPY tradingview /app/tradingview
+COPY data /app/data
+COPY tests /app/tests
 
 # Create necessary directories
-RUN mkdir -p data logs
+RUN mkdir -p data
 
-# Expose port
+# Expose port for web app
 EXPOSE 8000
 
-# Run the application
-CMD ["python", "-m", "pytest", "ai_trading/tests/", "-v"]
+# Choose one of the following commands based on your needs:
 
-# Autres commandes possibles en fonction de l'utilisation :
-# Pour entraîner un modèle : 
-# CMD ["python", "ai_trading/train.py", "--download", "--symbol", "BTC/USDT", "--timeframe", "1h", "--days", "60", "--backtest"] 
+# Run tests
+CMD ["python", "-m", "pytest", "tests/", "-v"]
+
+# Run the web application
+# CMD ["python", "-m", "web_app.app"]
+
+# Run a training session
+# CMD ["python", "-m", "ai_trading.train", "--download", "--symbol", "BTC/USDT", "--timeframe", "1h", "--days", "60", "--backtest"] 

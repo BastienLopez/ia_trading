@@ -646,6 +646,14 @@ class NewsAnalyzer:
 
             matplotlib.use("Agg")  # Backend qui ne nécessite pas Tkinter
             import matplotlib.pyplot as plt
+            import os
+
+            # Créer le dossier visualizations s'il n'existe pas
+            visualization_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), 'ai_trading', 'visualizations', 'sentiment')
+            os.makedirs(visualization_dir, exist_ok=True)
+            
+            # Chemin complet du fichier
+            output_path = os.path.join(visualization_dir, filename)
 
             plt.figure(figsize=(12, 6))
 
@@ -655,12 +663,15 @@ class NewsAnalyzer:
                     lambda x: x["score"] if isinstance(x, dict) else 0.5
                 ).plot(title="Évolution du sentiment global")
                 plt.tight_layout()
-                plt.savefig(filename)
+                plt.savefig(output_path)
+                logger.info(f"Graphique sauvegardé dans {output_path}")
                 plt.close()
             else:
                 logger.warning("Données insuffisantes pour générer le graphique")
         except ImportError:
             logger.error("Matplotlib non installé. Impossible de générer le graphique")
+        except Exception as e:
+            logger.error(f"Erreur lors de la génération du graphique: {str(e)}")
 
 
 class EnhancedNewsAnalyzer(NewsAnalyzer):

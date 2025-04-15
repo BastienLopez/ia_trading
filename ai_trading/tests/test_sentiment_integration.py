@@ -1,10 +1,10 @@
 """Tests d'intégration pour le pipeline complet de sentiment."""
 
+import os
 import unittest
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
-import os
 import sys
 
 # Ajouter le répertoire parent au chemin Python
@@ -67,7 +67,14 @@ class TestSentimentIntegration(unittest.TestCase):
         report = self.news_analyzer.generate_report(df)
         self.assertIn("top_cryptos", report)
 
-        self.news_analyzer.plot_trends(df, "test_plot.png")
+        # Générer le graphique dans le dossier visualizations
+        filename = "test_sentiment_trends.png"
+        self.news_analyzer.plot_trends(df, filename)
+        
+        # Vérifier que le fichier existe dans le bon dossier
+        visualization_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 
+                                        'visualizations', 'sentiment', filename)
+        self.assertTrue(os.path.exists(visualization_path), f"Le fichier {visualization_path} n'existe pas")
 
     def test_social_analysis_integration(self):
         df = self.social_analyzer.analyze_social_posts(self.sample_tweets)

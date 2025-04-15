@@ -5,6 +5,15 @@ import seaborn as sns
 from tqdm import tqdm
 import os
 from datetime import datetime
+import logging
+
+# Configuration du logger
+logger = logging.getLogger(__name__)
+
+# Définir le chemin pour les visualisations
+VISUALIZATION_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'visualizations', 'performance')
+# Créer le répertoire s'il n'existe pas
+os.makedirs(VISUALIZATION_DIR, exist_ok=True)
 
 def calculate_metrics(portfolio_values, risk_free_rate=0.01):
     """
@@ -103,29 +112,49 @@ def compare_strategies(df, strategies, initial_balance=10000, window_size=50):
         }
     
     # Visualiser les résultats
-    plt.figure(figsize=(12, 8))
-    
-    for name, result in results.items():
-        plt.plot(result['portfolio_values'], label=name)
-    
-    plt.title('Comparaison des stratégies de trading')
-    plt.xlabel('Jours')
-    plt.ylabel('Valeur du portefeuille ($)')
-    plt.legend()
-    plt.grid(True)
-    
-    # Sauvegarder le graphique
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    os.makedirs('results', exist_ok=True)
-    plt.savefig(f'results/strategy_comparison_{timestamp}.png')
+    plot_strategy_comparison(results)
     
     # Créer un tableau comparatif des métriques
     metrics_df = pd.DataFrame({name: result['metrics'] for name, result in results.items()})
     
     # Sauvegarder les métriques
-    metrics_df.to_csv(f'results/metrics_comparison_{timestamp}.csv')
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    metrics_df.to_csv(os.path.join(VISUALIZATION_DIR, f'metrics_comparison_{timestamp}.csv'))
     
     return results, metrics_df
+
+def plot_strategy_comparison(results, title="Comparaison des stratégies"):
+    """
+    Trace la comparaison de différentes stratégies d'investissement.
+    
+    Args:
+        results (dict): Résultats pour chaque stratégie
+        title (str): Titre du graphique
+    """
+    plt.figure(figsize=(12, 8))
+    
+    # Tracer chaque stratégie
+    for strategy_name, data in results.items():
+        if "portfolio_values" in data:
+            plt.plot(data["portfolio_values"], label=f"{strategy_name}")
+    
+    # Ajouter la référence (buy and hold)
+    if "buy_hold" in results:
+        plt.plot(results["buy_hold"]["portfolio_values"], linestyle="--", label="Buy & Hold", color="black")
+    
+    plt.title(title)
+    plt.xlabel("Période")
+    plt.ylabel("Valeur du portefeuille")
+    plt.legend()
+    plt.grid(True)
+    
+    # Ajouter un horodatage
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_path = os.path.join(VISUALIZATION_DIR, f'strategy_comparison_{timestamp}.png')
+    plt.savefig(output_path)
+    plt.close()
+    
+    return output_path
 
 # Exemple d'utilisation
 if __name__ == "__main__":
