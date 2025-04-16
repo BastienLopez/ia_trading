@@ -77,7 +77,7 @@ Ce module contient l'implémentation d'un système de trading de cryptomonnaies 
   - [x] Mémoire de replay priorisée pour DQN
   - [x] Exploration avancée : UCB, exploration par nouveauté
   - [x] Double DQN, Dueling DQN
-  - [ ] Ajouter PPO/SAC pour les actions continues
+  - [x] Ajouter SAC pour les actions continues
   - [ ] Intégrer Noisy Networks pour l'exploration
   - [ ] Utiliser des retours multi-étapes (n-step returns)
   - [ ] Appliquer le gradient clipping et l'entropy regularization

@@ -133,17 +133,18 @@ class TradingEnvironment(gym.Env):
         else:
             raise ValueError(f"Type d'action non supporté: {action_type}")
 
-        # Mettre à jour la taille de l'espace d'observation
-        # window_size (prix) + 18 indicateurs techniques + 3 infos portefeuille
-        observation_size = window_size + 18 + 3
-        
-        # Définir l'espace d'observation
+        # Réinitialiser l'environnement pour calculer la taille réelle de l'état
+        temp_reset = self.reset()
+        if isinstance(temp_reset, tuple):
+            temp_state = temp_reset[0]  # Pour la compatibilité avec les nouvelles versions de gym
+        else:
+            temp_state = temp_reset
+            
+        # Définir l'espace d'observation avec la taille réelle de l'état
+        real_state_size = temp_state.shape[0]
         self.observation_space = spaces.Box(
-            low=0, high=1, shape=(observation_size,), dtype=np.float32
+            low=-np.inf, high=np.inf, shape=(real_state_size,), dtype=np.float32
         )
-
-        # Réinitialiser l'environnement
-        self.reset()
 
         logger.info(
             f"Environnement de trading initialisé avec {len(df)} points de données et espace d'action {action_type}"

@@ -40,7 +40,7 @@ class RLTradingSystem:
         Crée un agent d'apprentissage par renforcement.
 
         Args:
-            agent_type (str): Type d'agent ('dqn' ou 'ppo')
+            agent_type (str): Type d'agent ('dqn', 'ppo', 'sac')
             state_size (int): Taille de l'espace d'état
             action_size (int): Taille de l'espace d'action
             **kwargs: Arguments supplémentaires pour l'agent
@@ -59,6 +59,27 @@ class RLTradingSystem:
         elif agent_type.lower() == "ppo":
             # Implémentation future pour PPO
             raise NotImplementedError("Agent PPO non implémenté")
+        elif agent_type.lower() == "sac":
+            from ai_trading.rl.agents.sac_agent import SACAgent
+            
+            # Configurer les bornes d'action correctes si l'environnement existe
+            action_bounds = kwargs.pop('action_bounds', (-1, 1))
+            
+            # Si l'environnement existe, on peut vérifier si l'espace d'action est continu
+            if self.env is not None:
+                if hasattr(self.env, 'action_type') and self.env.action_type == "continuous":
+                    # Pour un espace Box, l'action_size devrait être 1 pour notre environnement
+                    action_size = 1
+                    logger.info(f"Agent SAC créé pour un espace d'action continu de taille {action_size}")
+                else:
+                    logger.warning("L'agent SAC est optimisé pour les actions continues, mais l'environnement n'a pas d'espace d'action continu.")
+
+            agent = SACAgent(
+                state_size=state_size,
+                action_size=action_size,
+                action_bounds=action_bounds,
+                **kwargs
+            )
         else:
             raise ValueError(f"Type d'agent inconnu: {agent_type}")
 
