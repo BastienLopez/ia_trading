@@ -16,6 +16,7 @@ ta>=0.10.0
 
 # Apprentissage par renforcement
 tensorflow==2.16.1
+tensorflow_probability==0.24.0
 keras==3.3.3
 gymnasium==0.29.1
 stable-baselines3==2.2.1
