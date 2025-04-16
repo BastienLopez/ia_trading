@@ -80,8 +80,8 @@ Ce module contient l'implémentation d'un système de trading de cryptomonnaies 
   - [x] Ajouter SAC pour les actions continues
   - [x] Intégrer Noisy Networks pour l'exploration
   - [x] Utiliser des retours multi-étapes (n-step returns)
-  - [ ] Appliquer le gradient clipping et l'entropy regularization
-  - [ ] Implémenter un curriculum learning progressif
+  - [x] Appliquer le gradient clipping et l'entropy regularization
+  - [x] Implémenter un curriculum learning progressif
   - [ ] Ajouter des couches récurrentes (LSTM/GRU) pour le contexte temporel
 
 ### 7. **Optimisation des hyperparamètres**

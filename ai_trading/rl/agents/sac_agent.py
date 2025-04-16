@@ -71,9 +71,8 @@ class ReplayBuffer:
 
 class SACAgent:
     """
-    Agent Soft Actor-Critic (SAC) pour l'apprentissage par renforcement avec actions continues.
-    SAC optimise une politique stochastique maximum-entropy, ce qui favorise l'exploration
-    tout en maximisant la récompense.
+    Agent Soft Actor-Critic (SAC), une méthode d'apprentissage par renforcement basée sur l'entropie maximale.
+    Implémente l'algorithme SAC avec adaptation automatique du paramètre d'entropie.
     """
     
     def __init__(
@@ -90,25 +89,29 @@ class SACAgent:
         buffer_size=100000,
         hidden_size=256,
         train_alpha=True,  # Si True, le paramètre alpha (température) est appris
-        target_entropy=None  # Entropie cible, si None, sera fixée à -action_size
+        target_entropy=None,  # Entropie cible, si None, sera fixée à -action_size
+        grad_clip_value=1.0,  # Valeur maximale pour le gradient clipping
+        entropy_regularization=0.001  # Coefficient pour la régularisation d'entropie supplémentaire
     ):
         """
-        Initialise l'agent SAC.
+        Initialise l'agent Soft Actor-Critic.
         
         Args:
-            state_size (int): Taille de l'espace d'état
-            action_size (int): Dimension de l'espace d'action continue
-            action_bounds (tuple): Bornes min et max de l'action (min, max)
-            actor_learning_rate (float): Taux d'apprentissage pour l'acteur
-            critic_learning_rate (float): Taux d'apprentissage pour le critique
-            alpha_learning_rate (float): Taux d'apprentissage pour le paramètre d'entropie
-            discount_factor (float): Facteur d'actualisation pour les récompenses futures
-            tau (float): Taux pour les mises à jour douces
-            batch_size (int): Taille du lot pour l'entraînement
-            buffer_size (int): Taille du tampon de replay
-            hidden_size (int): Taille des couches cachées dans les réseaux
-            train_alpha (bool): Si True, adapte automatiquement le coefficient d'entropie
-            target_entropy (float): Entropie cible pour l'adaptation automatique d'alpha
+            state_size: Dimension de l'espace d'état
+            action_size: Dimension de l'espace d'action
+            action_bounds: Tuple (min, max) des limites de l'espace d'action
+            actor_learning_rate: Taux d'apprentissage pour le réseau de politique
+            critic_learning_rate: Taux d'apprentissage pour les réseaux critiques
+            alpha_learning_rate: Taux d'apprentissage pour le paramètre d'entropie
+            discount_factor: Facteur d'actualisation pour les récompenses futures
+            tau: Facteur pour les mises à jour douces des réseaux cibles
+            batch_size: Taille des lots pour l'entraînement
+            buffer_size: Taille du tampon de replay
+            hidden_size: Nombre de neurones dans les couches cachées
+            train_alpha: Si True, le paramètre d'entropie est appris automatiquement
+            target_entropy: Entropie cible pour l'adaptation de alpha
+            grad_clip_value: Valeur maximale pour le gradient clipping
+            entropy_regularization: Coefficient pour la régularisation d'entropie supplémentaire
         """
         self.state_size = state_size
         self.action_size = action_size
@@ -118,6 +121,8 @@ class SACAgent:
         self.batch_size = batch_size
         self.hidden_size = hidden_size
         self.train_alpha = train_alpha
+        self.grad_clip_value = grad_clip_value
+        self.entropy_regularization = entropy_regularization
         
         # Définir l'entropie cible (par défaut: -dim(A))
         if target_entropy is None:
@@ -358,8 +363,12 @@ class SACAgent:
             q2 = self.critic_2([states, actions_policy])
             q_min = tf.minimum(q1, q2)
             
+            # Calcul de l'entropie
+            entropy = -tf.reduce_mean(log_probs)
+            
             # Perte de l'acteur = valeur Q attendue - entropie
-            actor_loss = tf.reduce_mean(self.alpha * log_probs - q_min)
+            # Ajout d'une régularisation d'entropie supplémentaire
+            actor_loss = tf.reduce_mean(self.alpha * log_probs - q_min) - self.entropy_regularization * entropy
             
             # Perte pour l'adaptation d'alpha (si activée)
             if self.train_alpha:
@@ -374,12 +383,23 @@ class SACAgent:
         critic2_gradients = tape.gradient(critic2_loss, self.critic_2.trainable_variables)
         actor_gradients = tape.gradient(actor_loss, self.actor.trainable_variables)
         
+        # Appliquer le gradient clipping
+        critic1_gradients = [tf.clip_by_norm(g, self.grad_clip_value) if g is not None else g 
+                           for g in critic1_gradients]
+        critic2_gradients = [tf.clip_by_norm(g, self.grad_clip_value) if g is not None else g 
+                           for g in critic2_gradients]
+        actor_gradients = [tf.clip_by_norm(g, self.grad_clip_value) if g is not None else g 
+                         for g in actor_gradients]
+        
         self.critic_optimizer_1.apply_gradients(zip(critic1_gradients, self.critic_1.trainable_variables))
         self.critic_optimizer_2.apply_gradients(zip(critic2_gradients, self.critic_2.trainable_variables))
         self.actor_optimizer.apply_gradients(zip(actor_gradients, self.actor.trainable_variables))
         
         if self.train_alpha:
             alpha_gradients = tape.gradient(alpha_loss, [self.log_alpha])
+            # Appliquer le gradient clipping pour alpha aussi
+            alpha_gradients = [tf.clip_by_norm(g, self.grad_clip_value) if g is not None else g 
+                             for g in alpha_gradients]
             self.alpha_optimizer.apply_gradients(zip(alpha_gradients, [self.log_alpha]))
         
         del tape
@@ -390,9 +410,6 @@ class SACAgent:
             
         for target_param, param in zip(self.critic_2_target.variables, self.critic_2.variables):
             target_param.assign(target_param * (1 - self.tau) + param * self.tau)
-        
-        # Calculer l'entropie moyenne
-        entropy = -tf.reduce_mean(log_probs)
         
         return (critic1_loss + critic2_loss) / 2.0, actor_loss, alpha_loss, entropy
         
