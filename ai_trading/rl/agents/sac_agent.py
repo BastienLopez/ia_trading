@@ -125,8 +125,13 @@ class SACAgent:
         else:
             self.target_entropy = target_entropy
         
-        # Initialiser le tampon de replay
-        self.replay_buffer = ReplayBuffer(buffer_size)
+        # Vérifier si l'initialisation du tampon de replay doit être sautée
+        # (peut être utilisé par les classes dérivées qui implémentent leur propre tampon)
+        self._skip_buffer_init = getattr(self, '_skip_buffer_init', False)
+        
+        # Initialiser le tampon de replay (sauf si spécifié autrement)
+        if not self._skip_buffer_init:
+            self.replay_buffer = ReplayBuffer(buffer_size)
         
         # Paramètre d'entropie (température)
         self.log_alpha = tf.Variable(0.0, dtype=tf.float32, trainable=True)

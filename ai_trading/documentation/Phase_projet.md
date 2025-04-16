@@ -79,7 +79,7 @@ Ce module contient l'implémentation d'un système de trading de cryptomonnaies 
   - [x] Double DQN, Dueling DQN
   - [x] Ajouter SAC pour les actions continues
   - [x] Intégrer Noisy Networks pour l'exploration
-  - [ ] Utiliser des retours multi-étapes (n-step returns)
+  - [x] Utiliser des retours multi-étapes (n-step returns)
   - [ ] Appliquer le gradient clipping et l'entropy regularization
   - [ ] Implémenter un curriculum learning progressif
   - [ ] Ajouter des couches récurrentes (LSTM/GRU) pour le contexte temporel
