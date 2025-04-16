@@ -78,7 +78,7 @@ Ce module contient l'implémentation d'un système de trading de cryptomonnaies 
   - [x] Exploration avancée : UCB, exploration par nouveauté
   - [x] Double DQN, Dueling DQN
   - [x] Ajouter SAC pour les actions continues
-  - [ ] Intégrer Noisy Networks pour l'exploration
+  - [x] Intégrer Noisy Networks pour l'exploration
   - [ ] Utiliser des retours multi-étapes (n-step returns)
   - [ ] Appliquer le gradient clipping et l'entropy regularization
   - [ ] Implémenter un curriculum learning progressif
