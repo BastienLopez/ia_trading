@@ -15,12 +15,12 @@ ta>=0.10.0
 # TA-Lib est installé séparément via apt/brew ou le script d'installation
 
 # Apprentissage par renforcement
-tensorflow==2.16.1
-tensorflow_probability==0.24.0
-keras==3.3.3
+tensorflow==2.15.0
+tensorflow_probability==0.23.0
+keras==2.15.0
+tf-keras==2.15.0
 gymnasium==0.29.1
 stable-baselines3==2.2.1
-tf-keras==2.15.0
 torch>=2.0.1
 optuna>=2.10.0
 
