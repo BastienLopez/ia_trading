@@ -85,25 +85,22 @@ Ce module contient l'implémentation d'un système de trading de cryptomonnaies 
   - [x] Ajouter des couches récurrentes GRU pour le contexte temporel
 
   ### 7. **Optimisation des hyperparamètres**
-  - [ ] Recherche par grille (grid search)
-  - [ ] Créer la classe `HyperparameterOptimizer`
-  - [ ] Ajouter des métriques de qualité
+  - [x] Recherche par grille (grid search)
+  - [x] Créer la classe `HyperparameterOptimizer`
+  - [x] Ajouter des métriques de qualité
 
 - ⏳ 3.2 Améliorations à moyen terme (Phase 3.2)
-  - Optimisation des hyperparamètres
   - Entraînement sur données multi-périodes
-  - Espace d'action continu avec PPO/SAC
   - Intégration de flux d'ordres et données alternatives
-  - Récompenses avancées (Sortino, diversification)
   - Contraintes de marché réalistes (slippage, délais)
   - Trading multi-actifs avec allocation
-  - Architectures hybrides (LSTM/Transformers)
-  - Validation croisée temporelle
+  - Architectures hybrides (Transformers)
+  - Validation croisée temporelle 
   ## 🔄 **Améliorations à moyen terme (Phase 3.2)**
   ### 1. **Espace d'action continu**
-  - [ ] Supporter des pourcentages arbitraires d'achat/vente
-  - [ ] Utiliser PPO ou SAC
-  - [ ] Adapter l'environnement pour `gym` / `gymnasium`
+  - [x] Supporter des pourcentages arbitraires d'achat/vente
+  - [x] Utiliser PPO ou SAC
+  - [x] Adapter l'environnement pour `gym` / `gymnasium`
 
   ### 2. **Intégration de données avancées**
   - [ ] Sélection automatique de caractéristiques
@@ -111,9 +108,9 @@ Ce module contient l'implémentation d'un système de trading de cryptomonnaies 
   - [ ] Intégrer des données alternatives (on-chain, réseaux sociaux)
 
   ### 3. **Récompenses avancées**
-  - [ ] Ratio de Sortino
+  - [x] Ratio de Sortino
   - [ ] Récompense pour diversification
-  - [ ] Récompense adaptative selon conditions de marché
+  - [x] Récompense adaptative selon conditions de marché
 
   ### 4. **Contraintes de marché réalistes**
   - [ ] Délais d'exécution
@@ -126,14 +123,15 @@ Ce module contient l'implémentation d'un système de trading de cryptomonnaies 
   - [ ] Contraintes de corrélation/diversification
 
   ### 6. **Architectures de modèle avancées**
-  - [ ] LSTM pour dépendances temporelles
+  - [x] LSTM/GRU pour dépendances temporelles
   - [ ] Attention pour séries temporelles
   - [ ] CNN pour analyse graphique
-  - [ ] Architectures hybrides (CNN + LSTM + Attention)
+  - [ ] Architectures hybrides (CNN + Attention)
   - [ ] Modèles à base de transformers temporels
   - [ ] Utilisation de network distillation
 
   ### 7. **Validation et robustesse**
+  - [x] Optimisation des hyperparamètres
   - [ ] Validation croisée temporelle
   - [ ] Robustesse à conditions de marché changeantes
   - [ ] Tests statistiques de performance

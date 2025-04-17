@@ -37,49 +37,49 @@ python -m pytest ai_trading/tests/test_technical_indicators.py -v
 
 # Test optimiseur d'hyperparamètres
 ```bash
-python -m tests.test_hyperparameter_optimizer
+python -m ai_trading.tests.test_hyperparameter_optimizer
 ```
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ## Exemples disponibles
 
 ### 1. Environnement de Trading avec Actions Aléatoires
 ```bash
-python ai_trading/examples/test_trading_env.py --episodes 10 --visualize
+python -m ai_trading.examples.test_trading_env
 ```
 
 ### 2. Analyse de Sentiment Améliorée
 ```bash
-python ai_trading/examples/enhanced_sentiment_analysis_example.py --coins bitcoin ethereum --days 14 --plot
+python -m ai_trading.examples.enhanced_sentiment_analysis_example --coins bitcoin --days 7 --plot
 ```
 
 ### 3. Pipeline de Données Amélioré
 ```bash
-python ai_trading/examples/enhanced_data_pipeline.py --symbol ETH --days 60 --interval 1d --output ethereum_data.csv
+python -m ai_trading.examples.enhanced_data_pipeline --symbol ETH --days 30 --interval 1d --output ethereum_data.csv
 ```
 
 ### 4. Intégration de Données pour l'Apprentissage par Renforcement
 ```bash
-python ai_trading/examples/rl_data_integration_example.py
+python -m ai_trading.examples.rl_data_integration_example
 ```
 
 ### 5. Exemple d'Entraînement par Renforcement
 ```bash
-python ai_trading/examples/rl_training_example.py --episodes 500 --symbol ETH --model ppo --save
+python -m ai_trading.examples.rl_training_example --episodes 100 --symbol ETH --model sac --save
 ```
 
-### 6. Test de Stop Loss basé sur ATR
+### 6. Exemple avancé de fonctions de récompense
 ```bash
-python ai_trading/examples/test_atr_stop_loss.py --symbol ETH --period 21 --multiplier 2.5 --visualize
+python -m ai_trading.examples.advanced_rewards_example
 ```
 
 ### 7. Optimisation d'Hyperparamètres pour agents de Trading
 ```bash
-python ai_trading/examples/hyperparameter_optimization_example.py --episodes 50 --symbol BTC --agent sac --save
+python -m ai_trading.examples.hyperparameter_optimization_example --episodes 20 --symbol BTC --agent sac --save
 ```
 
 ### 8. Optimisation d'Hyperparamètres pour agents GRU
 ```bash
-python ai_trading/examples/hyperparameter_optimization_example.py --episodes 50 --symbol ETH --agent gru_sac --save
+python -m ai_trading.examples.hyperparameter_optimization_example --episodes 20 --symbol ETH --agent gru_sac --save
 ```
 
 ## Diagnostics et débogage
@@ -102,3 +102,7 @@ python ai_trading/examples/hyperparameter_optimization_example.py --episodes 50 
 5. **Attribut manquant `portfolio_value` dans TradingEnvironment**:
    - Message d'erreur: `AttributeError: 'TradingEnvironment' object has no attribute 'portfolio_value'`
    - Solution: Assurez-vous que l'environnement initialise correctement la valeur du portefeuille dans sa méthode `reset()`
+
+6. **Avertissements concernant des méthodes dépréciées**:
+   - Problème: Utilisation de `df.fillna(method='bfill')` qui est déprécié
+   - Solution: Remplacez par `df.bfill()` pour le backfill ou `df.ffill()` pour le forward fill
