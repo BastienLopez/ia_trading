@@ -5,14 +5,14 @@ import logging
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # Ajouter le répertoire parent au chemin pour importer les modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from ai_trading.rl.trading_environment import TradingEnvironment
 from ai_trading.rl.agents.sac_agent import SACAgent
-from ai_trading.data.data_integration import RLDataIntegrator
+from ai_trading.rl.data_integration import RLDataIntegrator
 
 # Configuration du logger
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -240,11 +240,16 @@ def main():
     data_integrator = RLDataIntegrator()
     
     try:
-        # Essayer de récupérer des données réelles
-        df = data_integrator.fetch_crypto_data(
+        # Calculer les dates basées sur le nombre de jours
+        end_date = datetime.now().strftime("%Y-%m-%d")
+        start_date = (datetime.now() - timedelta(days=args.days)).strftime("%Y-%m-%d")
+        
+        # Essayer de récupérer des données réelles avec la bonne méthode
+        df = data_integrator.collect_market_data(
             symbol=args.symbol, 
-            interval=args.interval, 
-            days=args.days
+            start_date=start_date,
+            end_date=end_date,
+            interval=args.interval
         )
         logger.info(f"Données récupérées pour {args.symbol} sur {args.days} jours avec un intervalle de {args.interval}")
         
@@ -260,8 +265,8 @@ def main():
             with_sentiment=True
         )
     
-    # Ajouter des indicateurs techniques
-    df = data_integrator.add_technical_indicators(df)
+    # Prétraiter les données, ce qui inclut l'ajout d'indicateurs techniques
+    df = data_integrator.preprocess_market_data(df)
     
     # Créer l'environnement
     env = create_environment(df, args)

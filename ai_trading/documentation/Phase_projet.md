@@ -82,12 +82,12 @@ Ce module contient l'implémentation d'un système de trading de cryptomonnaies 
   - [x] Utiliser des retours multi-étapes (n-step returns)
   - [x] Appliquer le gradient clipping et l'entropy regularization
   - [x] Implémenter un curriculum learning progressif
-  - [ ] Ajouter des couches récurrentes (LSTM/GRU) pour le contexte temporel
+  - [x] Ajouter des couches récurrentes GRU pour le contexte temporel
 
-### 7. **Optimisation des hyperparamètres**
-- [ ] Recherche par grille (grid search)
-- [ ] Créer la classe `HyperparameterOptimizer`
-- [ ] Ajouter des métriques de qualité
+  ### 7. **Optimisation des hyperparamètres**
+  - [ ] Recherche par grille (grid search)
+  - [ ] Créer la classe `HyperparameterOptimizer`
+  - [ ] Ajouter des métriques de qualité
 
 - ⏳ 3.2 Améliorations à moyen terme (Phase 3.2)
   - Optimisation des hyperparamètres

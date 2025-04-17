@@ -139,7 +139,7 @@ class TradingEnvironment(gym.Env):
             temp_state = temp_reset[0]  # Pour la compatibilité avec les nouvelles versions de gym
         else:
             temp_state = temp_reset
-            
+        
         # Définir l'espace d'observation avec la taille réelle de l'état
         real_state_size = temp_state.shape[0]
         self.observation_space = spaces.Box(

@@ -146,9 +146,9 @@ class TestEntropyRegularization(unittest.TestCase):
                 state = next_state
         
         # Vérifier les normes des gradients pendant l'entraînement
-        if len(agent.replay_buffer) >= agent.batch_size:
+        if len(agent.memory) >= agent.batch_size:
             # Échantillonner un lot
-            states, actions, rewards, next_states, dones = agent.replay_buffer.sample(agent.batch_size)
+            states, actions, rewards, next_states, dones = agent.memory.sample(agent.batch_size)
             
             # Convertir en tenseurs
             states = tf.convert_to_tensor(states, dtype=tf.float32)
@@ -238,7 +238,7 @@ class TestEntropyRegularization(unittest.TestCase):
                 total_reward_no_reg += reward
                 
                 # Entraîner l'agent
-                if len(agent_no_reg.replay_buffer) >= agent_no_reg.batch_size:
+                if len(agent_no_reg.memory) >= agent_no_reg.batch_size:
                     agent_no_reg.train()
                 
                 if done:
@@ -259,7 +259,7 @@ class TestEntropyRegularization(unittest.TestCase):
                 total_reward_with_reg += reward
                 
                 # Entraîner l'agent
-                if len(agent_with_reg.replay_buffer) >= agent_with_reg.batch_size:
+                if len(agent_with_reg.memory) >= agent_with_reg.batch_size:
                     agent_with_reg.train()
                 
                 if done:

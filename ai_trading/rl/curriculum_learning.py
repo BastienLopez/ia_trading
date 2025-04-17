@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 from typing import Dict, List, Tuple, Any, Optional, Union, Callable
 from ai_trading.rl.trading_environment import TradingEnvironment
+from ai_trading.rl.agents.sac_agent import SACAgent
 
 # Configuration du logger
 logger = logging.getLogger("CurriculumLearning")
@@ -351,6 +352,8 @@ class CurriculumLearning:
             
             # Calculer la nouvelle difficulté
             new_difficulty = min(self.current_difficulty + self.difficulty_increment, self.max_difficulty)
+            # Arrondir la difficulté à 6 décimales pour éviter les erreurs de précision
+            new_difficulty = round(new_difficulty, 6)
             
             # Si on a atteint la difficulté maximale, on reste à ce niveau
             if new_difficulty == self.current_difficulty:
@@ -592,4 +595,415 @@ class CurriculumTrainer:
         
         logger.info(f"Évaluation: ROI={roi:.4f}, Performance={normalized_performance:.4f}")
         
-        return normalized_performance 
+        return normalized_performance
+
+
+class GRUCurriculumLearning:
+    """
+    Implémentation du curriculum learning pour l'agent SAC avec couches GRU.
+    Cette classe étend le concept de curriculum learning pour prendre en compte
+    la nature séquentielle des données temporelles et l'utilisation des couches GRU.
+    """
+    
+    def __init__(
+        self,
+        initial_difficulty=0.2,
+        max_difficulty=1.0,
+        difficulty_increment=0.1,
+        success_threshold=0.7,
+        evaluation_window=5,
+        sequence_length=10,
+        gru_units=128,
+        hidden_size=256
+    ):
+        """
+        Initialise le système de curriculum learning adapté pour GRU.
+        
+        Args:
+            initial_difficulty (float): Niveau de difficulté initial (0.0 à 1.0)
+            max_difficulty (float): Niveau de difficulté maximal
+            difficulty_increment (float): Incrément de difficulté après succès
+            success_threshold (float): Seuil de réussite pour augmenter la difficulté
+            evaluation_window (int): Nombre d'épisodes pour évaluer la performance
+            sequence_length (int): Longueur des séquences pour GRU
+            gru_units (int): Nombre d'unités dans les couches GRU
+            hidden_size (int): Taille des couches cachées des réseaux
+        """
+        self.difficulty = initial_difficulty
+        self.max_difficulty = max_difficulty
+        self.difficulty_increment = difficulty_increment
+        self.success_threshold = success_threshold
+        self.evaluation_window = evaluation_window
+        self.recent_performances = []
+        self.sequence_length = sequence_length
+        self.gru_units = gru_units
+        self.hidden_size = hidden_size
+        
+        logger.info(f"GRU Curriculum Learning initialisé: difficulté={self.difficulty}, "
+                   f"séquence={sequence_length}, unités GRU={gru_units}")
+    
+    def create_environment(self, df, volatility_window=20, **kwargs):
+        """
+        Crée un environnement de trading avec une difficulté ajustée.
+        
+        Args:
+            df (DataFrame): Données de marché complètes
+            volatility_window (int): Fenêtre pour calculer la volatilité
+            **kwargs: Arguments supplémentaires pour l'environnement
+            
+        Returns:
+            TradingEnvironment: Environnement de trading adapté au niveau de difficulté
+        """
+        # Filtrer les données selon la difficulté (basée sur la volatilité)
+        filtered_df = self._filter_data_by_volatility(df, volatility_window)
+        
+        # Créer l'environnement avec les données filtrées
+        env = TradingEnvironment(
+            df=filtered_df,
+            window_size=kwargs.get('window_size', 20),
+            initial_balance=kwargs.get('initial_balance', 10000.0),
+            transaction_fee=kwargs.get('transaction_fee', 0.001),
+            reward_function=kwargs.get('reward_function', 'simple'),
+            action_type=kwargs.get('action_type', 'continuous')
+        )
+        
+        logger.info(f"Environnement créé avec difficulté {self.difficulty}: {len(filtered_df)} points de données")
+        return env
+    
+    def _filter_data_by_volatility(self, df, window=20):
+        """
+        Filtre les données selon la volatilité, en fonction du niveau de difficulté.
+        
+        Args:
+            df (DataFrame): Données complètes
+            window (int): Fenêtre pour calculer la volatilité
+            
+        Returns:
+            DataFrame: Données filtrées selon la volatilité et le niveau de difficulté
+        """
+        # Calculer la volatilité sur la fenêtre spécifiée
+        returns = df['close'].pct_change().dropna()
+        volatility = returns.rolling(window=window).std().dropna()
+        
+        # Associer la volatilité aux données
+        volatility_df = df.iloc[window:].copy()
+        volatility_df['volatility'] = volatility.values
+        
+        # Déterminer les seuils de volatilité
+        min_vol = volatility_df['volatility'].min()
+        max_vol = volatility_df['volatility'].max()
+        
+        # Calculer le seuil de volatilité en fonction de la difficulté
+        # Plus la difficulté est élevée, plus on inclut de données volatiles
+        vol_threshold = min_vol + self.difficulty * (max_vol - min_vol)
+        
+        # Filtrer les données
+        if self.difficulty < 1.0:
+            filtered_df = volatility_df[volatility_df['volatility'] <= vol_threshold]
+        else:
+            # À difficulté maximale, utiliser toutes les données
+            filtered_df = volatility_df
+        
+        # S'assurer qu'il y a suffisamment de données pour l'entraînement avec GRU
+        min_required_size = 3 * self.sequence_length  # Au moins 3 séquences complètes
+        
+        if len(filtered_df) < min_required_size:
+            logger.warning(f"Données insuffisantes après filtrage ({len(filtered_df)} points). "
+                          f"Adaptation de la stratégie de filtrage.")
+            
+            if len(filtered_df) == 0:
+                # Si aucune donnée ne correspond aux critères, prendre les moins volatiles
+                filtered_df = volatility_df.sort_values('volatility').head(min_required_size)
+            else:
+                # Si quelques points mais pas assez, essayer de trouver des segments consécutifs
+                # et ajouter des points adjacents si nécessaire
+                if len(filtered_df) < min_required_size:
+                    # Ajouter plus de points jusqu'à atteindre la taille minimale
+                    additional_points = min_required_size - len(filtered_df)
+                    # Trier le reste des données par volatilité et prendre les moins volatiles
+                    remaining_df = volatility_df[~volatility_df.index.isin(filtered_df.index)]
+                    remaining_df = remaining_df.sort_values('volatility')
+                    filtered_df = pd.concat([filtered_df, remaining_df.head(additional_points)])
+                    filtered_df = filtered_df.sort_index()  # Trier par date
+        
+        logger.info(f"Données filtrées: {len(filtered_df)} points avec seuil de volatilité {vol_threshold:.6f}")
+        return filtered_df
+    
+    def create_agent(self, env):
+        """
+        Crée un agent SAC avec couches GRU, adapté à l'environnement.
+        
+        Args:
+            env: Environnement de trading
+            
+        Returns:
+            SACAgent: Agent SAC avec GRU configuré
+        """
+        state_size = env.observation_space.shape[0]
+        action_size = env.action_space.shape[0]
+        action_bounds = (env.action_space.low[0], env.action_space.high[0])
+        
+        # Créer l'agent avec GRU activé
+        agent = SACAgent(
+            state_size=state_size,
+            action_size=action_size,
+            action_bounds=action_bounds,
+            use_gru=True,
+            sequence_length=self.sequence_length,
+            gru_units=self.gru_units,
+            hidden_size=self.hidden_size,
+            grad_clip_value=1.0,
+            entropy_regularization=0.001
+        )
+        
+        logger.info(f"Agent SAC avec GRU créé: state_size={state_size}, action_size={action_size}")
+        return agent
+    
+    def update_difficulty(self, performance):
+        """
+        Met à jour le niveau de difficulté basé sur les performances récentes.
+        
+        Args:
+            performance (float): Score de performance de l'épisode
+            
+        Returns:
+            bool: True si la difficulté a été augmentée
+        """
+        # Ajouter la performance à l'historique
+        self.recent_performances.append(performance)
+        
+        # Limiter l'historique à la fenêtre d'évaluation
+        if len(self.recent_performances) > self.evaluation_window:
+            self.recent_performances.pop(0)
+        
+        # Si nous avons assez de données pour évaluer
+        if len(self.recent_performances) >= self.evaluation_window:
+            avg_performance = np.mean(self.recent_performances)
+            
+            # Si la performance moyenne dépasse le seuil et on n'a pas atteint la difficulté max
+            if avg_performance >= self.success_threshold and self.difficulty < self.max_difficulty:
+                # Augmenter la difficulté
+                old_difficulty = self.difficulty
+                self.difficulty = min(self.difficulty + self.difficulty_increment, self.max_difficulty)
+                # Arrondir la difficulté à 6 décimales pour éviter les erreurs de précision
+                self.difficulty = round(self.difficulty, 6)
+                
+                # Réinitialiser l'historique des performances
+                self.recent_performances = []
+                
+                logger.info(f"Difficulté augmentée: {old_difficulty:.2f} -> {self.difficulty:.2f}")
+                return True
+        
+        return False
+    
+    def reset(self):
+        """
+        Réinitialise le système de curriculum learning.
+        """
+        self.recent_performances = []
+        logger.info("Système de curriculum learning réinitialisé")
+
+
+class GRUCurriculumTrainer:
+    """
+    Entraîneur pour les agents SAC avec GRU utilisant le curriculum learning.
+    """
+    
+    def __init__(
+        self,
+        curriculum,
+        data,
+        episodes_per_level=20,
+        max_episodes=200,
+        eval_frequency=5,
+        save_path="models/gru_sac"
+    ):
+        """
+        Initialise l'entraîneur pour le curriculum learning avec GRU.
+        
+        Args:
+            curriculum (GRUCurriculumLearning): Système de curriculum learning pour GRU
+            data (DataFrame): Données de marché complètes
+            episodes_per_level (int): Nombre d'épisodes minimum par niveau de difficulté
+            max_episodes (int): Nombre maximum d'épisodes d'entraînement
+            eval_frequency (int): Fréquence d'évaluation (en épisodes)
+            save_path (str): Chemin pour sauvegarder les modèles
+        """
+        self.curriculum = curriculum
+        self.data = data
+        self.episodes_per_level = episodes_per_level
+        self.max_episodes = max_episodes
+        self.eval_frequency = eval_frequency
+        self.save_path = save_path
+        
+        # Créer le dossier de sauvegarde s'il n'existe pas
+        import os
+        os.makedirs(save_path, exist_ok=True)
+        
+        logger.info(f"GRU Curriculum Trainer initialisé: max_episodes={max_episodes}, "
+                   f"episodes_per_level={episodes_per_level}")
+    
+    def train(self, window_size=20, initial_balance=10000.0, transaction_fee=0.001):
+        """
+        Entraîne l'agent en utilisant le curriculum learning avec GRU.
+        
+        Args:
+            window_size (int): Taille de la fenêtre d'observation
+            initial_balance (float): Solde initial
+            transaction_fee (float): Frais de transaction
+            
+        Returns:
+            SACAgent: Agent entraîné
+            dict: Historique d'entraînement
+        """
+        # Historique d'entraînement
+        history = {
+            'rewards': [],
+            'difficulties': [],
+            'profits': [],
+            'transactions': [],
+            'portfolio_values': []
+        }
+        
+        # Créer l'environnement initial
+        env = self.curriculum.create_environment(
+            self.data,
+            window_size=window_size,
+            initial_balance=initial_balance,
+            transaction_fee=transaction_fee,
+            action_type='continuous'
+        )
+        
+        # Créer l'agent
+        agent = self.curriculum.create_agent(env)
+        
+        # Variables de suivi
+        total_episodes = 0
+        episodes_at_current_level = 0
+        best_eval_reward = -float('inf')
+        
+        logger.info("Début de l'entraînement avec curriculum learning pour SAC avec GRU")
+        
+        # Boucle d'entraînement
+        while total_episodes < self.max_episodes:
+            # Incrémenter les compteurs
+            total_episodes += 1
+            episodes_at_current_level += 1
+            
+            # Réinitialiser l'environnement
+            state, _ = env.reset()
+            episode_reward = 0
+            done = False
+            truncated = False
+            
+            # Séquence d'états pour GRU
+            state_sequence = [state] * agent.sequence_length
+            
+            while not (done or truncated):
+                # Sélectionner une action basée sur la séquence d'états
+                action = agent.act(np.array(state_sequence, dtype=np.float32))
+                
+                # Exécuter l'action dans l'environnement
+                next_state, reward, done, truncated, info = env.step(action)
+                
+                # Mettre à jour la séquence d'états
+                state_sequence.pop(0)
+                state_sequence.append(next_state)
+                
+                # Stocker l'expérience dans le tampon de replay
+                agent.remember(state, action, reward, next_state, done)
+                
+                # Entraîner l'agent si assez d'expériences
+                if len(agent.sequence_buffer) > agent.batch_size * 3:
+                    train_metrics = agent.train()
+                    
+                # Mettre à jour l'état et accumuler la récompense
+                state = next_state
+                episode_reward += reward
+            
+            # Enregistrer les métriques de l'épisode
+            history['rewards'].append(episode_reward)
+            history['difficulties'].append(self.curriculum.difficulty)
+            portfolio_value = env.portfolio_value()
+            history['portfolio_values'].append(portfolio_value)
+            history['profits'].append(portfolio_value - initial_balance)
+            history['transactions'].append(env.transaction_count)
+            
+            logger.info(f"Épisode {total_episodes}, Niveau {self.curriculum.difficulty:.2f}, "
+                       f"Récompense: {episode_reward:.2f}, Profit: {portfolio_value - initial_balance:.2f}")
+            
+            # Évaluation périodique
+            if total_episodes % self.eval_frequency == 0:
+                eval_reward = self._evaluate_agent(agent, env)
+                
+                if eval_reward > best_eval_reward:
+                    best_eval_reward = eval_reward
+                    # Sauvegarder le meilleur modèle
+                    agent.save(f"{self.save_path}/best_model")
+                    logger.info(f"Nouveau meilleur modèle sauvegardé avec récompense {best_eval_reward:.2f}")
+                
+                # Mettre à jour la difficulté si nécessaire
+                if self.curriculum.update_difficulty(eval_reward) or episodes_at_current_level >= self.episodes_per_level:
+                    # Recréer l'environnement avec la nouvelle difficulté
+                    env = self.curriculum.create_environment(
+                        self.data,
+                        window_size=window_size,
+                        initial_balance=initial_balance,
+                        transaction_fee=transaction_fee,
+                        action_type='continuous'
+                    )
+                    episodes_at_current_level = 0
+                    
+                    # Sauvegarder un point de contrôle
+                    agent.save(f"{self.save_path}/checkpoint_difficulty_{self.curriculum.difficulty:.2f}")
+                    logger.info(f"Point de contrôle sauvegardé pour la difficulté {self.curriculum.difficulty:.2f}")
+            
+        # Entraînement terminé, sauvegarder le modèle final
+        agent.save(f"{self.save_path}/final_model")
+        logger.info(f"Entraînement terminé après {total_episodes} épisodes. Modèle final sauvegardé.")
+        
+        return agent, history
+    
+    def _evaluate_agent(self, agent, env, n_episodes=3):
+        """
+        Évalue l'agent sur plusieurs épisodes sans exploration.
+        
+        Args:
+            agent: Agent à évaluer
+            env: Environnement de trading
+            n_episodes (int): Nombre d'épisodes d'évaluation
+            
+        Returns:
+            float: Récompense moyenne sur les épisodes
+        """
+        total_rewards = []
+        
+        for _ in range(n_episodes):
+            state, _ = env.reset()
+            episode_reward = 0
+            done = False
+            truncated = False
+            
+            # Initialiser la séquence d'états pour GRU
+            state_sequence = [state] * agent.sequence_length
+            
+            while not (done or truncated):
+                # Sélectionner une action déterministe (sans exploration)
+                action = agent.act(np.array(state_sequence, dtype=np.float32), deterministic=True)
+                
+                # Exécuter l'action
+                next_state, reward, done, truncated, _ = env.step(action)
+                
+                # Mettre à jour la séquence d'états
+                state_sequence.pop(0)
+                state_sequence.append(next_state)
+                
+                # Mettre à jour l'état et accumuler la récompense
+                state = next_state
+                episode_reward += reward
+            
+            total_rewards.append(episode_reward)
+        
+        avg_reward = np.mean(total_rewards)
+        logger.info(f"Évaluation: récompense moyenne sur {n_episodes} épisodes: {avg_reward:.2f}")
+        return avg_reward 

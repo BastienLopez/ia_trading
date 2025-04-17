@@ -69,6 +69,12 @@ class NStepSACAgent(SACAgent):
         # Nous allons créer notre propre tampon de replay avec retours multi-étapes
         self._skip_buffer_init = True
         
+        # Initialiser les historiques des pertes (pour éviter les problèmes avec le code de test)
+        self.critic_loss_history = []
+        self.actor_loss_history = []
+        self.alpha_loss_history = []
+        self.entropy_history = []
+        
         # Appel au constructeur parent
         super(NStepSACAgent, self).__init__(
             state_size=state_size,

@@ -34,6 +34,11 @@ python -m pytest ai_trading/tests/test_trading_environment.py -v
 ```bash
 python -m pytest ai_trading/tests/test_technical_indicators.py -v
 ```
+
+# Test optimiseur d'hyperparamètres
+```bash
+python -m tests.test_hyperparameter_optimizer
+```
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ## Exemples disponibles
 
@@ -67,6 +72,16 @@ python ai_trading/examples/rl_training_example.py --episodes 500 --symbol ETH --
 python ai_trading/examples/test_atr_stop_loss.py --symbol ETH --period 21 --multiplier 2.5 --visualize
 ```
 
+### 7. Optimisation d'Hyperparamètres pour agents de Trading
+```bash
+python ai_trading/examples/hyperparameter_optimization_example.py --episodes 50 --symbol BTC --agent sac --save
+```
+
+### 8. Optimisation d'Hyperparamètres pour agents GRU
+```bash
+python ai_trading/examples/hyperparameter_optimization_example.py --episodes 50 --symbol ETH --agent gru_sac --save
+```
+
 ## Diagnostics et débogage
 
 1. **Erreur avec `get_crypto_news(coin=coin)`**:
@@ -79,3 +94,11 @@ python ai_trading/examples/test_atr_stop_loss.py --symbol ETH --period 21 --mult
 
 3. **Erreur avec `fetch_crypto_data` ou `fetch_crypto_news`**:
    - Solution: Utilisez `get_merged_price_data` et `get_crypto_news` à la place
+
+4. **Erreur avec la conversion de données NumPy vers TensorFlow dans l'optimisation d'hyperparamètres**:
+   - Message d'erreur: `ValueError: Failed to convert a NumPy array to a Tensor (Unsupported object type float)`
+   - Solution: Vérifiez que les données d'entrée pour les réseaux de neurones sont bien formatées (utilisez `np.asarray()` ou `tf.convert_to_tensor()`)
+
+5. **Attribut manquant `portfolio_value` dans TradingEnvironment**:
+   - Message d'erreur: `AttributeError: 'TradingEnvironment' object has no attribute 'portfolio_value'`
+   - Solution: Assurez-vous que l'environnement initialise correctement la valeur du portefeuille dans sa méthode `reset()`
