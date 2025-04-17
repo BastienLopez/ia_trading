@@ -294,7 +294,7 @@ class EnhancedDataCollector:
             # Requête à l'API
             url = "https://cryptopanic.com/api/v1/posts/"
             params = {
-                "auth_token": os.getenv("CRYPTOPANIC_API_KEY", ""),  # Optionnel
+                "auth_token": os.environ.get("CRYPTOPANIC_API_KEY", ""),  # Utilisation de la variable d'environnement
                 "currencies": "BTC,ETH",
                 "public": "true",
                 "limit": limit,
@@ -508,6 +508,18 @@ class EnhancedDataCollector:
 
         # Retourner le symbole s'il existe, sinon convertir l'ID en majuscules
         return id_to_symbol.get(coin_id, coin_id.upper())
+
+
+class DataCollector:
+    """Collecte les données de marché depuis diverses sources"""
+
+    def __init__(self, apis=None):
+        self.apis = apis or []
+        self.logger = logging.getLogger("DataCollector")
+
+    def collect_market_data(self, symbol, start_date, end_date, interval="1d"):
+        # Implémentation existante...
+        return pd.DataFrame()  # Exemple simplifié
 
 
 # Exemple d'utilisation

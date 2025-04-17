@@ -56,7 +56,7 @@ def main():
             logger.warning(f"Aucune donnée de prix disponible pour {coin}")
 
         # Récupération des actualités
-        news = collector.get_crypto_news(coin=coin, limit=10)
+        news = collector.get_crypto_news(limit=10)
         if news:
             news_df = pd.DataFrame(news)
             news_df.to_csv(f"data/raw/{coin}_news.csv", index=False)
@@ -120,16 +120,22 @@ def main():
         if os.path.exists(processed_file):
             df = pd.read_csv(processed_file, index_col=0, parse_dates=True)
 
-            # Création d'un graphique simple
+            # Créer un graphique simple et le sauvegarder
             plt.figure(figsize=(12, 6))
-            plt.plot(df.index, df["close"] if "close" in df.columns else df["price"])
-            plt.title(f"Prix de {coin} sur {days} jours")
-            plt.xlabel("Date")
-            plt.ylabel("Prix (USD)")
+            plt.plot(df['close'], label='Prix de clôture')
+            plt.title(f"Évolution du prix de {coin} sur les {days} derniers jours")
+            plt.xlabel('Date')
+            plt.ylabel('Prix ($)')
+            plt.legend()
             plt.grid(True)
-            plt.savefig(f"data/processed/{coin}_price_chart.png")
+            
+            # Créer le dossier de visualisation s'il n'existe pas
+            visualization_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'visualizations', 'misc')
+            os.makedirs(visualization_dir, exist_ok=True)
+            
+            plt.savefig(os.path.join(visualization_dir, f"{coin}_price_chart.png"))
             plt.close()
-            logger.info(f"Graphique créé pour {coin}")
+            logger.info(f"Graphique créé pour {coin} et enregistré dans {visualization_dir}")
 
     logger.info("Pipeline de données terminé avec succès!")
 

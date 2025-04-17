@@ -30,15 +30,18 @@ coverage.xml
 *.cover
 .pytest_cache/
 test_data/
+!tests/**/*.py
 
 # Environnements virtuels
 venv/
-env/
 ENV/
-.env
-.venv
+env/
+.venv/
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
 ai_trading/.env.example
-
 
 # IDE et éditeurs
 .idea/
@@ -48,6 +51,8 @@ ai_trading/.env.example
 *~
 .project
 .pydevproject
+\#*\#
+.\#*
 
 # Jupyter Notebook
 .ipynb_checkpoints
@@ -60,19 +65,39 @@ web_app.log
 data/*.json
 !data/example.json
 data/*.csv
-models/*.zip
-models/*.pkl
-*.pt
-
-# Base de données
 *.db
 *.sqlite
 *.sqlite3
 instance/
 postgres_data/
 
-# Docker
-docker-compose.override.yml
+# Fichiers de modèles et de données
+ai_trading/models/*.zip
+ai_trading/models/*.pkl
+ai_trading/models/*.h5
+*.pt
+*.h5
+*.feather
+*.pickle
+*.pkl
+
+# Images et graphiques générés
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.svg
+!web_app/static/images/**
+
+# TensorFlow
+*.pb
+*.pbtxt
+*.ckpt
+*.meta
+checkpoints/
+saved_model/
+tensorboard/
+events.out.tfevents.*
 
 # Système
 .DS_Store
@@ -81,4 +106,7 @@ docker-compose.override.yml
 .Spotlight-V100
 .Trashes
 Thumbs.db
-ehthumbs.db 
+ehthumbs.db
+
+# Fichiers de nettoyage
+clean_repo.ps1 
