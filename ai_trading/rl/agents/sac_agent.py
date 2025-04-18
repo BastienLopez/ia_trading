@@ -608,9 +608,17 @@ class SACAgent:
         """
         try:
             # Vérification des valeurs NaN dans l'état
-            if isinstance(state, np.ndarray) and np.any(np.isnan(state)):
-                logging.warning("NaN détectés dans l'état. Remplacés par zéros.")
-                state = np.nan_to_num(state, nan=0.0)
+            if isinstance(state, np.ndarray):
+                try:
+                    if np.any(np.isnan(state)):
+                        logging.warning("NaN détectés dans l'état. Remplacés par zéros.")
+                        state = np.nan_to_num(state, nan=0.0)
+                except TypeError:
+                    # Si le type n'est pas compatible avec isnan, convertir en float
+                    logging.warning("Type de données non compatible avec isnan. Conversion en float32.")
+                    state = np.array(state, dtype=np.float32)
+                    if np.any(np.isnan(state)):
+                        state = np.nan_to_num(state, nan=0.0)
             
             # Prétraiter l'état et s'assurer qu'il a la bonne forme
             state_input = self._preprocess_state(state)
