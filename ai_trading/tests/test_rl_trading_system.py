@@ -2,11 +2,11 @@ import os
 import sys
 import tempfile
 import unittest
-import pytest
 
 import matplotlib
 import numpy as np
 import pandas as pd
+import pytest
 
 matplotlib.use("Agg")  # Désactiver l'interface graphique pour les tests
 
@@ -14,8 +14,8 @@ matplotlib.use("Agg")  # Désactiver l'interface graphique pour les tests
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from ai_trading.rl.data_integration import RLDataIntegrator
-from ai_trading.rl.trading_system import RLTradingSystem
 from ai_trading.rl.dqn_agent import DQNAgent
+from ai_trading.rl.trading_system import RLTradingSystem
 
 
 class TestRLTradingSystem(unittest.TestCase):
@@ -87,27 +87,27 @@ class TestRLTradingSystem(unittest.TestCase):
         """Teste l'entraînement du système."""
         # Créer un système de trading
         system = self.system
-        
+
         # Créer l'environnement s'il n'existe pas déjà
-        if not hasattr(system, 'env') or system.env is None:
+        if not hasattr(system, "env") or system.env is None:
             system.env = system.create_environment(
                 data=self.test_data,
                 initial_balance=10000,
                 transaction_fee=0.001,
                 window_size=10,
             )
-        
+
         # Obtenir la taille de l'état à partir de l'environnement
         state_size = system.env.reset()[0].shape[0]
-        
+
         # Créer un agent avec la bonne taille d'état
         system.agent = DQNAgent(
             state_size=state_size,
             action_size=system.env.action_space.n,
             batch_size=32,
-            memory_size=1000
+            memory_size=1000,
         )
-        
+
         # Entraîner le système
         system.train(
             agent=system.agent,
@@ -115,9 +115,9 @@ class TestRLTradingSystem(unittest.TestCase):
             episodes=2,
             batch_size=32,
             save_path=None,
-            visualize=False
+            visualize=False,
         )
-        
+
         # Vérifier que l'agent a été entraîné
         self.assertGreater(len(system.agent.memory), 0)
 
@@ -202,29 +202,29 @@ class TestRLTradingSystem(unittest.TestCase):
     def test_test_random_strategy(self):
         """Teste la stratégie aléatoire."""
         # Créer l'environnement s'il n'existe pas déjà
-        if not hasattr(self.system, 'env') or self.system.env is None:
+        if not hasattr(self.system, "env") or self.system.env is None:
             self.system.env = self.system.create_environment(
                 data=self.test_data,
                 initial_balance=10000,
                 transaction_fee=0.001,
                 window_size=10,
             )
-        
+
         # Tester la stratégie aléatoire
         results = self.system.test_random_strategy(num_episodes=2)
-        
+
         # Vérifier que les résultats sont retournés
         self.assertIsInstance(results, dict)
-        
+
         # Vérifier que les résultats contiennent les bonnes clés
         expected_keys = [
-            'average_reward',
-            'max_reward',
-            'min_reward',
-            'total_return',
-            'final_portfolio_value'
+            "average_reward",
+            "max_reward",
+            "min_reward",
+            "total_return",
+            "final_portfolio_value",
         ]
-        
+
         for key in expected_keys:
             self.assertIn(key, results)
 

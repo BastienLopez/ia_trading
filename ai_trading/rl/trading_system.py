@@ -4,6 +4,7 @@ Module pour le système de trading basé sur l'apprentissage par renforcement.
 
 import logging
 import os
+
 import numpy as np
 
 from ai_trading.rl.data_integration import RLDataIntegrator
@@ -61,24 +62,31 @@ class RLTradingSystem:
             raise NotImplementedError("Agent PPO non implémenté")
         elif agent_type.lower() == "sac":
             from ai_trading.rl.agents.sac_agent import SACAgent
-            
+
             # Configurer les bornes d'action correctes si l'environnement existe
-            action_bounds = kwargs.pop('action_bounds', (-1, 1))
-            
+            action_bounds = kwargs.pop("action_bounds", (-1, 1))
+
             # Si l'environnement existe, on peut vérifier si l'espace d'action est continu
             if self.env is not None:
-                if hasattr(self.env, 'action_type') and self.env.action_type == "continuous":
+                if (
+                    hasattr(self.env, "action_type")
+                    and self.env.action_type == "continuous"
+                ):
                     # Pour un espace Box, l'action_size devrait être 1 pour notre environnement
                     action_size = 1
-                    logger.info(f"Agent SAC créé pour un espace d'action continu de taille {action_size}")
+                    logger.info(
+                        f"Agent SAC créé pour un espace d'action continu de taille {action_size}"
+                    )
                 else:
-                    logger.warning("L'agent SAC est optimisé pour les actions continues, mais l'environnement n'a pas d'espace d'action continu.")
+                    logger.warning(
+                        "L'agent SAC est optimisé pour les actions continues, mais l'environnement n'a pas d'espace d'action continu."
+                    )
 
             agent = SACAgent(
                 state_size=state_size,
                 action_size=action_size,
                 action_bounds=action_bounds,
-                **kwargs
+                **kwargs,
             )
         else:
             raise ValueError(f"Type d'agent inconnu: {agent_type}")
@@ -235,48 +243,52 @@ class RLTradingSystem:
     def test_random_strategy(self, num_episodes=10):
         """
         Teste une stratégie aléatoire pour établir une référence.
-        
+
         Args:
             num_episodes (int): Nombre d'épisodes à exécuter.
-            
+
         Returns:
             dict: Résultats de la stratégie aléatoire.
         """
         total_rewards = []
         portfolio_values = []
-        
+
         for episode in range(num_episodes):
             state, _ = self.env.reset()
             done = False
             episode_reward = 0
-            
+
             while not done:
                 action = self.env.action_space.sample()  # Action aléatoire
                 state, reward, terminated, truncated, info = self.env.step(action)
                 done = terminated or truncated
                 episode_reward += reward
-                
+
                 # Enregistrer la valeur du portefeuille
-                portfolio_values.append(info['portfolio_value'])
-            
+                portfolio_values.append(info["portfolio_value"])
+
             total_rewards.append(episode_reward)
-        
+
         # Calculer les métriques
         avg_reward = np.mean(total_rewards)
         max_reward = np.max(total_rewards)
         min_reward = np.min(total_rewards)
-        
+
         # Calculer les métriques de trading
         final_portfolio_value = portfolio_values[-1]
         initial_portfolio_value = self.env.initial_balance
-        total_return = (final_portfolio_value - initial_portfolio_value) / initial_portfolio_value * 100
-        
+        total_return = (
+            (final_portfolio_value - initial_portfolio_value)
+            / initial_portfolio_value
+            * 100
+        )
+
         return {
-            'average_reward': avg_reward,
-            'max_reward': max_reward,
-            'min_reward': min_reward,
-            'total_return': total_return,
-            'final_portfolio_value': final_portfolio_value
+            "average_reward": avg_reward,
+            "max_reward": max_reward,
+            "min_reward": min_reward,
+            "total_return": total_return,
+            "final_portfolio_value": final_portfolio_value,
         }
 
     def integrate_data(

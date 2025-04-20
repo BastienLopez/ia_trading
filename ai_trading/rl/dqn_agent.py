@@ -81,31 +81,33 @@ class DQNAgent:
     def build_model(self):
         """
         Construit le modèle de réseau neuronal.
-        
+
         Returns:
             keras.Model: Modèle compilé.
         """
         model = Sequential()
-        
+
         # Déterminer dynamiquement la taille de l'état d'entrée
-        input_shape = (self.state_size,) if isinstance(self.state_size, int) else self.state_size
-        
+        input_shape = (
+            (self.state_size,) if isinstance(self.state_size, int) else self.state_size
+        )
+
         # Couche d'entrée
-        model.add(Dense(64, input_shape=input_shape, activation='relu'))
+        model.add(Dense(64, input_shape=input_shape, activation="relu"))
         model.add(Dropout(0.2))
-        
+
         # Couches cachées
-        model.add(Dense(128, activation='relu'))
+        model.add(Dense(128, activation="relu"))
         model.add(Dropout(0.2))
-        model.add(Dense(64, activation='relu'))
+        model.add(Dense(64, activation="relu"))
         model.add(Dropout(0.2))
-        
+
         # Couche de sortie
-        model.add(Dense(self.action_size, activation='linear'))
-        
+        model.add(Dense(self.action_size, activation="linear"))
+
         # Compilation du modèle
-        model.compile(loss='mse', optimizer=Adam(learning_rate=self.learning_rate))
-        
+        model.compile(loss="mse", optimizer=Adam(learning_rate=self.learning_rate))
+
         return model
 
     def update_target_model(self):
@@ -118,7 +120,7 @@ class DQNAgent:
     def remember(self, state, action, reward, next_state, done):
         """
         Stocke une expérience dans la mémoire.
-        
+
         Args:
             state (numpy.array or tuple): État avant l'action
             action (int): Action effectuée
@@ -130,55 +132,63 @@ class DQNAgent:
         if isinstance(state, tuple):
             if len(state) > 0:
                 # Si le premier élément est un array, on utilise celui-là
-                if hasattr(state[0], 'shape'):
+                if hasattr(state[0], "shape"):
                     state = state[0]
                 else:
                     # Sinon, on essaie de prendre le premier élément du tuple
                     try:
                         state = np.array([state[0]])
                     except:
-                        logger.error(f"Impossible de convertir state en array numpy, type: {type(state)}")
+                        logger.error(
+                            f"Impossible de convertir state en array numpy, type: {type(state)}"
+                        )
                         return
-        
+
         # Traiter next_state si c'est un tuple
         if isinstance(next_state, tuple):
             if len(next_state) > 0:
                 # Si le premier élément est un array, on utilise celui-là
-                if hasattr(next_state[0], 'shape'):
+                if hasattr(next_state[0], "shape"):
                     next_state = next_state[0]
                 else:
                     # Sinon, on essaie de prendre le premier élément du tuple
                     try:
                         next_state = np.array([next_state[0]])
                     except:
-                        logger.error(f"Impossible de convertir next_state en array numpy, type: {type(next_state)}")
+                        logger.error(
+                            f"Impossible de convertir next_state en array numpy, type: {type(next_state)}"
+                        )
                         return
-        
+
         # Assurons-nous que state et next_state sont des arrays numpy
         if not isinstance(state, np.ndarray):
             try:
                 state = np.array(state)
             except:
-                logger.error(f"Impossible de convertir state en array numpy dans remember, type: {type(state)}")
+                logger.error(
+                    f"Impossible de convertir state en array numpy dans remember, type: {type(state)}"
+                )
                 return
-        
+
         if not isinstance(next_state, np.ndarray):
             try:
                 next_state = np.array(next_state)
             except:
-                logger.error(f"Impossible de convertir next_state en array numpy dans remember, type: {type(next_state)}")
+                logger.error(
+                    f"Impossible de convertir next_state en array numpy dans remember, type: {type(next_state)}"
+                )
                 return
-        
+
         # Ajouter l'expérience à la mémoire
         self.memory.append((state, action, reward, next_state, done))
 
     def act(self, state):
         """
         Choisit une action en fonction de l'état actuel.
-        
+
         Args:
             state (numpy.array or tuple): État actuel.
-            
+
         Returns:
             int: Action choisie.
         """
@@ -186,29 +196,31 @@ class DQNAgent:
         if isinstance(state, tuple):
             if len(state) > 0:
                 # Si le premier élément est un array, on utilise celui-là
-                if hasattr(state[0], 'shape'):
+                if hasattr(state[0], "shape"):
                     state = state[0]
                 else:
                     # Sinon, on essaie de prendre le premier élément du tuple
                     state = np.array([state[0]])
-        
+
         # Assurons-nous que state est un array numpy
         if not isinstance(state, np.ndarray):
             try:
                 state = np.array(state)
             except:
-                logger.error(f"Impossible de convertir state en array numpy, type: {type(state)}")
+                logger.error(
+                    f"Impossible de convertir state en array numpy, type: {type(state)}"
+                )
                 # Fallback en cas d'échec: action aléatoire
                 return random.randrange(self.action_size)
-        
+
         # S'assurer que l'état a la bonne forme pour le modèle
         if len(state.shape) == 1:
             state = np.reshape(state, [1, len(state)])
-        
+
         # Exploration aléatoire
         if np.random.rand() <= self.epsilon:
             return random.randrange(self.action_size)
-        
+
         # Exploitation: choisir la meilleure action
         act_values = self.model.predict(state, verbose=0)
         return np.argmax(act_values[0])
@@ -217,10 +229,10 @@ class DQNAgent:
         """
         Alias pour act().
         Choisit une action en fonction de l'état actuel.
-        
+
         Args:
             state (numpy.array): État actuel.
-            
+
         Returns:
             int: Action choisie.
         """
@@ -255,12 +267,12 @@ class DQNAgent:
             if len(state.shape) > 1:
                 state = state[0]  # Prendre le premier élément si c'est un batch
             state = state.astype(np.float32)
-            
+
             # S'assurer que next_state est dans le bon format et en float32
             if len(next_state.shape) > 1:
                 next_state = next_state[0]
             next_state = next_state.astype(np.float32)
-            
+
             # Prédire les Q-values pour l'état actuel
             state_reshaped = np.reshape(state, [1, len(state)])
             target = self.model.predict(state_reshaped, verbose=0)[0]
@@ -274,23 +286,23 @@ class DQNAgent:
                 next_state_reshaped = np.reshape(next_state, [1, len(next_state)])
                 t = self.target_model.predict(next_state_reshaped, verbose=0)[0]
                 target[action] = reward + self.gamma * np.amax(t)
-            
+
             # Stocker pour l'entraînement par lot
             states[i] = state
             targets[i] = target
-        
+
         # Entraîner le modèle
         history = self.model.fit(states, targets, batch_size=batch_size, verbose=0)
-        
+
         # Enregistrer la perte
-        loss = history.history['loss'][0]
+        loss = history.history["loss"][0]
         self.loss_history.append(loss)
-        
+
         # Décroître epsilon
         self.decay_epsilon()
-        
+
         return loss
-    
+
     def learn(self, batch_size=None):
         """
         Alias pour replay().

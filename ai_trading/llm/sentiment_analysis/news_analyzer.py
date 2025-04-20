@@ -645,13 +645,21 @@ class NewsAnalyzer:
             import matplotlib
 
             matplotlib.use("Agg")  # Backend qui ne nécessite pas Tkinter
-            import matplotlib.pyplot as plt
             import os
 
+            import matplotlib.pyplot as plt
+
             # Créer le dossier visualizations s'il n'existe pas
-            visualization_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), 'ai_trading', 'visualizations', 'sentiment')
+            visualization_dir = os.path.join(
+                os.path.dirname(
+                    os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+                ),
+                "ai_trading",
+                "visualizations",
+                "sentiment",
+            )
             os.makedirs(visualization_dir, exist_ok=True)
-            
+
             # Chemin complet du fichier
             output_path = os.path.join(visualization_dir, filename)
 

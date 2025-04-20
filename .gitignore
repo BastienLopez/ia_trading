@@ -21,6 +21,8 @@ wheels/
 *.egg
 .cache/
 .hypothesis/
+.ruff_cache/
+.mypy_cache/
 
 # Tests
 .coverage
@@ -31,13 +33,21 @@ coverage.xml
 .pytest_cache/
 test_data/
 !tests/**/*.py
+.benchmarks/
+prof/
+.pytest_cache/
+pytest.xml
 
 # Environnements virtuels
 venv/
 ENV/
 env/
 .venv/
+.env
 .env.local
+.env.development
+.env.test
+.env.production
 .env.development.local
 .env.test.local
 .env.production.local
@@ -53,10 +63,15 @@ ai_trading/.env.example
 .pydevproject
 \#*\#
 .\#*
+*.sublime-project
+*.sublime-workspace
+.settings/
+.vs/
 
 # Jupyter Notebook
 .ipynb_checkpoints
 *.ipynb
+!notebooks/*.ipynb
 
 # Logs et données
 *.log
@@ -70,16 +85,25 @@ data/*.csv
 *.sqlite3
 instance/
 postgres_data/
+*.parquet
+*.feather
+*.arrow
+*.hdf5
 
 # Fichiers de modèles et de données
 ai_trading/models/*.zip
 ai_trading/models/*.pkl
 ai_trading/models/*.h5
 *.pt
+*.pth
+*.onnx
 *.h5
 *.feather
 *.pickle
 *.pkl
+*.joblib
+model_checkpoints/
+saved_models/
 
 # Images et graphiques générés
 *.png
@@ -87,7 +111,10 @@ ai_trading/models/*.h5
 *.jpeg
 *.gif
 *.svg
+*.pdf
+*.eps
 !web_app/static/images/**
+!docs/images/**
 
 # TensorFlow
 *.pb
@@ -98,6 +125,8 @@ checkpoints/
 saved_model/
 tensorboard/
 events.out.tfevents.*
+.tf_profile/
+.keras/
 
 # Système
 .DS_Store
@@ -107,6 +136,32 @@ events.out.tfevents.*
 .Trashes
 Thumbs.db
 ehthumbs.db
+Desktop.ini
 
-# Fichiers de nettoyage
-clean_repo.ps1 
+# Fichiers de nettoyage et temporaires
+*.bak
+*.tmp
+*.temp
+*.swp
+*~
+tmp/
+temp/
+
+# Documentation générée
+docs/_build/
+site/
+.docusaurus
+.cache/
+.doctrees/
+
+# Secrets et clés
+*.pem
+*.key
+*.crt
+*.cer
+*.p12
+*.pfx
+credentials.json
+token.json
+secrets.yaml
+config.local.yaml 

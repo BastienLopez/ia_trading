@@ -3,9 +3,9 @@ import sys
 import tempfile
 import time
 import unittest
-import pytest
 
 import matplotlib
+import pytest
 
 # Ajouter le répertoire parent au chemin pour pouvoir importer les modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

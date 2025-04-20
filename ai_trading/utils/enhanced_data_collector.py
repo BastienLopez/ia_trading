@@ -294,7 +294,9 @@ class EnhancedDataCollector:
             # Requête à l'API
             url = "https://cryptopanic.com/api/v1/posts/"
             params = {
-                "auth_token": os.environ.get("CRYPTOPANIC_API_KEY", ""),  # Utilisation de la variable d'environnement
+                "auth_token": os.environ.get(
+                    "CRYPTOPANIC_API_KEY", ""
+                ),  # Utilisation de la variable d'environnement
                 "currencies": "BTC,ETH",
                 "public": "true",
                 "limit": limit,

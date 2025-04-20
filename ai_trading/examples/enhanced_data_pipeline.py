@@ -122,20 +122,26 @@ def main():
 
             # Créer un graphique simple et le sauvegarder
             plt.figure(figsize=(12, 6))
-            plt.plot(df['close'], label='Prix de clôture')
+            plt.plot(df["close"], label="Prix de clôture")
             plt.title(f"Évolution du prix de {coin} sur les {days} derniers jours")
-            plt.xlabel('Date')
-            plt.ylabel('Prix ($)')
+            plt.xlabel("Date")
+            plt.ylabel("Prix ($)")
             plt.legend()
             plt.grid(True)
-            
+
             # Créer le dossier de visualisation s'il n'existe pas
-            visualization_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'visualizations', 'misc')
+            visualization_dir = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                "visualizations",
+                "misc",
+            )
             os.makedirs(visualization_dir, exist_ok=True)
-            
+
             plt.savefig(os.path.join(visualization_dir, f"{coin}_price_chart.png"))
             plt.close()
-            logger.info(f"Graphique créé pour {coin} et enregistré dans {visualization_dir}")
+            logger.info(
+                f"Graphique créé pour {coin} et enregistré dans {visualization_dir}"
+            )
 
     logger.info("Pipeline de données terminé avec succès!")
 

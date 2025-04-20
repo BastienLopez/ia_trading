@@ -10,8 +10,8 @@ import pandas as pd
 # Ajouter le répertoire parent au chemin pour pouvoir importer les modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from ai_trading.rl.data_integration import RLDataIntegrator
 from ai_trading.rl.adaptive_normalization import AdaptiveNormalizer
+from ai_trading.rl.data_integration import RLDataIntegrator
 from ai_trading.tests.mocks import MockNewsAnalyzer, MockSocialAnalyzer
 
 matplotlib.use("Agg")  # Utiliser le backend non-interactif
@@ -53,7 +53,7 @@ class TestDataIntegration(unittest.TestCase):
 
         # Créer l'intégrateur de données avec des mocks pour éviter les erreurs d'accès mémoire
         self.integrator = RLDataIntegrator()
-        
+
         # Remplacer les analyseurs par nos mocks
         self.integrator.news_analyzer = MockNewsAnalyzer()
         self.integrator.social_analyzer = MockSocialAnalyzer()
@@ -78,20 +78,24 @@ class TestDataIntegration(unittest.TestCase):
         # Vérifier qu'il n'y a pas de valeurs manquantes
         self.assertTrue(processed_data[required_columns].notna().all().all())
 
-    @unittest.mock.patch('ai_trading.rl.data_processor.prepare_data_for_rl')
+    @unittest.mock.patch("ai_trading.rl.data_processor.prepare_data_for_rl")
     def test_integrate_data(self, mock_prepare_data):
         """Teste l'intégration des données de marché et de sentiment."""
         # Mock pour la fonction prepare_data_for_rl
         expected_train_size = int(len(self.market_data) * 0.8)
         expected_test_size = len(self.market_data) - expected_train_size
-        
-        mock_train_data = pd.DataFrame(np.random.random((expected_train_size, 5)), 
-                                      columns=['feat1', 'feat2', 'feat3', 'feat4', 'sentiment_compound_score'])
-        mock_test_data = pd.DataFrame(np.random.random((expected_test_size, 5)), 
-                                     columns=['feat1', 'feat2', 'feat3', 'feat4', 'sentiment_compound_score'])
-        
+
+        mock_train_data = pd.DataFrame(
+            np.random.random((expected_train_size, 5)),
+            columns=["feat1", "feat2", "feat3", "feat4", "sentiment_compound_score"],
+        )
+        mock_test_data = pd.DataFrame(
+            np.random.random((expected_test_size, 5)),
+            columns=["feat1", "feat2", "feat3", "feat4", "sentiment_compound_score"],
+        )
+
         mock_prepare_data.return_value = (mock_train_data, mock_test_data)
-        
+
         # Prétraiter les données de marché
         preprocessed_market_data = self.integrator.preprocess_market_data(
             self.market_data
@@ -162,15 +166,17 @@ class TestDataIntegration(unittest.TestCase):
         integrated_data = self.integrator.integrate_sentiment_data(
             self.market_data, self.sentiment_data
         )
-        
+
         # Normaliser les données intégrées
         normalizer = AdaptiveNormalizer()
-        normalized_data = normalizer.normalize_features(integrated_data, method="adaptive")
-        
+        normalized_data = normalizer.normalize_features(
+            integrated_data, method="adaptive"
+        )
+
         # Vérifier que les données sont correctement normalisées
         self.assertIsNotNone(normalized_data)
         self.assertEqual(len(normalized_data), len(integrated_data))
-        
+
         # Vérifier que les colonnes de sentiment sont normalisées
         for col in ["polarity", "subjectivity", "compound_score"]:
             if col in normalized_data.columns:
