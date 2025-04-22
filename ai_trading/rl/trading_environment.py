@@ -133,6 +133,33 @@ class TradingEnvironment(gym.Env):
             n_discrete_actions  # Stocker le nombre d'actions discrètes
         )
 
+        # Calculer les indicateurs techniques si nécessaire
+        if self.include_technical_indicators:
+            # RSI
+            delta = self.df['close'].diff()
+            gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+            loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+            rs = gain / loss
+            self.df['rsi'] = 100 - (100 / (1 + rs))
+
+            # MACD
+            exp1 = self.df['close'].ewm(span=12, adjust=False).mean()
+            exp2 = self.df['close'].ewm(span=26, adjust=False).mean()
+            self.df['macd'] = exp1 - exp2
+
+            # Bandes de Bollinger
+            sma = self.df['close'].rolling(window=20).mean()
+            std = self.df['close'].rolling(window=20).std()
+            self.df['bollinger_middle'] = sma
+
+            # Remplacer les NaN par des 0
+            self.df.fillna(0, inplace=True)
+
+        # Définir les colonnes de caractéristiques
+        self.feature_columns = ["close"]
+        if self.include_technical_indicators:
+            self.feature_columns.extend(["rsi", "macd", "bollinger_middle"])
+
         # Ajouter les paramètres de marché réalistes
         self.slippage_model = slippage_model
         self.slippage_value = slippage_value
@@ -500,13 +527,16 @@ class TradingEnvironment(gym.Env):
         # Obtenir le prix actuel
         current_price = self.df.iloc[self.current_step]["close"]
 
+        # Extraire la valeur scalaire de l'action numpy
+        action_value = float(action[0]) if isinstance(action, np.ndarray) else float(action)
+
         # Zone neutre autour de 0 pour éviter des micro-transactions
-        if -0.05 <= action <= 0.05:
+        if -0.05 <= action_value <= 0.05:
             logger.debug("Action: HOLD (zone neutre)")
             return
 
-        if action > 0:  # Achat
-            buy_percentage = action
+        if action_value > 0:  # Achat
+            buy_percentage = action_value
 
             # Limiter l'achat à 30% du portefeuille total
             portfolio_value = self.get_portfolio_value()
@@ -533,7 +563,7 @@ class TradingEnvironment(gym.Env):
 
         else:  # Vente (action_value < 0)
             if self.crypto_held > 0:
-                sell_percentage = -action
+                sell_percentage = -action_value
                 crypto_to_sell = self.crypto_held * sell_percentage
 
                 # Vendre la quantité calculée
@@ -550,146 +580,42 @@ class TradingEnvironment(gym.Env):
                 logger.debug("Tentative de vente sans crypto détenue")
 
     def _get_observation(self):
-        """
-        Récupère l'observation actuelle (état) pour l'agent RL.
-        Inclut tous les indicateurs techniques et les données de sentiment pour une décision plus précise.
-        """
-        # Fenêtre de prix et volumes
-        price_window = self.df.iloc[
-            self.current_step - self.window_size : self.current_step
-        ]
+        """Retourne l'observation actuelle de l'environnement."""
+        if self.current_step < self.window_size:
+            # Si on n'a pas assez de données, on remplit avec des zéros
+            window_data = np.zeros((self.window_size, self.observation_space.shape[1]))
+        else:
+            # Récupérer les données de la fenêtre
+            window_data = self.df.iloc[
+                self.current_step - self.window_size : self.current_step
+            ][self.feature_columns].values
 
-        # Calculer tous les indicateurs techniques sur les données complètes
-        indicators = TechnicalIndicators(self.df.iloc[: self.current_step])
-        all_indicators = indicators.get_all_indicators(normalize=True)
+        # Nettoyer les valeurs NaN
+        window_data = np.nan_to_num(window_data, nan=0.0)
 
-        # Récupérer uniquement les indicateurs pour le pas de temps actuel
-        current_indicators = (
-            all_indicators.iloc[-1].values if not all_indicators.empty else np.zeros(22)
-        )
+        # Normaliser les données si nécessaire
+        if self.normalize_observation:
+            # Calculer les statistiques sur la fenêtre
+            mean = np.mean(window_data, axis=0)
+            std = np.std(window_data, axis=0)
+            # Éviter la division par zéro
+            std = np.where(std == 0, 1, std)
+            window_data = (window_data - mean) / std
 
-        # Extraire les données de sentiment si disponibles
-        sentiment_features = []
-        sentiment_columns = [
-            "compound_score",
-            "positive_score",
-            "negative_score",
-            "neutral_score",
-            "sentiment_volume",
-            "sentiment_change",
-        ]
+        # Ajouter la position actuelle si nécessaire
+        if self.include_position:
+            position = np.full((self.window_size, 1), self.crypto_held)
+            window_data = np.concatenate([window_data, position], axis=1)
 
-        for col in sentiment_columns:
-            if col in self.df.columns:
-                # Normaliser la valeur de sentiment
-                value = self.df.iloc[self.current_step][col]
-                # Pour les scores déjà entre -1 et 1, normaliser entre 0 et 1
-                if col in [
-                    "compound_score",
-                    "positive_score",
-                    "negative_score",
-                    "neutral_score",
-                ]:
-                    value = (value + 1) / 2
-                sentiment_features.append(value)
+        # Ajouter le solde si nécessaire
+        if self.include_balance:
+            balance = np.full((self.window_size, 1), self.balance)
+            window_data = np.concatenate([window_data, balance], axis=1)
 
-        # Si aucune donnée de sentiment n'est disponible, utiliser des zéros
-        if not sentiment_features:
-            sentiment_features = np.zeros(len(sentiment_columns))
-
-        # Informations sur le portefeuille
-        portfolio_info = np.array(
-            [
-                self.balance / self.initial_balance,  # Solde normalisé
-                self.crypto_held
-                * self.df.iloc[self.current_step]["close"]
-                / self.initial_balance,  # Valeur des cryptos détenues
-                self.get_portfolio_value()
-                / self.initial_balance,  # Valeur totale du portefeuille
-            ]
-        )
-
-        # Concaténer toutes les informations
-        observation = np.concatenate(
-            [
-                price_window.values.flatten(),  # Historique des prix
-                current_indicators,  # Tous les indicateurs techniques
-                sentiment_features,  # Données de sentiment
-                portfolio_info,  # État du portefeuille
-            ]
-        )
-
-        # Appliquer la normalisation adaptative si activée
-        if self.use_adaptive_normalization:
-            # Créer un dictionnaire de features pour la mise à jour du normalisateur
-            feature_dict = {}
-
-            # Ajouter les prix et volumes actuels
-            feature_dict["price"] = self.df.iloc[self.current_step]["close"]
-            if "volume" in self.df.columns:
-                feature_dict["volume"] = self.df.iloc[self.current_step]["volume"]
-
-            # Ajouter les indicateurs techniques
-            if not all_indicators.empty:
-                for col in all_indicators.columns:
-                    feature_dict[col] = all_indicators.iloc[-1][col]
-
-            # Ajouter les données de sentiment
-            for i, col in enumerate(sentiment_columns):
-                if col in self.df.columns:
-                    feature_dict[col] = self.df.iloc[self.current_step][col]
-
-            # Ajouter les informations de portefeuille
-            feature_dict["balance"] = self.balance / self.initial_balance
-            feature_dict["crypto_value"] = (
-                self.crypto_held
-                * self.df.iloc[self.current_step]["close"]
-                / self.initial_balance
-            )
-            feature_dict["portfolio_value"] = (
-                self.get_portfolio_value() / self.initial_balance
-            )
-
-            # Mettre à jour le normalisateur
-            self.normalizer.update(feature_dict)
-
-            # Normaliser l'observation
-            # Nous ne pouvons pas utiliser directement normalize_array car l'observation
-            # contient des séquences (price_window). Nous normalisons donc chaque composant séparément.
-
-            # Normaliser la fenêtre de prix
-            price_window_flat = price_window.values.flatten()
-            for i in range(len(price_window_flat)):
-                price_window_flat[i] = self.normalizer.normalize(
-                    {"price": price_window_flat[i]}
-                )["price"]
-
-            # Normaliser les indicateurs techniques
-            for i in range(len(current_indicators)):
-                indicator_name = all_indicators.columns[i % len(all_indicators.columns)]
-                current_indicators[i] = self.normalizer.normalize(
-                    {indicator_name: current_indicators[i]}
-                )[indicator_name]
-
-            # Normaliser les features de sentiment
-            for i in range(len(sentiment_features)):
-                col = sentiment_columns[i]
-                if col in feature_dict:
-                    sentiment_features[i] = self.normalizer.normalize(
-                        {col: sentiment_features[i]}
-                    )[col]
-
-            # Reconstruire l'observation normalisée
-            observation = np.concatenate(
-                [
-                    price_window_flat,
-                    current_indicators,
-                    sentiment_features,
-                    portfolio_info,  # Déjà normalisé
-                ]
-            )
-
-        return observation
+        # S'assurer que les données sont dans le bon format
+        window_data = window_data.astype(np.float32)
+        
+        return window_data
 
     def render(self, mode="human"):
         """
