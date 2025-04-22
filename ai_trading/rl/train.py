@@ -233,7 +233,7 @@ def train_agent(
     early_stopping=None,
     max_steps_per_episode=None,
     use_tensorboard=False,
-    tensorboard_log_dir="./logs",
+    tensorboard_log_dir=os.path.join(os.path.dirname(os.path.dirname(__file__)), "ai_trading/info_retour/logs"),
 ):
     """
     Entraîne un agent d'apprentissage par renforcement.

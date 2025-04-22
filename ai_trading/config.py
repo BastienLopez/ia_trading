@@ -11,12 +11,17 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Chemins des dossiers
-BASE_DIR = Path(__file__).resolve().parent
-MODELS_DIR = BASE_DIR / "models"
-DATA_DIR = BASE_DIR / "data"
+BASE_DIR = Path(__file__).parent.parent
+INFO_RETOUR_DIR = BASE_DIR / "ai_trading/info_retour"
+MODELS_DIR = INFO_RETOUR_DIR / "models"
+DATA_DIR = INFO_RETOUR_DIR / "data"
+CHECKPOINTS_DIR = INFO_RETOUR_DIR / "checkpoints"
+SENTIMENT_CACHE_DIR = INFO_RETOUR_DIR / "sentiment_cache"
+VISUALIZATION_DIR = INFO_RETOUR_DIR / "visualization"
+LOGS_DIR = INFO_RETOUR_DIR / "logs"
 
 # Création des dossiers nécessaires
-for directory in [MODELS_DIR, DATA_DIR]:
+for directory in [INFO_RETOUR_DIR, MODELS_DIR, DATA_DIR, CHECKPOINTS_DIR, SENTIMENT_CACHE_DIR, VISUALIZATION_DIR, LOGS_DIR]:
     directory.mkdir(exist_ok=True)
 
 # Configuration des APIs

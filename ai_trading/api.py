@@ -61,11 +61,11 @@ class BacktestRequest(BaseModel):
 
 # Dépendances
 def get_data_processor():
-    return DataProcessor(data_dir="ai_trading/data")
+    return DataProcessor(data_dir=os.path.join(os.path.dirname(os.path.dirname(__file__)), "ai_trading/info_retour/data"))
 
 
 def get_agent():
-    return RLAgent(model_dir="ai_trading/models")
+    return RLAgent(model_dir=os.path.join(os.path.dirname(os.path.dirname(__file__)), "ai_trading/info_retour/models"))
 
 
 # Routes API

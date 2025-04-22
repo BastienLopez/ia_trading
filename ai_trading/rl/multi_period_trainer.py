@@ -163,7 +163,7 @@ class MultiPeriodTrainer:
 
         # Créer un writer TensorBoard pour le suivi
         current_time = datetime.now().strftime("%Y%m%d-%H%M%S")
-        log_dir = os.path.join("logs", f"{self.symbol}_multi_period_{current_time}")
+        log_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "ai_trading/info_retour/logs", f"{self.symbol}_multi_period_{current_time}")
         self.summary_writer = tf.summary.create_file_writer(log_dir)
 
         # Dictionnaire pour stocker les données par période
