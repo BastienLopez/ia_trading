@@ -121,7 +121,7 @@ def grid_search(df, param_grid, episodes=50, eval_episodes=10):
 
     # Sauvegarder les résultats
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    os.makedirs(os.path.join(os.path.dirname(os.path.dirname(__file__)), "info_retour/results"), exist_ok=True)
+    os.makedirs(os.path.join(os.path.dirname(__file__), "info_retour/results"), exist_ok=True)
     with open(f"results/hyperparameter_search_{timestamp}.json", "w") as f:
         json.dump(results, f, indent=4)
 

@@ -57,8 +57,13 @@ logger.addHandler(handler)
 logger.setLevel(logging.INFO)
 
 # Utiliser le VISUALIZATION_DIR de la configuration
-EVALUATION_DIR = VISUALIZATION_DIR / "evaluation"
-os.makedirs(EVALUATION_DIR, exist_ok=True)
+VISUALIZATION_DIR = os.path.join(
+    os.path.dirname(__file__),
+    "info_retour",
+    "visualizations",
+    "evaluation",
+)
+os.makedirs(VISUALIZATION_DIR, exist_ok=True)
 
 
 def parse_args():
@@ -581,7 +586,7 @@ def visualize_comparison(results, symbol):
     # Sauvegarder la figure
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"{symbol}_reward_comparison_{timestamp}.png"
-    filepath = os.path.join(EVALUATION_DIR, filename)
+    filepath = os.path.join(VISUALIZATION_DIR, filename)
     plt.savefig(filepath)
     logger.info(f"Visualisation sauvegardée dans {filepath}")
 

@@ -34,8 +34,8 @@ def main():
     days = 30
 
     # Création du dossier de données s'il n'existe pas
-    os.makedirs(os.path.join(os.path.dirname(os.path.dirname(__file__)), "info_retour/data/raw"), exist_ok=True)
-    os.makedirs(os.path.join(os.path.dirname(os.path.dirname(__file__)), "info_retour/data/processed"), exist_ok=True)
+    os.makedirs(os.path.join(os.path.dirname(__file__), "info_retour/data/raw"), exist_ok=True)
+    os.makedirs(os.path.join(os.path.dirname(__file__), "info_retour/data/processed"), exist_ok=True)
 
     for coin in coins:
         logger.info(f"Collecte des données pour {coin}")
