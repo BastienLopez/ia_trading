@@ -21,7 +21,7 @@ keras==2.15.0
 tf-keras==2.15.0
 gymnasium==0.29.1
 stable-baselines3==2.2.1
-torch>=2.0.1
+torch>=2.1.0
 optuna>=2.10.0
 
 # API et collecte de données
