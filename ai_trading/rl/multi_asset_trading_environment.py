@@ -262,7 +262,7 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
             self.steps_since_rebalance = 0
         
         # Normaliser les actions pour qu'elles somment à 1
-        action = np.clip(action, -1, 1)
+            action = np.clip(action, -1, 1)
         action_sum = np.sum(np.abs(action))
         if action_sum > 0:
             action = action / action_sum
@@ -411,7 +411,7 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
             if min_correlation <= self.correlation_threshold:
                 selected_assets.append(best_asset)
                 remaining_assets.remove(best_asset)
-            else:
+                        else:
                 break
             
         return selected_assets

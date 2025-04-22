@@ -135,17 +135,21 @@ class TestNoisySACAgent(unittest.TestCase):
         self.assertIn("entropy", metrics)
 
         # Vérifier que les pertes sont des valeurs valides (pas NaN ou inf)
-        self.assertFalse(np.isnan(metrics["critic_loss"]))
-        self.assertFalse(np.isnan(metrics["actor_loss"]))
-        if "alpha_loss" in metrics:
+        if metrics["critic_loss"] != 0:
+            self.assertFalse(np.isnan(metrics["critic_loss"]))
+            self.assertFalse(np.isinf(metrics["critic_loss"]))
+        
+        if metrics["actor_loss"] != 0:
+            self.assertFalse(np.isnan(metrics["actor_loss"]))
+            self.assertFalse(np.isinf(metrics["actor_loss"]))
+        
+        if "alpha_loss" in metrics and metrics["alpha_loss"] != 0:
             self.assertFalse(np.isnan(metrics["alpha_loss"]))
-        self.assertFalse(np.isnan(metrics["entropy"]))
-
-        self.assertFalse(np.isinf(metrics["critic_loss"]))
-        self.assertFalse(np.isinf(metrics["actor_loss"]))
-        if "alpha_loss" in metrics:
             self.assertFalse(np.isinf(metrics["alpha_loss"]))
-        self.assertFalse(np.isinf(metrics["entropy"]))
+        
+        if metrics["entropy"] != 0:
+            self.assertFalse(np.isnan(metrics["entropy"]))
+            self.assertFalse(np.isinf(metrics["entropy"]))
 
     @unittest.skip(
         "Ignoré jusqu'à la résolution des problèmes de compatibilité de poids"

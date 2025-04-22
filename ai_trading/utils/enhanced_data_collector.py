@@ -471,9 +471,11 @@ class EnhancedDataCollector:
         """
         try:
             # Créer le dossier data s'il n'existe pas
-            os.makedirs(os.path.join(os.path.dirname(os.path.dirname(__file__)), "info_retour/data"), exist_ok=True)
+            data_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
+            os.makedirs(data_dir, exist_ok=True)
 
-            filepath = f"{os.path.join(os.path.dirname(os.path.dirname(__file__)), 'info_retour/data')}/{filename}"
+            # Construire le chemin complet du fichier
+            filepath = os.path.join(data_dir, filename)
             data.to_csv(filepath)
 
             logger.info(f"Données sauvegardées dans {filepath}")

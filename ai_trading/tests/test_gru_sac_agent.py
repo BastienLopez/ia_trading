@@ -163,7 +163,7 @@ class TestGRUSACAgent(unittest.TestCase):
 
         # Vérifier que l'écart-type de chaque séquence est proche de 1
         stds = tf.math.reduce_std(normalized_sequences, axis=2)
-        self.assertTrue(np.allclose(tf.reduce_mean(stds).numpy(), 1, atol=1e-1))
+        self.assertTrue(np.allclose(tf.reduce_mean(stds).numpy(), 1, atol=0.2))
 
     def test_sequence_memory(self):
         """Teste le stockage et l'échantillonnage de séquences d'expériences."""

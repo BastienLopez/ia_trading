@@ -461,29 +461,42 @@ class SACAgent:
         )
 
     def _build_actor_network(self):
-        """Construit le réseau d'acteur standard."""
+        """Construit le réseau de l'acteur."""
+        # Couche d'entrée
         inputs = tf.keras.layers.Input(shape=(self.state_size,))
-        x = tf.keras.layers.Dense(self.hidden_size, activation="relu")(inputs)
-        x = tf.keras.layers.Dense(self.hidden_size, activation="relu")(x)
-
-        mean = tf.keras.layers.Dense(self.action_size, activation=None)(x)
-        log_std = tf.keras.layers.Dense(self.action_size, activation=None)(x)
-        # Limiter log_std pour éviter des valeurs extrêmes
-        log_std = tf.keras.layers.Lambda(lambda x: tf.clip_by_value(x, -20, 2))(log_std)
-
+        
+        # Couches denses
+        x = tf.keras.layers.Dense(256, activation="relu")(inputs)
+        x = tf.keras.layers.Dense(256, activation="relu")(x)
+        
+        # Couche de sortie pour la moyenne
+        mean = tf.keras.layers.Dense(self.action_size, activation="tanh")(x)
+        
+        # Couche de sortie pour l'écart-type
+        log_std = tf.keras.layers.Dense(self.action_size)(x)
+        log_std = tf.clip_by_value(log_std, -20, 2)
+        
         return tf.keras.Model(inputs=inputs, outputs=[mean, log_std])
 
     def _build_critic_network(self):
-        """Construit le réseau de critique standard."""
-        state_inputs = tf.keras.layers.Input(shape=(self.state_size,))
-        action_inputs = tf.keras.layers.Input(shape=(self.action_size,))
+        """Construit le réseau critique standard."""
+        state_input = tf.keras.layers.Input(shape=(self.state_size,))
+        action_input = tf.keras.layers.Input(shape=(self.action_size,))
 
-        x = tf.keras.layers.Concatenate()([state_inputs, action_inputs])
+        # Aplatir l'entrée d'état
+        state_x = tf.keras.layers.Flatten()(state_input)
+        state_x = tf.keras.layers.Dense(self.hidden_size, activation="relu")(state_x)
+        state_x = tf.keras.layers.Dense(self.hidden_size, activation="relu")(state_x)
+
+        action_x = tf.keras.layers.Dense(self.hidden_size, activation="relu")(action_input)
+        action_x = tf.keras.layers.Dense(self.hidden_size, activation="relu")(action_x)
+
+        x = tf.keras.layers.Concatenate()([state_x, action_x])
         x = tf.keras.layers.Dense(self.hidden_size, activation="relu")(x)
         x = tf.keras.layers.Dense(self.hidden_size, activation="relu")(x)
         q_value = tf.keras.layers.Dense(1, activation=None)(x)
 
-        return tf.keras.Model(inputs=[state_inputs, action_inputs], outputs=q_value)
+        return tf.keras.Model(inputs=[state_input, action_input], outputs=q_value)
 
     def _build_gru_actor_network(self):
         """Construit le réseau d'acteur avec couches GRU."""
@@ -1250,99 +1263,17 @@ class SACAgent:
             target_param.assign(target_param * (1 - tau) + param * tau)
 
     def _preprocess_state(self, state):
-        """
-        Prétraite l'état pour le rendre compatible avec le réseau.
-        Gère les différents formats d'entrée et la normalisation.
-
-        Args:
-            state: État brut (NumPy array, Tensor ou autre)
-
-        Returns:
-            tf.Tensor: État prétraité prêt pour l'inférence
-        """
-        # Conversion explicite en float32 pour éviter les problèmes de type
+        """Prétraite l'état avant de le passer au réseau."""
         if isinstance(state, np.ndarray):
-            if state.dtype == np.dtype("O"):  # Type 'object'
-                logging.debug(f"Conversion d'un état de type {state.dtype} en float32")
-                state = state.astype(np.float32)
-
-            # Vérifier à nouveau si l'état contient des NaN après conversion
-            if np.any(np.isnan(state)):
-                state = np.nan_to_num(state, nan=0.0)
-        elif isinstance(state, tf.Tensor) and tf.reduce_any(tf.math.is_nan(state)):
-            state = tf.where(tf.math.is_nan(state), tf.zeros_like(state), state)
-
-        # Préparer l'entrée du réseau selon le type d'agent (GRU ou standard)
-        if self.use_gru:
-            if isinstance(state, np.ndarray):
-                # Si c'est un état unique, le répéter pour former une séquence
-                if len(state.shape) == 1:
-                    state_input = np.array([state] * self.sequence_length)
-                    state_input = state_input.reshape(1, self.sequence_length, -1)
-                # Si c'est déjà une séquence 2D, ajouter la dimension du batch
-                elif len(state.shape) == 2 and state.shape[0] == self.sequence_length:
-                    state_input = state.reshape(1, self.sequence_length, -1)
-                # Si c'est déjà un batch de séquences, l'utiliser tel quel
-                elif len(state.shape) == 3:
-                    state_input = state
-                else:
-                    logging.error(f"Forme d'état incorrecte pour GRU: {state.shape}")
-                    # Créer un état par défaut de la forme attendue
-                    state_input = np.zeros((1, self.sequence_length, self.state_size))
-
-                # Normaliser la séquence
-                state_input = self._normalize_sequence_states(state_input)
-
-            elif isinstance(state, tf.Tensor):
-                # Ajuster la forme si nécessaire
-                if len(state.shape) == 1:
-                    repeated_state = tf.repeat(
-                        tf.expand_dims(state, axis=0), self.sequence_length, axis=0
-                    )
-                    state_input = tf.expand_dims(repeated_state, axis=0)
-                elif len(state.shape) == 2 and state.shape[0] == self.sequence_length:
-                    state_input = tf.expand_dims(state, axis=0)
-                elif len(state.shape) == 3:
-                    state_input = state
-                else:
-                    logging.error(f"Forme d'état incorrecte pour GRU: {state.shape}")
-                    # Créer un état par défaut de la forme attendue
-                    state_input = tf.zeros((1, self.sequence_length, self.state_size))
-
-                # Normaliser la séquence
-                state_input = self._normalize_sequence_states(state_input)
-
-            else:
-                # Si ce n'est ni un tableau NumPy ni un tenseur TensorFlow
-                logging.error(f"Type d'état non pris en charge: {type(state)}")
-                state_input = np.zeros((1, self.sequence_length, self.state_size))
-                state_input = tf.convert_to_tensor(state_input, dtype=tf.float32)
-
-        else:
-            # Pour un agent standard (sans GRU)
-            if isinstance(state, np.ndarray):
-                # Si c'est une séquence, prendre le dernier état
-                if len(state.shape) > 1:
-                    state_input = state[-1] if len(state.shape) == 2 else state[0, -1]
-                else:
-                    state_input = state
-
-                # Convertir en tensor TensorFlow et ajouter la dimension du batch
-                state_input = np.expand_dims(state_input, axis=0)
-                state_input = tf.convert_to_tensor(state_input, dtype=tf.float32)
-
-            elif isinstance(state, tf.Tensor):
-                # Ajuster la forme si nécessaire
-                if len(state.shape) > 1:
-                    state_input = state[-1] if len(state.shape) == 2 else state[0, -1]
-                    state_input = tf.expand_dims(state_input, axis=0)
-                else:
-                    state_input = tf.expand_dims(state, axis=0)
-
-            else:
-                # Si ce n'est ni un tableau NumPy ni un tenseur TensorFlow
-                logging.error(f"Type d'état non pris en charge: {type(state)}")
-                state_input = np.zeros((1, self.state_size))
-                state_input = tf.convert_to_tensor(state_input, dtype=tf.float32)
-
-        return state_input
+            # Si l'état est un tableau numpy, le convertir en tensor
+            state = tf.convert_to_tensor(state, dtype=tf.float32)
+        
+        # S'assurer que l'état a la bonne forme
+        if len(state.shape) > 1:
+            state = tf.reshape(state, [-1])
+        
+        # Normaliser l'état si nécessaire
+        if self.normalize_states:
+            state = (state - self.state_mean) / (self.state_std + 1e-8)
+        
+        return state

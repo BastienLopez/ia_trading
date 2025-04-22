@@ -96,9 +96,9 @@ class TestSACAgent(unittest.TestCase):
         self.assertIsNotNone(self.agent.critic_1)
         self.assertIsNotNone(self.agent.critic_2)
         # Vérifier si les attributs existent, sinon les ignorer
-        if hasattr(self.agent, "critic_1_target"):
-            self.assertIsNotNone(self.agent.critic_1_target)
-            self.assertIsNotNone(self.agent.critic_2_target)
+        if hasattr(self.agent, "target_critic_1"):
+            self.assertIsNotNone(self.agent.target_critic_1)
+            self.assertIsNotNone(self.agent.target_critic_2)
 
     def test_action_selection(self):
         """Teste que l'agent peut sélectionner des actions correctement"""
