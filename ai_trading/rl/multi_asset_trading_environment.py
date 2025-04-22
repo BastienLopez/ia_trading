@@ -262,7 +262,7 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
             self.steps_since_rebalance = 0
         
         # Normaliser les actions pour qu'elles somment à 1
-            action = np.clip(action, -1, 1)
+        action = np.clip(action, -1, 1)
         action_sum = np.sum(np.abs(action))
         if action_sum > 0:
             action = action / action_sum
@@ -377,15 +377,16 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
 
     def _filter_assets(self) -> List[str]:
         """
-        Filtre les actifs en fonction de la corrélation et de la volatilité.
-        
+        Filtre les actifs en fonction de la volatilité et de la corrélation.
+
         Returns:
-            List[str]: Liste des symboles d'actifs filtrés
+            List[str]: Liste des actifs sélectionnés
         """
         # Filtrer par volatilité
-        low_volatility_assets = self.asset_volatilities[
-            self.asset_volatilities <= self.volatility_threshold
-        ].index.tolist()
+        low_volatility_assets = [
+            asset for asset in self.symbols
+            if self.asset_volatilities[asset] <= self.volatility_threshold
+        ]
         
         if not low_volatility_assets:
             return self.symbols[:self.max_active_positions]
@@ -411,9 +412,9 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
             if min_correlation <= self.correlation_threshold:
                 selected_assets.append(best_asset)
                 remaining_assets.remove(best_asset)
-                        else:
+            else:
                 break
-            
+        
         return selected_assets
 
     def _get_observation(self):
