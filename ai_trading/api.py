@@ -324,5 +324,5 @@ def get_ema_metrics():
 
 if __name__ == "__main__":
     # Créer le dossier logs s'il n'existe pas
-    os.makedirs("logs", exist_ok=True)
+    os.makedirs(os.path.join(os.path.dirname(__file__), "info_retour/logs"), exist_ok=True)
     uvicorn.run("ai_trading.api:app", host="0.0.0.0", port=8000, reload=True)

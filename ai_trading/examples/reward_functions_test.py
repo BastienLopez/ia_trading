@@ -18,6 +18,7 @@ from ai_trading.rl.technical_indicators import TechnicalIndicators
 # Imports de notre projet
 from ai_trading.rl.trading_environment import TradingEnvironment
 from ai_trading.utils.enhanced_data_collector import EnhancedDataCollector
+from ai_trading.config import VISUALIZATION_DIR
 
 
 def preprocess_data(df, window_size=20):
@@ -233,11 +234,7 @@ def plot_results(results):
     reward_functions = list(results.keys())
 
     # Créer le dossier de destination s'il n'existe pas
-    visualization_dir = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-        "visualizations",
-        "evaluation",
-    )
+    visualization_dir = VISUALIZATION_DIR / "reward_functions"
     os.makedirs(visualization_dir, exist_ok=True)
 
     # 1. Comparaison des valeurs finales du portefeuille

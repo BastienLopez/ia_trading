@@ -8,6 +8,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from ai_trading.config import INFO_RETOUR_DIR
+
 # Configurer le logger de test
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -235,9 +237,7 @@ class TestGRUCurriculumTrainer(unittest.TestCase):
         )
 
         # Créer le dossier temporaire pour les tests
-        self.test_save_path = "tmp_test_models"
-        if os.path.exists(self.test_save_path):
-            shutil.rmtree(self.test_save_path)
+        self.test_save_path = INFO_RETOUR_DIR / "test" / "gru_curriculum"
         os.makedirs(self.test_save_path, exist_ok=True)
 
         # Initialiser l'entraîneur

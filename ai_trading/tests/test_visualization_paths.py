@@ -17,6 +17,7 @@ matplotlib.use("Agg")  # IMPORTANT: Ceci doit être fait avant d'importer pyplot
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
 from ai_trading.llm.sentiment_analysis import EnhancedNewsAnalyzer, NewsAnalyzer
+from ai_trading.config import VISUALIZATION_DIR, SENTIMENT_CACHE_DIR, INFO_RETOUR_DIR
 
 
 class TestVisualizationPaths(unittest.TestCase):
@@ -48,24 +49,11 @@ class TestVisualizationPaths(unittest.TestCase):
 
         self.df = pd.DataFrame(self.test_data)
 
-        # Chemin vers le dossier de visualisations
-        self.visualization_base_dir = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-            "visualizations",
-        )
-        self.sentiment_visualization_dir = os.path.join(
-            self.visualization_base_dir, "sentiment"
-        )
-        self.examples_visualization_dir = os.path.join(
-            self.visualization_base_dir, "examples"
-        )
-
-        # Créer les dossiers si nécessaire
-        os.makedirs(self.sentiment_visualization_dir, exist_ok=True)
-        os.makedirs(self.examples_visualization_dir, exist_ok=True)
-
         # Liste des fichiers à nettoyer après les tests
         self.files_to_cleanup = []
+
+        self.examples_visualization_dir = INFO_RETOUR_DIR / "test" / "visualizations"
+        os.makedirs(self.examples_visualization_dir, exist_ok=True)
 
     def tearDown(self):
         """Nettoyage après chaque test."""
@@ -117,9 +105,6 @@ class TestVisualizationPaths(unittest.TestCase):
     def test_custom_visualization_path(self):
         """Teste la sauvegarde d'une visualisation personnalisée dans le dossier examples."""
         import matplotlib.pyplot as plt
-
-        # Créer le répertoire examples s'il n'existe pas
-        os.makedirs(self.examples_visualization_dir, exist_ok=True)
 
         # Nom du fichier
         filename = "test_custom_viz.png"

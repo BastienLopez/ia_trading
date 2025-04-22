@@ -8,14 +8,7 @@ import pandas as pd
 # Ajouter le chemin du projet au PYTHONPATH
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-# Définir le chemin pour les visualisations
-VISUALIZATION_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "visualizations",
-    "rewards",
-)
-# Créer le répertoire s'il n'existe pas
-os.makedirs(VISUALIZATION_DIR, exist_ok=True)
+from ai_trading.config import VISUALIZATION_DIR
 
 from ai_trading.rl.advanced_rewards import (
     DrawdownReward,

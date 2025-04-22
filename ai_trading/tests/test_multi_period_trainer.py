@@ -15,6 +15,7 @@ import pandas as pd
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
 import pytest
+from ai_trading.config import MODELS_DIR, INFO_RETOUR_DIR
 
 from ai_trading.rl.multi_period_trainer import MultiPeriodTrainer
 
@@ -29,9 +30,8 @@ class TestMultiPeriodTrainer(unittest.TestCase):
     """Tests unitaires pour la classe MultiPeriodTrainer"""
 
     def setUp(self):
-        """Initialisation avant chaque test"""
-        # Créer un répertoire temporaire pour les tests
-        self.test_save_dir = "test_multi_period_models"
+        """Initialise l'environnement de test."""
+        self.test_save_dir = INFO_RETOUR_DIR / "test" / "multi_period_trainer"
         os.makedirs(self.test_save_dir, exist_ok=True)
 
         # Configuration de base pour les tests

@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 from datetime import datetime, timedelta
 
 import matplotlib.pyplot as plt
@@ -8,14 +9,15 @@ import pandas as pd
 # Importer le gestionnaire de risques
 from .risk_manager import RiskManager
 from .technical_indicators import TechnicalIndicators
+from ai_trading.config import VISUALIZATION_DIR
 
 # Définir le répertoire pour les visualisations
-VISUALIZATION_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "visualizations",
-    "misc",
-)
-os.makedirs(VISUALIZATION_DIR, exist_ok=True)
+# VISUALIZATION_DIR = os.path.join(
+#     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+#     "visualizations",
+#     "misc",
+# )
+# os.makedirs(VISUALIZATION_DIR, exist_ok=True)
 
 
 def generate_test_data(periods=100, trend="bullish", volatility=0.02, seed=42):

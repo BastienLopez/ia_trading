@@ -11,6 +11,7 @@ from collections import Counter
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
+from ai_trading.config import VISUALIZATION_DIR
 
 # Configuration du logging
 logging.basicConfig(
@@ -649,19 +650,8 @@ class NewsAnalyzer:
 
             import matplotlib.pyplot as plt
 
-            # Créer le dossier visualizations s'il n'existe pas
-            visualization_dir = os.path.join(
-                os.path.dirname(
-                    os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-                ),
-                "ai_trading",
-                "visualizations",
-                "sentiment",
-            )
-            os.makedirs(visualization_dir, exist_ok=True)
-
-            # Chemin complet du fichier
-            output_path = os.path.join(visualization_dir, filename)
+            # Mettre à jour tous les chemins de visualisation
+            visualization_path = os.path.join(VISUALIZATION_DIR, "sentiment_analysis.png")
 
             plt.figure(figsize=(12, 6))
 
@@ -671,8 +661,8 @@ class NewsAnalyzer:
                     lambda x: x["score"] if isinstance(x, dict) else 0.5
                 ).plot(title="Évolution du sentiment global")
                 plt.tight_layout()
-                plt.savefig(output_path)
-                logger.info(f"Graphique sauvegardé dans {output_path}")
+                plt.savefig(visualization_path)
+                logger.info(f"Graphique sauvegardé dans {visualization_path}")
                 plt.close()
             else:
                 logger.warning("Données insuffisantes pour générer le graphique")

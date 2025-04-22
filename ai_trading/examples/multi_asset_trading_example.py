@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 
 from ai_trading.rl.multi_asset_trading_environment import MultiAssetTradingEnvironment
+from ai_trading.config import VISUALIZATION_DIR
 
 # Configuration du logger
 logging.basicConfig(
@@ -195,11 +196,7 @@ def visualize_results(results, symbols):
         symbols (list): Liste des symboles des actifs
     """
     # Créer un répertoire pour les visualisations
-    visualization_dir = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-        "visualizations",
-        "multi_asset_env",
-    )
+    visualization_dir = VISUALIZATION_DIR / "multi_asset"
     os.makedirs(visualization_dir, exist_ok=True)
 
     # 1. Graphique des rendements par épisode

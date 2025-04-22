@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../.
 
 from ai_trading.llm.sentiment_analysis import EnhancedNewsAnalyzer, SocialAnalyzer
 from ai_trading.rl.data_integration import RLDataIntegrator
+from ai_trading.config import VISUALIZATION_DIR
 
 
 class TestSentimentIntegration(unittest.TestCase):
@@ -75,16 +76,10 @@ class TestSentimentIntegration(unittest.TestCase):
         self.assertIn("top_cryptos", report)
 
         # Générer le graphique dans le dossier visualizations
-        filename = "test_sentiment_trends.png"
-        self.news_analyzer.plot_trends(df, filename)
+        visualization_path = os.path.join(VISUALIZATION_DIR, "sentiment_analysis.png")
+        self.news_analyzer.plot_trends(df, visualization_path)
 
         # Vérifier que le fichier existe dans le bon dossier
-        visualization_path = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-            "visualizations",
-            "sentiment",
-            filename,
-        )
         self.assertTrue(
             os.path.exists(visualization_path),
             f"Le fichier {visualization_path} n'existe pas",

@@ -1,5 +1,6 @@
 import logging
 import os
+from pathlib import Path
 from datetime import datetime
 
 import matplotlib.pyplot as plt
@@ -10,13 +11,14 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 # Définir le chemin pour les visualisations
-VISUALIZATION_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "visualizations",
-    "performance",
-)
+# VISUALIZATION_DIR = os.path.join(
+#     os.path.dirname(os.path.dirname(__file__)),
+#     "visualizations",
+# )
 # Créer le répertoire s'il n'existe pas
-os.makedirs(VISUALIZATION_DIR, exist_ok=True)
+# os.makedirs(VISUALIZATION_DIR, exist_ok=True)
+
+from ai_trading.config import VISUALIZATION_DIR
 
 
 def calculate_metrics(portfolio_values, risk_free_rate=0.01):

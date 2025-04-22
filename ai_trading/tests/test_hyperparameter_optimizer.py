@@ -9,6 +9,7 @@ from ai_trading.data.synthetic_data_generator import generate_synthetic_market_d
 from ai_trading.rl.agents.sac_agent import SACAgent
 from ai_trading.rl.hyperparameter_optimizer import HyperparameterOptimizer
 from ai_trading.rl.trading_environment import TradingEnvironment
+from ai_trading.config import MODELS_DIR, INFO_RETOUR_DIR
 
 
 # Définir une fonction fictive pour remplacer les imports manquants
@@ -109,11 +110,9 @@ def mock_evaluate_agent(self, env, agent, eval_episodes):
 class TestHyperparameterOptimizer(unittest.TestCase):
 
     def setUp(self):
-        """Préparer les données de test et les répertoires."""
-        # Créer un répertoire temporaire pour les résultats
-        self.test_dir = "test_hyperopt_results"
-        if not os.path.exists(self.test_dir):
-            os.makedirs(self.test_dir)
+        """Initialise l'environnement de test."""
+        self.test_dir = INFO_RETOUR_DIR / "test" / "hyperparameter_optimizer"
+        os.makedirs(self.test_dir, exist_ok=True)
 
         # Générer des données synthétiques pour les tests
         self.test_data = generate_synthetic_market_data(

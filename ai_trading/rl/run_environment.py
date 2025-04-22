@@ -1,19 +1,21 @@
 import os
-
-import matplotlib.pyplot as plt
+from pathlib import Path
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
+from datetime import datetime
 
 # Utiliser des imports relatifs
-from .trading_environment import TradingEnvironment
+from ai_trading.rl.trading_environment import TradingEnvironment
+from ai_trading.config import VISUALIZATION_DIR
 
 # Définir le répertoire pour les visualisations
-VISUALIZATION_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "visualizations",
-    "evaluation",
-)
-os.makedirs(VISUALIZATION_DIR, exist_ok=True)
+# VISUALIZATION_DIR = os.path.join(
+#     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+#     "visualizations",
+#     "evaluation",
+# )
+# os.makedirs(VISUALIZATION_DIR, exist_ok=True)
 
 
 def test_random_actions():

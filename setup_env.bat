@@ -31,5 +31,5 @@ python -c "import tensorflow as tf; print(f'TensorFlow détecte GPU: {len(tf.con
 
 REM Information sur l'exécution du projet
 echo.
-echo Pour lancer le projet, exécutez maintenant: python main.py
+echo Pour lancer les tests, exécutez : python -m pytest ai_trading/tests/ -v
 echo. 

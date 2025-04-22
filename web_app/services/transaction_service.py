@@ -9,12 +9,14 @@ logger = logging.getLogger(__name__)
 class TransactionService:
     def __init__(self, price_service):
         self.price_service = price_service
-        self.data_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'web_app/data')
+        self.data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'info_retour/web_app/data')
         self.transactions_file = os.path.join(self.data_dir, 'transactions.json')
         
         # Créer le dossier data s'il n'existe pas
         if not os.path.exists(self.data_dir):
             os.makedirs(self.data_dir)
+            
+        os.makedirs(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "info_retour/logs"), exist_ok=True)
             
         self.load_transactions()
 

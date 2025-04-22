@@ -22,6 +22,8 @@ from ai_trading.utils.temporal_cross_validation import (
     TemporalCrossValidator,
     WalkForwardOptimizer,
 )
+from ai_trading.rl.trading_environment import TradingEnvironment
+from ai_trading.rl.sac_agent import SACAgent
 
 
 class TestTemporalCrossValidation(unittest.TestCase):
@@ -284,6 +286,64 @@ class TestTemporalCrossValidation(unittest.TestCase):
         plt.close()
 
         # Pas d'assertions ici, ce test est principalement pour la visualisation
+
+    def test_split(self):
+        """Teste la génération des splits."""
+        validator = TemporalCrossValidator(
+            data=self.df,
+            n_splits=5,
+            train_size=0.7,
+            test_size=0.2,
+            gap=10
+        )
+        
+        splits = validator.split()
+        
+        # Vérifier le nombre de splits
+        self.assertEqual(len(splits), 5)
+        
+        # Vérifier la taille des données d'entraînement et de test
+        for train_data, test_data in splits:
+            self.assertAlmostEqual(len(train_data) / len(self.df), 0.7, delta=0.01)
+            self.assertAlmostEqual(len(test_data) / len(self.df), 0.2, delta=0.01)
+            
+    def test_evaluate(self):
+        """Teste l'évaluation d'un agent sur les splits."""
+        validator = TemporalCrossValidator(
+            data=self.df,
+            n_splits=3,
+            train_size=0.7,
+            test_size=0.2
+        )
+        
+        # Créer un agent de test
+        agent = SACAgent(
+            state_dim=10,
+            action_dim=1,
+            learning_rate=0.001,
+            gamma=0.99,
+            tau=0.005,
+            alpha=0.2
+        )
+        
+        # Évaluer l'agent
+        results = validator.evaluate(
+            agent=agent,
+            env_class=TradingEnvironment,
+            metrics=["sharpe_ratio", "max_drawdown", "profit_pct"],
+            initial_balance=10000,
+            transaction_fee=0.001
+        )
+        
+        # Vérifier que toutes les métriques sont présentes
+        self.assertIn("sharpe_ratio", results)
+        self.assertIn("max_drawdown", results)
+        self.assertIn("profit_pct", results)
+        
+        # Vérifier que nous avons des résultats pour chaque split
+        self.assertEqual(len(results["sharpe_ratio"]), 3)
+        self.assertEqual(len(results["max_drawdown"]), 3)
+        self.assertEqual(len(results["profit_pct"]), 3)
 
 
 if __name__ == "__main__":

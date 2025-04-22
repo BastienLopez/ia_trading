@@ -8,6 +8,7 @@ import os
 import tensorflow as tf
 
 from ai_trading.rl.multi_period_trainer import MultiPeriodTrainer
+from ai_trading.config import INFO_RETOUR_DIR
 
 # Configuration du logger
 logging.basicConfig(
@@ -72,8 +73,8 @@ def parse_args():
     parser.add_argument(
         "--save_dir",
         type=str,
-        default="trained_models",
-        help="Répertoire pour sauvegarder les modèles",
+        default=str(INFO_RETOUR_DIR / "models" / "multi_period"),
+        help="Répertoire de sauvegarde des modèles",
     )
     parser.add_argument(
         "--sequence_length",

@@ -164,4 +164,30 @@ site/
 credentials.json
 token.json
 secrets.yaml
-config.local.yaml 
+config.local.yaml
+
+# Dossier info_retour
+ai_trading/info_retour/*
+!ai_trading/info_retour/.gitkeep
+!ai_trading/info_retour/README.md
+
+# Sous-dossiers spécifiques de info_retour à préserver
+!ai_trading/info_retour/data/
+ai_trading/info_retour/data/*
+!ai_trading/info_retour/data/.gitkeep
+
+!ai_trading/info_retour/models/
+ai_trading/info_retour/models/*
+!ai_trading/info_retour/models/.gitkeep
+
+!ai_trading/info_retour/logs/
+ai_trading/info_retour/logs/*
+!ai_trading/info_retour/logs/.gitkeep
+
+!ai_trading/info_retour/visualization/
+ai_trading/info_retour/visualization/*
+!ai_trading/info_retour/visualization/.gitkeep
+
+!ai_trading/info_retour/test/
+ai_trading/info_retour/test/*
+!ai_trading/info_retour/test/.gitkeep 

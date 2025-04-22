@@ -24,9 +24,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Créer le répertoire de logs s'il n'existe pas
-if not os.path.exists("logs"):
-    os.makedirs("logs")
-    logger.info("Répertoire de logs créé")
+os.makedirs(os.path.join(os.path.dirname(__file__), "logs"), exist_ok=True)
+logger.info("Répertoire de logs créé")
 
 app = Flask(__name__)
 app.config.from_object(Config)

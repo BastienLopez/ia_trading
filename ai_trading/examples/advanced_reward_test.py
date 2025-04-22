@@ -35,6 +35,7 @@ from ai_trading.rl.risk_manager import RiskManager
 from ai_trading.rl.technical_indicators import TechnicalIndicators
 from ai_trading.rl.trading_environment import TradingEnvironment
 from ai_trading.utils.enhanced_data_collector import EnhancedDataCollector
+from ai_trading.config import VISUALIZATION_DIR
 
 # Configuration du logger
 handler = colorlog.StreamHandler()
@@ -55,13 +56,9 @@ logger = colorlog.getLogger("advanced_reward_test")
 logger.addHandler(handler)
 logger.setLevel(logging.INFO)
 
-# Répertoire pour les visualisations
-VISUALIZATION_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "visualizations",
-    "evaluation",
-)
-os.makedirs(VISUALIZATION_DIR, exist_ok=True)
+# Utiliser le VISUALIZATION_DIR de la configuration
+EVALUATION_DIR = VISUALIZATION_DIR / "evaluation"
+os.makedirs(EVALUATION_DIR, exist_ok=True)
 
 
 def parse_args():
@@ -584,7 +581,7 @@ def visualize_comparison(results, symbol):
     # Sauvegarder la figure
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"{symbol}_reward_comparison_{timestamp}.png"
-    filepath = os.path.join(VISUALIZATION_DIR, filename)
+    filepath = os.path.join(EVALUATION_DIR, filename)
     plt.savefig(filepath)
     logger.info(f"Visualisation sauvegardée dans {filepath}")
 

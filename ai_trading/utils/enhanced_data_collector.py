@@ -12,6 +12,7 @@ import pandas as pd
 import requests
 from dotenv import load_dotenv
 from pycoingecko import CoinGeckoAPI
+from ai_trading.config import DATA_DIR
 
 # Chargement des variables d'environnement
 load_dotenv()
@@ -470,9 +471,9 @@ class EnhancedDataCollector:
         """
         try:
             # Créer le dossier data s'il n'existe pas
-            os.makedirs("data", exist_ok=True)
+            os.makedirs(os.path.join(os.path.dirname(os.path.dirname(__file__)), "info_retour/data"), exist_ok=True)
 
-            filepath = f"data/{filename}"
+            filepath = f"{os.path.join(os.path.dirname(os.path.dirname(__file__)), 'info_retour/data')}/{filename}"
             data.to_csv(filepath)
 
             logger.info(f"Données sauvegardées dans {filepath}")

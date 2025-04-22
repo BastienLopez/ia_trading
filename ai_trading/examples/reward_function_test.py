@@ -48,6 +48,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ai_trading.data.market_data import MarketDataFetcher
 from ai_trading.rl.dqn_agent import DQNAgent
 from ai_trading.rl.trading_environment import TradingEnvironment
+from ai_trading.config import VISUALIZATION_DIR
 
 
 # Configuration des arguments en ligne de commande
@@ -497,11 +498,7 @@ def visualize_comparison(results, initial_balance):
     plt.tight_layout()
 
     # Créer le répertoire des visualisations s'il n'existe pas
-    visualization_dir = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-        "visualizations",
-        "evaluation",
-    )
+    visualization_dir = VISUALIZATION_DIR / "reward_functions"
     os.makedirs(visualization_dir, exist_ok=True)
 
     # Enregistrer la figure

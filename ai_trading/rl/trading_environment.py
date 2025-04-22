@@ -1,6 +1,7 @@
 import datetime
 import logging
 import os
+from pathlib import Path
 
 import gymnasium as gym
 import matplotlib.dates as mdates
@@ -30,13 +31,8 @@ from ai_trading.rl.risk_manager import RiskManager
 from .technical_indicators import TechnicalIndicators
 
 # Définir le chemin pour les visualisations
-VISUALIZATION_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "visualizations",
-    "trading_env",
-)
-# Créer le répertoire s'il n'existe pas
-os.makedirs(VISUALIZATION_DIR, exist_ok=True)
+VISUALIZATION_DIR = Path(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) / "visualizations" / "trading_env"
+VISUALIZATION_DIR.mkdir(parents=True, exist_ok=True)
 
 
 class TradingEnvironment(gym.Env):
@@ -65,6 +61,9 @@ class TradingEnvironment(gym.Env):
         lookback_window=20,  # Fenêtre pour calculer le ratio de Sharpe
         action_type="discrete",  # Type d'action: "discrete" ou "continuous"
         n_discrete_actions=5,  # Nombre d'actions discrètes par catégorie (achat/vente)
+        slippage_model="constant",  # Options: "constant", "proportional", "dynamic"
+        slippage_value=0.001,  # Valeur de slippage pour le modèle constant
+        execution_delay=0,  # Délai d'exécution en pas de temps
         **kwargs,
     ):
         """
@@ -86,6 +85,9 @@ class TradingEnvironment(gym.Env):
             lookback_window (int): Fenêtre pour calculer le ratio de Sharpe
             action_type (str): Type d'action ("discrete" ou "continuous")
             n_discrete_actions (int): Nombre d'actions discrètes par catégorie
+            slippage_model (str): Modèle de slippage
+            slippage_value (float): Valeur de slippage
+            execution_delay (int): Délai d'exécution en pas de temps
         """
         super(TradingEnvironment, self).__init__()
 
@@ -130,6 +132,12 @@ class TradingEnvironment(gym.Env):
         self.n_discrete_actions = (
             n_discrete_actions  # Stocker le nombre d'actions discrètes
         )
+
+        # Ajouter les paramètres de marché réalistes
+        self.slippage_model = slippage_model
+        self.slippage_value = slippage_value
+        self.execution_delay = execution_delay
+        self.pending_orders = []  # Liste des ordres en attente d'exécution
 
         # Variables supplémentaires pour le calcul des récompenses
         self.portfolio_value_history = []
@@ -225,7 +233,7 @@ class TradingEnvironment(gym.Env):
 
     def step(self, action):
         """
-        Exécute une action dans l'environnement.
+        Exécute une action dans l'environnement avec délai d'exécution.
 
         Args:
             action: Action à exécuter (discrète ou continue selon action_type)
@@ -272,14 +280,36 @@ class TradingEnvironment(gym.Env):
                 action = adjusted_action
                 info["action_adjusted"] = True
 
-        # Appliquer l'action
-        if self.action_type == "discrete":
-            self._apply_discrete_action(action)
-        else:  # continuous
-            if isinstance(action, np.ndarray):
-                self._apply_continuous_action(float(action[0]))
+        # Traiter les ordres en attente
+        self._process_pending_orders()
+
+        # Appliquer l'action avec délai si nécessaire
+        if self.execution_delay > 0:
+            current_price = self.df.iloc[self.current_step]["close"]
+            
+            if self.action_type == "discrete":
+                action_value = self._get_action_value(action)
             else:
-                self._apply_continuous_action(float(action))
+                action_value = float(action[0]) if isinstance(action, np.ndarray) else float(action)
+                
+            # Calculer la quantité à trader
+            if action_value > 0:  # Achat
+                amount = (self.balance * abs(action_value)) / current_price
+            else:  # Vente
+                amount = self.crypto_held * abs(action_value)
+                
+            # Ajouter l'ordre à la liste des ordres en attente
+            self.pending_orders.append({
+                "action_value": action_value,
+                "amount": amount,
+                "delay": self.execution_delay
+            })
+        else:
+            # Exécution immédiate sans délai
+            if self.action_type == "discrete":
+                self._apply_discrete_action(action)
+            else:
+                self._apply_continuous_action(action)
 
         # Passer à l'étape suivante
         self.current_step += 1
@@ -340,6 +370,62 @@ class TradingEnvironment(gym.Env):
                 logger.info(f"{stop_result['stop_type']} déclenché à {stop_price}")
 
         return observation, reward, done, False, info
+
+    def _apply_slippage(self, price, action_value):
+        """
+        Applique le slippage au prix d'exécution.
+        
+        Args:
+            price: Prix de base
+            action_value: Valeur de l'action (positive pour achat, négative pour vente)
+            
+        Returns:
+            float: Prix avec slippage
+        """
+        if self.slippage_model == "constant":
+            slippage = self.slippage_value
+        elif self.slippage_model == "proportional":
+            slippage = self.slippage_value * abs(action_value)
+        elif self.slippage_model == "dynamic":
+            # Slippage dynamique basé sur le volume et la volatilité
+            volatility = self.df.iloc[self.current_step]["volatility"] if "volatility" in self.df.columns else 0.01
+            current_volume = self.df.iloc[self.current_step]["volume"]
+            avg_volume = self.df["volume"].iloc[max(0, self.current_step-20):self.current_step+1].mean()
+            volume_ratio = current_volume / avg_volume if avg_volume > 0 else 1
+            slippage = self.slippage_value * (1 + volatility) * volume_ratio
+        else:
+            slippage = 0
+        
+        # Appliquer le slippage dans la direction de l'action
+        if action_value > 0:  # Achat
+            return price * (1 + slippage)
+        else:  # Vente
+            return price * (1 - slippage)
+
+    def _process_pending_orders(self):
+        """
+        Traite les ordres en attente d'exécution.
+        """
+        current_price = self.df.iloc[self.current_step]["close"]
+        executed_orders = []
+        
+        for order in self.pending_orders:
+            order["delay"] -= 1
+            if order["delay"] <= 0:
+                # Exécuter l'ordre
+                price_with_slippage = self._apply_slippage(current_price, order["action_value"])
+                
+                if order["action_value"] > 0:  # Achat
+                    self.balance -= order["amount"] * price_with_slippage * (1 + self.transaction_fee)
+                    self.crypto_held += order["amount"]
+                else:  # Vente
+                    self.balance += order["amount"] * price_with_slippage * (1 - self.transaction_fee)
+                    self.crypto_held -= order["amount"]
+                
+                executed_orders.append(order)
+        
+        # Retirer les ordres exécutés
+        self.pending_orders = [order for order in self.pending_orders if order not in executed_orders]
 
     def _apply_discrete_action(self, action):
         """
@@ -680,7 +766,7 @@ class TradingEnvironment(gym.Env):
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         step_str = f"step_{self.current_step:04d}"
         filename = f"trading_env_{step_str}_{timestamp}.png"
-        output_path = os.path.join(VISUALIZATION_DIR, filename)
+        output_path = VISUALIZATION_DIR / filename
         plt.savefig(output_path)
 
         if mode == "human":
@@ -1015,7 +1101,7 @@ class TradingEnvironment(gym.Env):
         # Sauvegarder le graphique
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"technical_indicators_{timestamp}.png"
-        output_path = os.path.join(VISUALIZATION_DIR, filename)
+        output_path = VISUALIZATION_DIR / filename
         plt.savefig(output_path)
         plt.close()
 
@@ -1030,3 +1116,21 @@ class TradingEnvironment(gym.Env):
             self.risk_manager.clear_position(position_id)
 
         # ...
+
+    def _get_action_value(self, action):
+        """
+        Convertit une action discrète en valeur continue.
+        
+        Args:
+            action (int): Action discrète (0: hold, 1-n: buy x%, n+1-2n: sell x%)
+            
+        Returns:
+            float: Valeur continue entre -1 et 1
+        """
+        if action == 0:  # Hold
+            return 0.0
+        elif 1 <= action <= self.n_discrete_actions:  # Buy
+            return action / self.n_discrete_actions
+        else:  # Sell
+            sell_action = action - self.n_discrete_actions
+            return -sell_action / self.n_discrete_actions

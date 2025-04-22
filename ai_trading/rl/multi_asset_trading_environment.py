@@ -1,14 +1,15 @@
 import logging
 import os
-from typing import Dict
-
-import gymnasium as gym
-import matplotlib.pyplot as plt
+from typing import Dict, List
+from pathlib import Path
 import numpy as np
 import pandas as pd
+import gymnasium
 from gymnasium import spaces
+from datetime import datetime
 
 from ai_trading.rl.portfolio_allocator import PortfolioAllocator
+from ai_trading.config import VISUALIZATION_DIR
 
 # Configuration du logger
 logger = logging.getLogger("MultiAssetTradingEnvironment")
@@ -21,17 +22,11 @@ if not logger.handlers:
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
-# Définir le chemin pour les visualisations
-VISUALIZATION_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "visualizations",
-    "multi_asset_env",
-)
 # Créer le répertoire s'il n'existe pas
 os.makedirs(VISUALIZATION_DIR, exist_ok=True)
 
 
-class MultiAssetTradingEnvironment(gym.Env):
+class MultiAssetTradingEnvironment(gymnasium.Env):
     """
     Environnement de trading multi-actifs pour l'apprentissage par renforcement.
 
@@ -55,6 +50,11 @@ class MultiAssetTradingEnvironment(gym.Env):
         rebalance_frequency=5,  # Fréquence de rééquilibrage (en pas de temps)
         max_active_positions=3,  # Nombre maximum de positions actives simultanées
         action_type="continuous",  # Pour le multi-actifs, on utilise des actions continues
+        slippage_model="constant",
+        slippage_value=0.001,
+        execution_delay=0,
+        correlation_threshold=0.7,  # Seuil de corrélation pour la diversification
+        volatility_threshold=0.05,  # Seuil de volatilité pour le filtrage des actifs
         **kwargs,
     ):
         """
@@ -76,6 +76,11 @@ class MultiAssetTradingEnvironment(gym.Env):
             rebalance_frequency (int): Fréquence de rééquilibrage (en pas de temps)
             max_active_positions (int): Nombre maximum de positions actives simultanées
             action_type (str): Type d'action (doit être "continuous" pour multi-actifs)
+            slippage_model (str): Modèle de slippage
+            slippage_value (float): Valeur du slippage
+            execution_delay (int): Délai d'exécution
+            correlation_threshold (float): Seuil de corrélation pour la diversification
+            volatility_threshold (float): Seuil de volatilité pour le filtrage des actifs
         """
         super(MultiAssetTradingEnvironment, self).__init__()
 
@@ -123,6 +128,11 @@ class MultiAssetTradingEnvironment(gym.Env):
         self.rebalance_frequency = rebalance_frequency
         self.max_active_positions = min(max_active_positions, self.num_assets)
         self.action_type = action_type
+        self.slippage_model = slippage_model
+        self.slippage_value = slippage_value
+        self.execution_delay = execution_delay
+        self.correlation_threshold = correlation_threshold
+        self.volatility_threshold = volatility_threshold
 
         # Aligner toutes les données sur les mêmes dates
         self._align_data()
@@ -141,6 +151,8 @@ class MultiAssetTradingEnvironment(gym.Env):
         self.allocation_history = []
         self.current_step = self.window_size
         self.steps_since_rebalance = 0
+        self.active_assets = self.symbols[:self.max_active_positions]
+        self.pending_orders = []
 
         # Initialiser l'espace d'action: allocation pour chaque actif (-1 à 1 pour chaque actif)
         # -1: vendre 100%, 0: ne rien faire, 1: acheter 100%
@@ -162,6 +174,10 @@ class MultiAssetTradingEnvironment(gym.Env):
         self.observation_space = spaces.Box(
             low=-np.inf, high=np.inf, shape=(real_state_size,), dtype=np.float32
         )
+
+        # Ajouter les paramètres de gestion de portefeuille
+        self.asset_correlations = self._calculate_asset_correlations()
+        self.asset_volatilities = self._calculate_asset_volatilities()
 
         logger.info(
             f"Environnement de trading multi-actifs initialisé avec {self.num_assets} actifs: {', '.join(self.symbols)}"
@@ -221,6 +237,8 @@ class MultiAssetTradingEnvironment(gym.Env):
         self.returns_history = []
         self.allocation_history = []
         self.steps_since_rebalance = 0
+        self.active_assets = self.symbols[:self.max_active_positions]
+        self.pending_orders = []
 
         # Obtenir l'observation initiale
         observation = self._get_observation()
@@ -230,7 +248,7 @@ class MultiAssetTradingEnvironment(gym.Env):
 
     def step(self, action):
         """
-        Exécute une action dans l'environnement.
+        Exécute une action dans l'environnement multi-actifs.
 
         Args:
             action: Vecteur d'actions pour chaque actif (entre -1 et 1)
@@ -238,19 +256,42 @@ class MultiAssetTradingEnvironment(gym.Env):
         Returns:
             tuple: (observation, reward, terminated, truncated, info)
         """
-        # Vérifier que l'action est valide
-        if not self.action_space.contains(action):
-            action = np.clip(action, -1, 1)
-            logger.warning(f"Action hors limites, clippée à {action}")
-
-        # Sauvegarder l'état précédent pour calculer la récompense
-        previous_portfolio_value = self.get_portfolio_value()
-
-        # Incrémenter le compteur de pas depuis le dernier rééquilibrage
+        # Filtrer les actifs si nécessaire
+        if self.steps_since_rebalance >= self.rebalance_frequency:
+            self.active_assets = self._filter_assets()
+            self.steps_since_rebalance = 0
+        
+        # Normaliser les actions pour qu'elles somment à 1
+        action = np.clip(action, -1, 1)
+        action_sum = np.sum(np.abs(action))
+        if action_sum > 0:
+            action = action / action_sum
+        
+        # Appliquer les allocations
+        for i, symbol in enumerate(self.active_assets):
+            action_value = action[i]
+            current_price = self.data_dict[symbol].iloc[self.current_step]["close"]
+            
+            if self.execution_delay > 0:
+                # Ajouter l'ordre à la liste des ordres en attente
+                self.pending_orders.append({
+                    "symbol": symbol,
+                    "action_value": action_value,
+                    "amount": abs(action_value) * self.balance / current_price,
+                    "delay": self.execution_delay
+                })
+            else:
+                # Exécution immédiate
+                price_with_slippage = self._apply_slippage(current_price, action_value)
+                
+                if action_value > 0:  # Achat
+                    self.balance -= action_value * self.balance * (1 + self.transaction_fee)
+                    self.crypto_holdings[symbol] += action_value * self.balance / price_with_slippage
+                else:  # Vente
+                    self.balance += abs(action_value) * self.crypto_holdings[symbol] * price_with_slippage * (1 - self.transaction_fee)
+                    self.crypto_holdings[symbol] -= abs(action_value) * self.crypto_holdings[symbol]
+                
         self.steps_since_rebalance += 1
-
-        # Appliquer l'action (allocation du portefeuille)
-        self._apply_allocation(action)
 
         # Passer à l'étape suivante
         self.current_step += 1
@@ -269,7 +310,7 @@ class MultiAssetTradingEnvironment(gym.Env):
 
         # Calculer la récompense
         reward = self._calculate_reward(
-            previous_portfolio_value, current_portfolio_value
+            self.portfolio_value_history[-1], current_portfolio_value
         )
 
         # Enregistrer la valeur du portefeuille
@@ -277,9 +318,9 @@ class MultiAssetTradingEnvironment(gym.Env):
 
         # Calculer le rendement
         pct_change = (
-            (current_portfolio_value - previous_portfolio_value)
-            / previous_portfolio_value
-            if previous_portfolio_value > 0
+            (current_portfolio_value - self.portfolio_value_history[-2])
+            / self.portfolio_value_history[-2]
+            if self.portfolio_value_history[-2] > 0
             else 0
         )
         self.returns_history.append(pct_change)
@@ -290,136 +331,90 @@ class MultiAssetTradingEnvironment(gym.Env):
 
         return observation, reward, done, False, info
 
-    def _apply_allocation(self, action):
+    def _apply_slippage(self, price, action_value):
         """
-        Applique l'allocation du portefeuille basée sur l'action.
+        Applique le slippage à l'action.
 
         Args:
-            action: Vecteur d'actions pour chaque actif (entre -1 et 1)
+            price (float): Prix actuel de l'actif
+            action_value (float): Valeur de l'action
+
+        Returns:
+            float: Prix après application du slippage
         """
-        # Si c'est le moment de rééquilibrer ou si c'est la première action
-        if (
-            self.steps_since_rebalance >= self.rebalance_frequency
-            or len(self.allocation_history) == 0
-        ):
-            # Réinitialiser le compteur
-            self.steps_since_rebalance = 0
+        if self.slippage_model == "constant":
+            return price * (1 + self.slippage_value * np.sign(action_value))
+        else:
+            raise ValueError("Modèle de slippage invalide")
 
-            # Obtenir la valeur totale du portefeuille
-            portfolio_value = self.get_portfolio_value()
+    def _calculate_asset_correlations(self) -> pd.DataFrame:
+        """
+        Calcule la matrice de corrélation entre les actifs.
+        
+        Returns:
+            DataFrame: Matrice de corrélation
+        """
+        returns = {}
+        for symbol, df in self.data_dict.items():
+            returns[symbol] = df["close"].pct_change()
+        
+        returns_df = pd.DataFrame(returns)
+        return returns_df.corr()
 
-            # Normaliser l'action pour obtenir des poids d'allocation (entre 0 et 1)
-            # Convertir l'action de [-1, 1] à [0, 1]
-            normalized_action = (action + 1) / 2.0
+    def _calculate_asset_volatilities(self) -> pd.Series:
+        """
+        Calcule la volatilité de chaque actif.
+        
+        Returns:
+            Series: Volatilité de chaque actif
+        """
+        volatilities = {}
+        for symbol, df in self.data_dict.items():
+            returns = df["close"].pct_change()
+            volatilities[symbol] = returns.std() * np.sqrt(252)  # Annualisée
+        
+        return pd.Series(volatilities)
 
-            # Utiliser le portfolio allocator pour ajuster les poids si nécessaire
-            allocation_weights = self.portfolio_allocator.allocate(
-                action_weights=normalized_action,
-                symbols=self.symbols,
-                prices={
-                    s: self.data_dict[s].iloc[self.current_step]["close"]
-                    for s in self.symbols
-                },
-                volatilities={
-                    s: self.data_dict[s]
-                    .iloc[self.current_step - 20 : self.current_step]["close"]
-                    .pct_change()
-                    .std()
-                    * np.sqrt(252)
-                    for s in self.symbols
-                },
-                returns={
-                    s: self.data_dict[s]
-                    .iloc[self.current_step - 5 : self.current_step]["close"]
-                    .pct_change()
-                    .mean()
-                    * 252
-                    for s in self.symbols
-                },
-            )
-
-            # Calculer la valeur cible pour chaque actif
-            target_values = {
-                symbol: portfolio_value * weight
-                for symbol, weight in allocation_weights.items()
-            }
-
-            # Calculer les différences avec les allocations actuelles
-            current_values = {
-                symbol: self.crypto_holdings[symbol]
-                * self.data_dict[symbol].iloc[self.current_step]["close"]
-                for symbol in self.symbols
-            }
-
-            # Exécuter les trades nécessaires pour atteindre l'allocation cible
-            for symbol in self.symbols:
-                current_price = self.data_dict[symbol].iloc[self.current_step]["close"]
-                target_value = target_values[symbol]
-                current_value = current_values[symbol]
-
-                # Calculer la différence à trader
-                value_difference = target_value - current_value
-
-                # Si la différence est significative (>1% du portefeuille)
-                if abs(value_difference) > portfolio_value * 0.01:
-                    if value_difference > 0:  # Acheter
-                        # Calculer la quantité à acheter
-                        amount_to_buy = value_difference / (
-                            current_price * (1 + self.transaction_fee)
-                        )
-                        # Vérifier si nous avons assez de balance
-                        if (
-                            amount_to_buy * current_price * (1 + self.transaction_fee)
-                            <= self.balance
-                        ):
-                            self.crypto_holdings[symbol] += amount_to_buy
-                            self.balance -= (
-                                amount_to_buy
-                                * current_price
-                                * (1 + self.transaction_fee)
-                            )
-                            logger.debug(
-                                f"Achat: {amount_to_buy:.6f} unités de {symbol} à {current_price:.2f}"
-                            )
-                        else:
-                            # Acheter autant que possible avec la balance disponible
-                            max_amount = self.balance / (
-                                current_price * (1 + self.transaction_fee)
-                            )
-                            self.crypto_holdings[symbol] += max_amount
-                            self.balance = 0
-                            logger.debug(
-                                f"Achat partiel: {max_amount:.6f} unités de {symbol} à {current_price:.2f} (balance insuffisante)"
-                            )
-                    else:  # Vendre
-                        # Calculer la quantité à vendre
-                        amount_to_sell = abs(value_difference) / current_price
-                        # Vérifier si nous avons assez de crypto
-                        if amount_to_sell <= self.crypto_holdings[symbol]:
-                            self.crypto_holdings[symbol] -= amount_to_sell
-                            self.balance += (
-                                amount_to_sell
-                                * current_price
-                                * (1 - self.transaction_fee)
-                            )
-                            logger.debug(
-                                f"Vente: {amount_to_sell:.6f} unités de {symbol} à {current_price:.2f}"
-                            )
-                        else:
-                            # Vendre tout ce que nous avons
-                            amount_to_sell = self.crypto_holdings[symbol]
-                            self.balance += (
-                                amount_to_sell
-                                * current_price
-                                * (1 - self.transaction_fee)
-                            )
-                            self.crypto_holdings[symbol] = 0
-                            logger.debug(
-                                f"Vente complète: {amount_to_sell:.6f} unités de {symbol} à {current_price:.2f}"
-                            )
-
-            # Enregistrer l'allocation
-            self.allocation_history.append(allocation_weights)
+    def _filter_assets(self) -> List[str]:
+        """
+        Filtre les actifs en fonction de la corrélation et de la volatilité.
+        
+        Returns:
+            List[str]: Liste des symboles d'actifs filtrés
+        """
+        # Filtrer par volatilité
+        low_volatility_assets = self.asset_volatilities[
+            self.asset_volatilities <= self.volatility_threshold
+        ].index.tolist()
+        
+        if not low_volatility_assets:
+            return self.symbols[:self.max_active_positions]
+        
+        # Filtrer par corrélation
+        selected_assets = [low_volatility_assets[0]]
+        remaining_assets = low_volatility_assets[1:]
+        
+        while len(selected_assets) < self.max_active_positions and remaining_assets:
+            # Trouver l'actif le moins corrélé avec les actifs sélectionnés
+            min_correlation = float("inf")
+            best_asset = None
+            
+            for asset in remaining_assets:
+                max_corr = max(
+                    abs(self.asset_correlations.loc[asset, selected])
+                    for selected in selected_assets
+                )
+                if max_corr < min_correlation:
+                    min_correlation = max_corr
+                    best_asset = asset
+            
+            if min_correlation <= self.correlation_threshold:
+                selected_assets.append(best_asset)
+                remaining_assets.remove(best_asset)
+            else:
+                break
+            
+        return selected_assets
 
     def _get_observation(self):
         """
@@ -677,12 +672,10 @@ class MultiAssetTradingEnvironment(gym.Env):
         plt.tight_layout()
 
         # Sauvegarder le graphique
-        import datetime
-
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"portfolio_allocation_{timestamp}.png"
-        output_path = os.path.join(VISUALIZATION_DIR, filename)
+        output_path = Path(VISUALIZATION_DIR) / filename
         plt.savefig(output_path)
         plt.close()
 
-        return output_path
+        return str(output_path)
