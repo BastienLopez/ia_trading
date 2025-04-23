@@ -267,7 +267,7 @@ class TestHyperparameterOptimizer(unittest.TestCase):
                 max_steps=100,  # Assurer max_steps est défini
                 eval_episodes=1,
                 metrics=["sharpe"],
-                save_dir="test_hyperopt_results",
+                save_dir=self.test_dir,
                 n_jobs=1,
                 verbose=0,
             )

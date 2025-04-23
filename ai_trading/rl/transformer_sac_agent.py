@@ -2,16 +2,19 @@ import datetime
 import logging
 import os
 from collections import deque
+from typing import List, Tuple, Union
 
 import numpy as np
 import tensorflow as tf
-from tensorflow.keras.optimizers.legacy import Adam
+from tensorflow.keras.optimizers import Adam
 
-from ai_trading.models.transformer_hybrid import create_transformer_hybrid_model
-from ai_trading.rl.replay_buffer import PrioritizedReplayBuffer, ReplayBuffer
+from ai_trading.config import CHECKPOINTS_DIR, MODELS_DIR
+from ai_trading.rl.prioritized_replay import PrioritizedReplayBuffer
+from ai_trading.rl.replay_buffer import ReplayBuffer
+from ai_trading.rl.transformer_models import create_transformer_hybrid_model
 
 # Configuration du logger
-logger = logging.getLogger("TransformerSACAgent")
+logger = logging.getLogger("TransformerSAC")
 logger.setLevel(logging.INFO)
 if not logger.handlers:
     handler = logging.StreamHandler()
@@ -24,9 +27,7 @@ if not logger.handlers:
 
 class TransformerSACAgent:
     """
-    Agent SAC (Soft Actor-Critic) utilisant une architecture hybride Transformer.
-
-    Cette implémentation combine:
+    Agent d'apprentissage par renforcement combinant:
     - L'architecture Transformer pour capturer les dépendances à long terme
     - Une architecture hybride avec GRU ou LSTM pour les séries temporelles
     - L'algorithme SAC pour l'apprentissage par renforcement
@@ -57,7 +58,7 @@ class TransformerSACAgent:
         rnn_units=64,
         dropout_rate=0.1,
         recurrent_dropout=0.0,
-        checkpoints_dir="./checkpoints/transformer_sac",
+        checkpoints_dir=None,
     ):
         """
         Initialise l'agent Transformer-SAC.
@@ -86,7 +87,7 @@ class TransformerSACAgent:
             rnn_units: Nombre d'unités dans la couche RNN
             dropout_rate: Taux de dropout
             recurrent_dropout: Taux de dropout récurrent
-            checkpoints_dir: Répertoire pour les points de contrôle
+            checkpoints_dir: Répertoire pour les points de contrôle (facultatif)
         """
         # Stocker les hyperparamètres
         self.state_dim = state_dim
@@ -100,7 +101,12 @@ class TransformerSACAgent:
         self.sequence_length = sequence_length
         self.n_step_returns = n_step_returns
         self.model_type = model_type
-        self.checkpoints_dir = checkpoints_dir
+        
+        # Utiliser CHECKPOINTS_DIR de config.py si checkpoints_dir n'est pas spécifié
+        if checkpoints_dir is None:
+            self.checkpoints_dir = CHECKPOINTS_DIR / "transformer_sac"
+        else:
+            self.checkpoints_dir = checkpoints_dir
 
         # Paramètres du modèle
         self.embed_dim = embed_dim
@@ -112,7 +118,7 @@ class TransformerSACAgent:
         self.recurrent_dropout = recurrent_dropout
 
         # Créer le répertoire des checkpoints
-        os.makedirs(checkpoints_dir, exist_ok=True)
+        os.makedirs(self.checkpoints_dir, exist_ok=True)
 
         # Replay buffer
         if use_prioritized_replay:
@@ -685,41 +691,25 @@ class TransformerSACAgent:
             suffix: Suffixe pour les noms de fichiers
         """
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        path = os.path.join(self.checkpoints_dir, f"{timestamp}_{suffix}")
-        os.makedirs(path, exist_ok=True)
+        
+        # Utiliser MODELS_DIR de config.py pour le chemin de sauvegarde
+        model_path = MODELS_DIR / f"transformer_sac/{timestamp}_{suffix}"
+        os.makedirs(model_path, exist_ok=True)
 
-        self.actor.save_weights(os.path.join(path, "actor"))
-        self.critic_1.save_weights(os.path.join(path, "critic_1"))
-        self.critic_2.save_weights(os.path.join(path, "critic_2"))
-        self.target_critic_1.save_weights(os.path.join(path, "target_critic_1"))
-        self.target_critic_2.save_weights(os.path.join(path, "target_critic_2"))
+        self.actor.save_weights(os.path.join(model_path, "actor"))
+        self.critic_1.save_weights(os.path.join(model_path, "critic_1"))
+        self.critic_2.save_weights(os.path.join(model_path, "critic_2"))
+        self.target_critic_1.save_weights(os.path.join(model_path, "target_critic_1"))
+        self.target_critic_2.save_weights(os.path.join(model_path, "target_critic_2"))
 
-        logger.info(f"Modèles sauvegardés dans {path}")
+        logger.info(f"Modèles sauvegardés dans {model_path}")
 
-        return path
+        return model_path
 
     def load_models(self, path):
         """
         Charge les modèles de l'agent.
 
-        Args:
-            path: Chemin vers les modèles sauvegardés
-        """
-        try:
-            self.actor.load_weights(os.path.join(path, "actor"))
-            self.critic_1.load_weights(os.path.join(path, "critic_1"))
-            self.critic_2.load_weights(os.path.join(path, "critic_2"))
-            self.target_critic_1.load_weights(os.path.join(path, "target_critic_1"))
-            self.target_critic_2.load_weights(os.path.join(path, "target_critic_2"))
-
-            logger.info(f"Modèles chargés depuis {path}")
-            return True
-        except Exception as e:
-            logger.error(f"Erreur lors du chargement des modèles: {e}")
-            return False
-        """
-        Charge les modèles de l'agent.
-        
         Args:
             path: Chemin vers les modèles sauvegardés
         """

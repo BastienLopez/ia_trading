@@ -11,6 +11,7 @@ import pandas as pd
 
 from ai_trading.rl.agents.sac_agent import SACAgent
 from ai_trading.rl.trading_environment import TradingEnvironment
+from ai_trading.config import INFO_RETOUR_DIR
 
 
 # Définition des fonctions de métriques directement dans ce fichier
@@ -103,7 +104,7 @@ class HyperparameterOptimizer:
         max_steps=None,
         eval_episodes=10,
         metrics=["total_reward", "sharpe_ratio", "max_drawdown", "win_rate"],
-        save_dir="results/hyperopt",
+        save_dir=None,
         n_jobs=1,
         verbose=1,
     ):
@@ -129,13 +130,19 @@ class HyperparameterOptimizer:
         self.max_steps = max_steps
         self.eval_episodes = eval_episodes
         self.metrics = metrics
-        self.save_dir = save_dir
+        
+        # Utiliser INFO_RETOUR_DIR/hyperopt par défaut si save_dir n'est pas spécifié
+        if save_dir is None:
+            self.save_dir = INFO_RETOUR_DIR / "hyperopt"
+        else:
+            self.save_dir = save_dir
+            
         self.n_jobs = n_jobs
         self.verbose = verbose
 
         # Créer le répertoire de sauvegarde s'il n'existe pas
-        if not os.path.exists(save_dir):
-            os.makedirs(save_dir)
+        if not os.path.exists(self.save_dir):
+            os.makedirs(self.save_dir)
 
         # Historique des résultats
         self.results = []
@@ -656,7 +663,7 @@ def optimize_sac_agent(
     param_grid=None,
     n_episodes=50,
     eval_episodes=10,
-    save_dir="results/sac_optimization",
+    save_dir=None,
     n_jobs=1,
 ):
     """
@@ -667,7 +674,7 @@ def optimize_sac_agent(
         param_grid: Dictionnaire des hyperparamètres à optimiser (None = paramètres par défaut)
         n_episodes: Nombre d'épisodes d'entraînement par configuration
         eval_episodes: Nombre d'épisodes d'évaluation par configuration
-        save_dir: Répertoire pour sauvegarder les résultats
+        save_dir: Répertoire pour sauvegarder les résultats (None = utiliser la valeur par défaut)
         n_jobs: Nombre de processus parallèles
 
     Returns:
@@ -683,6 +690,10 @@ def optimize_sac_agent(
             "entropy_regularization": [0.0, 0.001, 0.01],
             "grad_clip_value": [None, 0.5, 1.0],
         }
+        
+    # Utiliser INFO_RETOUR_DIR/sac_optimization par défaut
+    if save_dir is None:
+        save_dir = INFO_RETOUR_DIR / "sac_optimization"
 
     # Fonction pour créer l'environnement de trading
     def create_env():
@@ -717,7 +728,7 @@ def optimize_gru_sac_agent(
     param_grid=None,
     n_episodes=50,
     eval_episodes=10,
-    save_dir="results/gru_sac_optimization",
+    save_dir=None,
     n_jobs=1,
 ):
     """
@@ -728,7 +739,7 @@ def optimize_gru_sac_agent(
         param_grid: Dictionnaire des hyperparamètres à optimiser (None = paramètres par défaut)
         n_episodes: Nombre d'épisodes d'entraînement par configuration
         eval_episodes: Nombre d'épisodes d'évaluation par configuration
-        save_dir: Répertoire pour sauvegarder les résultats
+        save_dir: Répertoire pour sauvegarder les résultats (None = utiliser la valeur par défaut)
         n_jobs: Nombre de processus parallèles
 
     Returns:
@@ -747,6 +758,10 @@ def optimize_gru_sac_agent(
             "sequence_length": [5, 10],
             "gru_units": [32, 64, 128],
         }
+        
+    # Utiliser INFO_RETOUR_DIR/gru_sac_optimization par défaut
+    if save_dir is None:
+        save_dir = INFO_RETOUR_DIR / "gru_sac_optimization"
 
     # Fonction pour créer l'environnement de trading
     def create_env():

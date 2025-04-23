@@ -37,7 +37,7 @@ python -m pytest ai_trading/tests/test_technical_indicators.py -v
 
 # Test optimiseur d'hyperparamètres
 ```bash
-python -m ai_trading.tests.test_hyperparameter_optimizer
+python -m ai_trading.tests.test_hyperparameter_optimizer -v
 ```
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ## Exemples disponibles

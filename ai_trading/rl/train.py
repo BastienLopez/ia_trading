@@ -14,6 +14,7 @@ import tensorflow as tf
 from tqdm import tqdm
 
 from ai_trading.rl.dqn_agent import DQNAgent
+from ai_trading.config import MODELS_DIR, LOGS_DIR, VISUALIZATION_DIR
 
 # Configuration du logger
 logger = logging.getLogger("TrainRL")
@@ -42,12 +43,21 @@ class TrainingMonitor:
             plot_interval (int): Intervalle de mise à jour des graphiques
         """
         self.initial_balance = initial_balance
-        self.save_dir = save_dir
+        
+        # Utiliser VISUALIZATION_DIR si aucun répertoire n'est spécifié
+        if save_dir is None:
+            self.save_dir = VISUALIZATION_DIR
+        else:
+            self.save_dir = save_dir
+            
+        # Créer le répertoire si nécessaire
+        if self.save_dir:
+            os.makedirs(self.save_dir, exist_ok=True)
+            
         self.figs = {}  # Initialiser les dictionnaires de figures
         self.axes = {}  # Initialiser les dictionnaires d'axes
 
-        if save_dir:
-            os.makedirs(save_dir, exist_ok=True)
+        if self.save_dir:
             self._init_figures()  # Forcer la création des figures pour les sauvegardes
         elif plt.isinteractive():
             self._init_figures()
@@ -196,20 +206,20 @@ class TrainingMonitor:
     def save_plots(self):
         """Sauvegarde tous les graphiques dans le répertoire spécifié."""
         if not self.save_dir:
+            logger.warning("Aucun répertoire de sauvegarde spécifié.")
             return
-
-        # Sauvegarder chaque figure
+            
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        # Mettre à jour les graphiques avant la sauvegarde
+        self._update_plots()
+        
+        # Sauvegarder chaque figure avec un timestamp unique
         for name, fig in self.figs.items():
-            try:
-                fig.savefig(os.path.join(self.save_dir, f"{name}.png"))
-                plt.close(fig)
-                logger.info(
-                    f"Graphique sauvegardé dans {os.path.join(self.save_dir, f'{name}.png')}"
-                )
-            except ValueError as e:
-                logger.warning(f"Impossible de sauvegarder {name}.png : {str(e)}")
-            except Exception as e:
-                logger.error(f"Erreur lors de la sauvegarde de {name}.png : {str(e)}")
+            save_path = os.path.join(self.save_dir, f"{name}_{timestamp}.png")
+            fig.savefig(save_path, dpi=300, bbox_inches="tight")
+            
+        logger.info(f"Figures sauvegardées dans {self.save_dir}")
 
     def get_history(self):
         """
@@ -233,7 +243,7 @@ def train_agent(
     early_stopping=None,
     max_steps_per_episode=None,
     use_tensorboard=False,
-    tensorboard_log_dir=os.path.join(os.path.dirname(os.path.dirname(__file__)), "ai_trading/info_retour/logs"),
+    tensorboard_log_dir=None,
 ):
     """
     Entraîne un agent d'apprentissage par renforcement.
@@ -280,20 +290,26 @@ def train_agent(
     # Configurer TensorBoard si demandé
     if use_tensorboard:
         current_time = datetime.now().strftime("%Y%m%d-%H%M%S")
-        log_dir = os.path.join(tensorboard_log_dir, current_time)
-        summary_writer = tf.summary.create_file_writer(log_dir)
+        if tensorboard_log_dir is None:
+            log_dir = LOGS_DIR / f"tensorboard/{current_time}"
+        else:
+            log_dir = tensorboard_log_dir
+        
+        os.makedirs(log_dir, exist_ok=True)
+        summary_writer = tf.summary.create_file_writer(str(log_dir))
         logger.info(f"Logs TensorBoard disponibles dans {log_dir}")
 
     # Créer le dossier de sauvegarde si nécessaire
     if save_path:
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    else:
+        # Utiliser MODELS_DIR par défaut si aucun chemin n'est spécifié
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        save_path = MODELS_DIR / f"rl_agent_{timestamp}"
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
     # Initialiser le moniteur d'entraînement
-    viz_dir = (
-        os.path.join(os.path.dirname(save_path), "visualizations")
-        if save_path
-        else "visualizations"
-    )
+    viz_dir = VISUALIZATION_DIR / f"training_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     monitor = TrainingMonitor(
         initial_balance=env.initial_balance, save_dir=viz_dir, plot_interval=5
     )

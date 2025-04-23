@@ -66,6 +66,7 @@ class TradingEnvironment(gym.Env):
         slippage_model="constant",  # Options: "constant", "proportional", "dynamic"
         slippage_value=0.001,  # Valeur de slippage pour le modèle constant
         execution_delay=0,  # Délai d'exécution en pas de temps
+        allocation_strategy="equal",  # Stratégie d'allocation: "equal", "proportional", "risk_parity"
         **kwargs,
     ):
         """
@@ -90,6 +91,7 @@ class TradingEnvironment(gym.Env):
             slippage_model (str): Modèle de slippage
             slippage_value (float): Valeur de slippage
             execution_delay (int): Délai d'exécution en pas de temps
+            allocation_strategy (str): Stratégie d'allocation des actifs
         """
         super(TradingEnvironment, self).__init__()
 
@@ -111,6 +113,11 @@ class TradingEnvironment(gym.Env):
             "discrete",
             "continuous",
         ], "Type d'action invalide, doit être 'discrete' ou 'continuous'"
+        assert allocation_strategy in [
+            "equal",
+            "proportional",
+            "risk_parity",
+        ], "Stratégie d'allocation invalide, doit être 'equal', 'proportional' ou 'risk_parity'"
 
         # Stocker les paramètres
         self.df = df.copy()
@@ -167,6 +174,13 @@ class TradingEnvironment(gym.Env):
         self.slippage_value = slippage_value
         self.execution_delay = execution_delay
         self.pending_orders = []  # Liste des ordres en attente d'exécution
+        self.allocation_strategy = allocation_strategy  # Stocker la stratégie d'allocation
+        self.n_assets = 1  # Par défaut, nous avons un seul actif
+        self.allocation_history = []  # Historique des allocations
+
+        # Initialiser les attributs manquants
+        self._discrete_to_continuous = self._discrete_to_continuous  # Référence à la méthode
+        self.allocation_strategy = allocation_strategy  # Réinitialiser pour s'assurer qu'il est défini
 
         # Variables supplémentaires pour le calcul des récompenses
         self.portfolio_value_history = []
@@ -175,6 +189,10 @@ class TradingEnvironment(gym.Env):
         self.transaction_count = 0
         self.last_transaction_step = -1
         self.max_portfolio_value = 0
+        self.max_drawdown = 0.05  # Drawdown maximum autorisé (5% par défaut)
+        self.drawdown_penalty = 1.0  # Pénalité pour le dépassement du drawdown maximum
+        self.max_turnover = 0.1  # Turnover maximum autorisé (10% par défaut)
+        self.turnover_penalty = 0.5  # Pénalité pour le turnover excessif
 
         # Définir l'espace d'action selon le type
         if action_type == "discrete":
@@ -262,38 +280,54 @@ class TradingEnvironment(gym.Env):
 
     def step(self, action):
         """Exécute une étape de trading."""
-        # Convertir l'action en poids de portefeuille
+        # Initialiser le dictionnaire d'informations
+        info = {}
+        
+        # Stocker l'action dans l'historique
+        self.actions_history.append(action)
+        
+        # Vérifier si le risk manager devrait ajuster l'action
+        original_action = action
+        adjustment_applied = False
+        
+        if self.risk_management and self.risk_manager.should_limit_position(
+            self.portfolio_value_history, self.crypto_held
+        ):
+            # Stocker l'information que l'action a été ajustée
+            adjustment_applied = True
+            info["action_adjusted"] = True
+            info["risk_info"] = {
+                "original_action": original_action,
+                "position_size": self.crypto_held,
+                "portfolio_value": self.portfolio_value_history[-1] if self.portfolio_value_history else 0,
+            }
+        
+        # Appliquer l'action selon le type
         if self.action_type == "discrete":
-            weights = self._discrete_to_continuous(action)
+            self._apply_discrete_action(action)
         else:
-            weights = action
+            self._apply_continuous_action(action)
         
-        # Calculer l'allocation des actifs
-        allocation = self._allocate_assets(weights)
+        # Obtenir le prix actuel
+        current_price = self.df.iloc[self.current_step]["close"]
         
-        # Obtenir les prix actuels
-        current_prices = self.df.iloc[self.current_step][[f"close_{i}" for i in range(self.n_assets)]].values
-        
-        # Calculer les rendements pondérés
-        weighted_returns = np.zeros(self.n_assets)
-        for i in range(self.n_assets):
-            # Appliquer le slippage
-            execution_price = self._apply_slippage(current_prices[i], weights[i])
-            
-            # Calculer le rendement avec slippage
-            if self.current_step > 0:
-                prev_price = self.df.iloc[self.current_step-1][f"close_{i}"]
-                weighted_returns[i] = (execution_price - prev_price) / prev_price * allocation[i]
-        
-        # Calculer le rendement total du portefeuille
-        portfolio_return = np.sum(weighted_returns)
-        
-        # Mettre à jour le capital
-        self.capital *= (1 + portfolio_return)
+        # Calculer la valeur du portefeuille
+        portfolio_value = self.get_portfolio_value()
         
         # Mettre à jour l'historique
-        self.portfolio_history.append(self.capital)
+        self.portfolio_value_history.append(portfolio_value)
+        
+        # Calculer le rendement du portefeuille
+        portfolio_return = 0.0
+        if len(self.portfolio_value_history) > 1:
+            prev_value = self.portfolio_value_history[-2]
+            if prev_value > 0:
+                portfolio_return = (portfolio_value - prev_value) / prev_value
+        
         self.returns_history.append(portfolio_return)
+        
+        # Traiter les ordres en attente
+        self._process_pending_orders()
         
         # Passer à l'étape suivante
         self.current_step += 1
@@ -302,12 +336,12 @@ class TradingEnvironment(gym.Env):
         done = self.current_step >= len(self.df) - 1
         
         # Obtenir l'état suivant
-        next_state = self._get_state()
+        next_state = self._get_observation()
         
         # Calculer la récompense
         reward = self._calculate_reward(portfolio_return)
         
-        return next_state, reward, done, {}
+        return next_state, reward, done, False, info
 
     def _apply_slippage(self, price, action_value):
         """Applique le slippage au prix."""
@@ -638,21 +672,19 @@ class TradingEnvironment(gym.Env):
         """Calcule la récompense basée sur le rendement du portefeuille."""
         # Récompense basée sur le rendement
         reward = portfolio_return
-        
+
         # Pénalité pour le turnover excessif
         if len(self.returns_history) > 1:
             turnover = np.abs(portfolio_return - self.returns_history[-1])
             if turnover > self.max_turnover:
                 reward -= self.turnover_penalty * (turnover - self.max_turnover)
-        
+
         # Pénalité pour le drawdown
-        if len(self.portfolio_history) > 1:
-            current_value = self.portfolio_history[-1]
-            peak_value = max(self.portfolio_history)
-            drawdown = (peak_value - current_value) / peak_value
-            if drawdown > self.max_drawdown:
-                reward -= self.drawdown_penalty * (drawdown - self.max_drawdown)
-        
+        if len(self.portfolio_value_history) > 1:
+            current_drawdown = (max(self.portfolio_value_history) - self.portfolio_value_history[-1]) / max(self.portfolio_value_history)
+            if current_drawdown > self.max_drawdown:
+                reward -= self.drawdown_penalty * (current_drawdown - self.max_drawdown)
+
         return reward
 
     def visualize_technical_indicators(self, window_size=100):
@@ -789,7 +821,7 @@ class TradingEnvironment(gym.Env):
 
         # ...
 
-    def _get_action_value(self, action):
+    def _discrete_to_continuous(self, action):
         """
         Convertit une action discrète en valeur continue.
         

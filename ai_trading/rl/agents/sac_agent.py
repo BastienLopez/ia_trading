@@ -702,11 +702,15 @@ class SACAgent:
 
             # Convertir en numpy et s'assurer que la forme est correcte
             action = action.numpy()
-            
+
             # Si l'action a plus d'une dimension et la première dimension est 1,
             # retirer cette dimension pour avoir la forme (action_size,)
             if len(action.shape) > 1 and action.shape[0] == 1:
                 action = np.squeeze(action, axis=0)
+            
+            # Correction supplémentaire pour assurer la forme (1,) pour les actions unidimensionnelles
+            if self.action_size == 1 and action.shape != (1,):
+                action = np.array([action[0]])
 
             return action
 
@@ -1054,69 +1058,84 @@ class SACAgent:
 
     def train(self):
         """
-        Entraîne l'agent sur un lot d'expériences du tampon de replay.
+        Entraîne l'agent en utilisant un lot d'expériences échantillonnées.
 
         Returns:
-            dict: Dictionnaire contenant les métriques d'entraînement
+            dict: Métriques d'entraînement
         """
-        if len(self.memory) < self.batch_size:
+        try:
+            # Vérifier si la mémoire contient suffisamment d'échantillons
+            if len(self.memory) < self.batch_size:
+                logger.warning("Mémoire insuffisante pour l'entraînement")
+                return {
+                    "critic_loss": 0.0,
+                    "actor_loss": 0.0,
+                    "alpha_loss": 0.0,
+                    "entropy": 0.0,
+                    "alpha": float(self.alpha.numpy()) if hasattr(self, "alpha") else 0.0,
+                }
+
+            # Échantillonner un lot d'expériences depuis la mémoire
+            states, actions, rewards, next_states, dones = self.memory.sample(self.batch_size)
+
+            # Prétraiter les états et les next_states pour s'assurer qu'ils ont la bonne forme
+            states_processed = np.zeros((self.batch_size, self.state_size), dtype=np.float32)
+            next_states_processed = np.zeros((self.batch_size, self.state_size), dtype=np.float32)
+            
+            for i in range(self.batch_size):
+                states_processed[i] = self._preprocess_state(states[i])
+                next_states_processed[i] = self._preprocess_state(next_states[i])
+            
+            # Convertir les tableaux numpy en tensors TensorFlow
+            states_tensor = tf.convert_to_tensor(states_processed, dtype=tf.float32)
+            actions_tensor = tf.convert_to_tensor(actions, dtype=tf.float32)
+            rewards_tensor = tf.convert_to_tensor(rewards, dtype=tf.float32)
+            next_states_tensor = tf.convert_to_tensor(next_states_processed, dtype=tf.float32)
+            dones_tensor = tf.convert_to_tensor(dones, dtype=tf.float32)
+
+            # Vérifier la forme des tenseurs
+            logger.debug(f"states_tensor.shape: {states_tensor.shape}")
+            logger.debug(f"next_states_tensor.shape: {next_states_tensor.shape}")
+            
+            if self.use_gru:
+                # Utiliser le train_step GRU spécifique
+                critic_loss, actor_loss, alpha_loss, entropy = self._train_step_gru(
+                    states_tensor, actions_tensor, rewards_tensor, next_states_tensor, dones_tensor
+                )
+            else:
+                # Utiliser le train_step standard
+                critic_loss, actor_loss, alpha_loss, entropy = self._train_step(
+                    states_tensor, actions_tensor, rewards_tensor, next_states_tensor, dones_tensor
+                )
+
+            # Mettre à jour les réseaux cibles
+            self._update_target_networks(self.tau)
+
+            # Mettre à jour les valeurs des métriques
+            if hasattr(self, "critic_loss_history"):
+                self.critic_loss_history.append(float(critic_loss.numpy()))
+                self.actor_loss_history.append(float(actor_loss.numpy()))
+                self.alpha_loss_history.append(float(alpha_loss.numpy()))
+                self.entropy_history.append(float(entropy.numpy()))
+
+            # Retourner les métriques d'entraînement
+            return {
+                "critic_loss": float(critic_loss.numpy()),
+                "actor_loss": float(actor_loss.numpy()),
+                "alpha_loss": float(alpha_loss.numpy()),
+                "entropy": float(entropy.numpy()),
+                "alpha": float(self.alpha.numpy()) if hasattr(self, "alpha") else 0.0,
+            }
+        except Exception as e:
+            logger.error(f"Erreur lors de l'entraînement: {str(e)}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
             return {
                 "critic_loss": 0.0,
                 "actor_loss": 0.0,
                 "alpha_loss": 0.0,
                 "entropy": 0.0,
-                "alpha": float(self.alpha),
+                "alpha": float(self.alpha.numpy()) if hasattr(self, "alpha") else 0.0,
             }
-
-        # Échantillonner un lot depuis le tampon de replay
-        states, actions, rewards, next_states, dones = self.memory.sample(self.batch_size)
-
-        # Prétraiter les états et next_states
-        states = np.array([self._preprocess_state(state) for state in states])
-        next_states = np.array([self._preprocess_state(state) for state in next_states])
-
-        # S'assurer que les états ont la bonne forme (batch_size, state_size)
-        states = np.reshape(states, (self.batch_size, -1))
-        next_states = np.reshape(next_states, (self.batch_size, -1))
-
-        # Normaliser les récompenses pour la stabilité
-        rewards = np.clip(rewards, -50, 50)
-
-        # Conversion en tenseurs
-        states = tf.convert_to_tensor(states, dtype=tf.float32)
-        actions = tf.convert_to_tensor(actions, dtype=tf.float32)
-        rewards = tf.convert_to_tensor(rewards, dtype=tf.float32)
-        next_states = tf.convert_to_tensor(next_states, dtype=tf.float32)
-        dones = tf.convert_to_tensor(dones, dtype=tf.float32)
-
-        # Ajouter une dimension si nécessaire
-        rewards = tf.reshape(rewards, [-1, 1])
-        dones = tf.reshape(dones, [-1, 1])
-
-        # Effectuer une étape d'entraînement
-        critic_loss, actor_loss, alpha_loss, entropy = self._train_step(
-            states, actions, rewards, next_states, dones
-        )
-
-        # Enregistrer les métriques
-        self.critic_loss_history.append(float(critic_loss))
-        self.actor_loss_history.append(float(actor_loss))
-        self.alpha_loss_history.append(float(alpha_loss))
-        self.entropy_history.append(float(entropy))
-
-        # Récupérer la valeur d'alpha
-        try:
-            alpha_value = float(self.alpha)
-        except (TypeError, ValueError):
-            alpha_value = float(tf.keras.backend.get_value(self.alpha))
-
-        return {
-            "critic_loss": float(critic_loss),
-            "actor_loss": float(actor_loss),
-            "alpha_loss": float(alpha_loss),
-            "entropy": float(entropy),
-            "alpha": alpha_value,
-        }
 
     def save(self, filepath):
         """
@@ -1191,61 +1210,71 @@ class SACAgent:
             target_param.assign(target_param * (1 - tau) + param * tau)
 
     def _preprocess_state(self, state):
-        """
-        Prétraite l'état pour s'assurer qu'il a la bonne forme pour les réseaux.
+        """Prétraite l'état avant utilisation par l'acteur."""
+        try:
+            # Convertir en numpy si état est un tensor
+            if isinstance(state, tf.Tensor):
+                state = state.numpy()
 
-        Args:
-            state: L'état à prétraiter
+            # Si l'état est un tableau vide, retourner un tableau de zéros
+            if isinstance(state, np.ndarray) and state.size == 0:
+                return np.zeros((self.state_size,), dtype=np.float32)
 
-        Returns:
-            L'état prétraité avec la bonne forme
-        """
-        if state is None:
-            return None
+            # Si l'état n'est pas un array numpy, le convertir
+            if not isinstance(state, np.ndarray):
+                state = np.array(state, dtype=np.float32)
 
-        # Convertir en numpy array si ce n'est pas déjà fait
-        if not isinstance(state, np.ndarray):
-            state = np.array(state)
+            # Remplacer les valeurs NaN par des zéros
+            if np.any(np.isnan(state)):
+                state = np.nan_to_num(state, nan=0.0)
 
-        # Remplacer les NaN par 0
-        state = np.nan_to_num(state, nan=0.0)
-
-        # S'assurer que l'état est en float32
-        state = state.astype(np.float32)
-
-        # Gérer les différentes formes possibles
-        if len(state.shape) == 1:  # (state_size,)
-            state = np.reshape(state, (1, -1))  # (1, state_size)
-        elif len(state.shape) == 2:  # (batch_size, state_size) ou (sequence_length, state_size)
-            if state.shape[1] == self.state_size:  # Si la deuxième dimension est state_size
-                pass  # La forme est déjà correcte
-            else:
-                # Si la première dimension est state_size, on transpose
-                if state.shape[0] == self.state_size:
-                    state = state.T
-                else:
-                    # Sinon on essaie de redimensionner intelligemment
-                    total_elements = np.prod(state.shape)
-                    if total_elements % self.state_size == 0:
-                        # On peut redimensionner en gardant la structure
-                        state = np.reshape(state, (-1, self.state_size))
+            # S'assurer que l'état a la bonne forme
+            # Si l'état a une forme incorrecte mais le nombre correct d'éléments, le reformer
+            if state.shape != (self.state_size,) and state.size == self.state_size:
+                state = state.reshape(self.state_size)
+            
+            # Si l'état est 2D avec la première dimension = 1, le convertir en 1D
+            if len(state.shape) == 2 and state.shape[0] == 1:
+                state = state.flatten()
+                
+                # Vérifier si après aplatissement, la taille correspond à state_size
+                if state.size != self.state_size:
+                    # Si la taille ne correspond pas, tronquer ou remplir avec des zéros
+                    if state.size > self.state_size:
+                        state = state[:self.state_size]
                     else:
-                        # On aplatit et on redimensionne
-                        state = np.reshape(state, (1, -1))
-        elif len(state.shape) == 3:  # (batch_size, sequence_length, state_size)
-            # Aplatir les deux dernières dimensions
-            state = np.reshape(state, (state.shape[0], -1))
+                        padded_state = np.zeros(self.state_size, dtype=np.float32)
+                        padded_state[:state.size] = state
+                        state = padded_state
 
-        # Vérifier que la taille finale correspond à celle attendue
-        if state.shape[-1] != self.state_size:
-            logger.warning(f"Dimension de l'état incorrecte. Attendu: {self.state_size}, Reçu: {state.shape[-1]}")
-            # Adapter la taille si nécessaire
-            if state.shape[-1] > self.state_size:
-                # On prend les self.state_size premières caractéristiques
-                state = state[..., :self.state_size]
-            else:
-                # Padding avec des zéros si l'état est trop petit
-                padding = np.zeros((*state.shape[:-1], self.state_size - state.shape[-1]), dtype=np.float32)
-                state = np.concatenate([state, padding], axis=-1)
+            # Si les dimensions ne correspondent toujours pas, gérer ce cas
+            if state.shape != (self.state_size,):
+                logger.warning(f"Forme d'état inattendue: {state.shape}, attendue: ({self.state_size},)")
+                
+                # Si l'état a plus de dimensions que prévu, essayer de l'adapter
+                if len(state.shape) > 1:
+                    # Si c'est un état 2D (batch, features), prendre le premier élément
+                    if len(state.shape) == 2:
+                        if state.shape[1] == self.state_size:
+                            state = state[0]
+                        else:
+                            # Essayer de restructurer
+                            state = state.reshape(-1)[:self.state_size]
+                    else:
+                        # Pour les dimensions supérieures, aplatir et tronquer
+                        state = state.flatten()[:self.state_size]
+                        
+                # Si l'état est trop petit, le remplir de zéros
+                if state.size < self.state_size:
+                    padded_state = np.zeros(self.state_size, dtype=np.float32)
+                    padded_state[:state.size] = state
+                    state = padded_state
+                # Si l'état est trop grand, le tronquer
+                elif state.size > self.state_size:
+                    state = state[:self.state_size]
 
-        return state
+            return state.astype(np.float32)
+        except Exception as e:
+            logger.error(f"Erreur dans _preprocess_state: {str(e)}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            return np.zeros(self.state_size, dtype=np.float32)
