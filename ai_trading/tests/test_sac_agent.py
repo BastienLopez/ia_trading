@@ -59,11 +59,11 @@ class TestSACAgent(unittest.TestCase):
 
         # Créer un état pour déterminer sa taille réelle
         state, _ = self.env.reset()
+        logger.info(f"État réel shape: {state.shape}")
         # Dans l'implémentation actuelle, la taille réelle de l'état diffère
         # de celle déclarée dans observation_space
-        self.state_size = state.shape[
-            0
-        ]  # Utiliser la taille réelle, pas la taille déclarée
+        self.state_size = state.shape[0]  # Utiliser la taille réelle, pas la taille déclarée
+        logger.info(f"State size utilisé: {self.state_size}")
 
         # Créer l'agent SAC avec la bonne taille d'état
         self.agent = SACAgent(
