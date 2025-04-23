@@ -1217,8 +1217,21 @@ class SACAgent:
         if len(state.shape) == 1:  # (state_size,)
             state = np.reshape(state, (1, -1))  # (1, state_size)
         elif len(state.shape) == 2:  # (batch_size, state_size) ou (sequence_length, state_size)
-            if state.shape[0] == self.state_size:  # Si la première dimension est state_size
-                state = np.reshape(state, (1, -1))  # (1, state_size * features)
+            if state.shape[1] == self.state_size:  # Si la deuxième dimension est state_size
+                pass  # La forme est déjà correcte
+            else:
+                # Si la première dimension est state_size, on transpose
+                if state.shape[0] == self.state_size:
+                    state = state.T
+                else:
+                    # Sinon on essaie de redimensionner intelligemment
+                    total_elements = np.prod(state.shape)
+                    if total_elements % self.state_size == 0:
+                        # On peut redimensionner en gardant la structure
+                        state = np.reshape(state, (-1, self.state_size))
+                    else:
+                        # On aplatit et on redimensionne
+                        state = np.reshape(state, (1, -1))
         elif len(state.shape) == 3:  # (batch_size, sequence_length, state_size)
             # Aplatir les deux dernières dimensions
             state = np.reshape(state, (state.shape[0], -1))
@@ -1228,6 +1241,7 @@ class SACAgent:
             logger.warning(f"Dimension de l'état incorrecte. Attendu: {self.state_size}, Reçu: {state.shape[-1]}")
             # Adapter la taille si nécessaire
             if state.shape[-1] > self.state_size:
+                # On prend les self.state_size premières caractéristiques
                 state = state[..., :self.state_size]
             else:
                 # Padding avec des zéros si l'état est trop petit
