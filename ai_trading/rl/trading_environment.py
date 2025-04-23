@@ -261,175 +261,76 @@ class TradingEnvironment(gym.Env):
         return observation, info
 
     def step(self, action):
-        """
-        Exécute une action dans l'environnement avec délai d'exécution.
-
-        Args:
-            action: Action à exécuter (discrète ou continue selon action_type)
-
-        Returns:
-            tuple: (observation, reward, terminated, truncated, info)
-        """
-        # Vérifier que l'action est valide
-        if self.action_type == "continuous":
-            if isinstance(action, np.ndarray):
-                # Convertir l'action en float pour l'espace continu
-                action_value = float(action[0])
-            else:
-                action_value = float(action)
-
-            # Créer un tableau numpy pour la vérification de l'espace d'action
-            action_for_check = np.array([action_value], dtype=np.float32)
-
-            if not self.action_space.contains(action_for_check):
-                raise ValueError(
-                    f"Action invalide: {action_value}, doit être entre -1 et 1"
-                )
+        """Exécute une étape de trading."""
+        # Convertir l'action en poids de portefeuille
+        if self.action_type == "discrete":
+            weights = self._discrete_to_continuous(action)
         else:
-            if not self.action_space.contains(action):
-                raise ValueError(f"Action invalide: {action}")
-
-        # Initialiser le dictionnaire d'informations dès le début
-        info = {"action_adjusted": False}  # Par défaut, l'action n'est pas ajustée
-
-        # Sauvegarder l'état précédent pour calculer la récompense
-        previous_portfolio_value = self.get_portfolio_value()
-
-        # Appliquer le gestionnaire de risque si activé
-        if self.use_risk_manager:
-            adjusted_action = self.risk_manager.adjust_action(
-                action,
-                self.portfolio_value_history[-1],
-                self.crypto_held,
-                current_price=(
-                    self.df.iloc[self.current_step]["close"] if not self.df.empty else 0
-                ),
-            )
-            if adjusted_action != action:
-                action = adjusted_action
-                info["action_adjusted"] = True
-
-        # Traiter les ordres en attente
-        self._process_pending_orders()
-
-        # Appliquer l'action avec délai si nécessaire
-        if self.execution_delay > 0:
-            current_price = self.df.iloc[self.current_step]["close"]
+            weights = action
+        
+        # Calculer l'allocation des actifs
+        allocation = self._allocate_assets(weights)
+        
+        # Obtenir les prix actuels
+        current_prices = self.df.iloc[self.current_step][[f"close_{i}" for i in range(self.n_assets)]].values
+        
+        # Calculer les rendements pondérés
+        weighted_returns = np.zeros(self.n_assets)
+        for i in range(self.n_assets):
+            # Appliquer le slippage
+            execution_price = self._apply_slippage(current_prices[i], weights[i])
             
-            if self.action_type == "discrete":
-                action_value = self._get_action_value(action)
-            else:
-                action_value = float(action[0]) if isinstance(action, np.ndarray) else float(action)
-                
-            # Calculer la quantité à trader
-            if action_value > 0:  # Achat
-                amount = (self.balance * abs(action_value)) / current_price
-            else:  # Vente
-                amount = self.crypto_held * abs(action_value)
-                
-            # Ajouter l'ordre à la liste des ordres en attente
-            self.pending_orders.append({
-                "action_value": action_value,
-                "amount": amount,
-                "delay": self.execution_delay
-            })
-        else:
-            # Exécution immédiate sans délai
-            if self.action_type == "discrete":
-                self._apply_discrete_action(action)
-            else:
-                self._apply_continuous_action(action)
-
+            # Calculer le rendement avec slippage
+            if self.current_step > 0:
+                prev_price = self.df.iloc[self.current_step-1][f"close_{i}"]
+                weighted_returns[i] = (execution_price - prev_price) / prev_price * allocation[i]
+        
+        # Calculer le rendement total du portefeuille
+        portfolio_return = np.sum(weighted_returns)
+        
+        # Mettre à jour le capital
+        self.capital *= (1 + portfolio_return)
+        
+        # Mettre à jour l'historique
+        self.portfolio_history.append(self.capital)
+        self.returns_history.append(portfolio_return)
+        
         # Passer à l'étape suivante
         self.current_step += 1
-
+        
         # Vérifier si l'épisode est terminé
         done = self.current_step >= len(self.df) - 1
-
+        
+        # Obtenir l'état suivant
+        next_state = self._get_state()
+        
         # Calculer la récompense
-        current_portfolio_value = self.get_portfolio_value()
-        reward = self._calculate_reward(action)
-
-        # Enregistrer la valeur du portefeuille
-        self.portfolio_value_history.append(current_portfolio_value)
-
-        # Construire l'observation
-        observation = self._get_observation()
-
-        # Mettre à jour les informations à la fin
-        current_price = self.df.iloc[self.current_step]["close"]
-        info.update(
-            {
-                "portfolio_value": self.get_portfolio_value(),
-                "balance": self.balance,
-                "crypto_held": self.crypto_held,
-                "current_price": current_price,
-            }
-        )
-
-        # Vérifier les conditions de stop-loss pour les positions ouvertes
-        if self.use_risk_manager and self.crypto_held > 0:
-            position_id = f"position_{self.current_step}"
-
-            # Mettre à jour le trailing stop si nécessaire
-            if self.crypto_held > 0:
-                self.risk_manager.update_trailing_stop(
-                    position_id,
-                    current_price,
-                    self.df.iloc[self.current_step]["close"],
-                    "long",
-                )
-            else:
-                self.risk_manager.update_trailing_stop(
-                    position_id,
-                    current_price,
-                    self.df.iloc[self.current_step]["close"],
-                    "short",
-                )
-
-            # Vérifier si un stop est déclenché
-            stop_result = self.risk_manager.check_stop_conditions(
-                position_id, current_price, "long"
-            )
-
-            if stop_result["stop_triggered"]:
-                # Fermer la position au prix du stop
-                stop_price = stop_result["stop_price"]
-                self._close_position(stop_price)
-                logger.info(f"{stop_result['stop_type']} déclenché à {stop_price}")
-
-        return observation, reward, done, False, info
+        reward = self._calculate_reward(portfolio_return)
+        
+        return next_state, reward, done, {}
 
     def _apply_slippage(self, price, action_value):
-        """
-        Applique le slippage au prix d'exécution.
-        
-        Args:
-            price: Prix de base
-            action_value: Valeur de l'action (positive pour achat, négative pour vente)
-            
-        Returns:
-            float: Prix avec slippage
-        """
-        if self.slippage_model == "constant":
-            slippage = self.slippage_value
-        elif self.slippage_model == "proportional":
-            slippage = self.slippage_value * abs(action_value)
-        elif self.slippage_model == "dynamic":
-            # Slippage dynamique basé sur le volume et la volatilité
-            volatility = self.df.iloc[self.current_step]["volatility"] if "volatility" in self.df.columns else 0.01
+        """Applique le slippage au prix."""
+        if self.slippage_model == "dynamic":
+            # Calculer le slippage en fonction du volume et de la volatilité
             current_volume = self.df.iloc[self.current_step]["volume"]
-            avg_volume = self.df["volume"].iloc[max(0, self.current_step-20):self.current_step+1].mean()
-            volume_ratio = current_volume / avg_volume if avg_volume > 0 else 1
-            slippage = self.slippage_value * (1 + volatility) * volume_ratio
+            avg_volume = self.df.iloc[max(0, self.current_step - 20):self.current_step]["volume"].mean()
+            volatility = self.df.iloc[self.current_step]["volatility"]
+            
+            # Calculer le facteur de slippage
+            slippage_factor = self.slippage_value * (1 + volatility) * (current_volume / avg_volume)
+            
+            # Appliquer le slippage
+            if action_value > 0:  # Achat
+                return price * (1 + slippage_factor)
+            else:  # Vente
+                return price * (1 - slippage_factor)
         else:
-            slippage = 0
-        
-        # Appliquer le slippage dans la direction de l'action
-        if action_value > 0:  # Achat
-            return price * (1 + slippage)
-        else:  # Vente
-            return price * (1 - slippage)
+            # Slippage fixe
+            if action_value > 0:  # Achat
+                return price * (1 + self.slippage_value)
+            else:  # Vente
+                return price * (1 - self.slippage_value)
 
     def _process_pending_orders(self):
         """
@@ -733,182 +634,25 @@ class TradingEnvironment(gym.Env):
         """
         return self.portfolio_value_history
 
-    def _calculate_reward(self, action=None):
-        """
-        Calcule la récompense basée sur la valeur actuelle du portefeuille et la politique de récompense.
-
-        Args:
-            action: L'action qui a été prise (pour les pénalités liées aux actions)
-
-        Returns:
-            float: La récompense calculée
-        """
-        # Calculer la valeur actuelle du portefeuille
-        current_price = self.df.iloc[self.current_step]["close"]
-        current_value = self.balance + self.crypto_held * current_price
-
-        # Enregistrer la valeur du portefeuille
-        self.portfolio_value_history.append(current_value)
-
-        # Mettre à jour la valeur maximale du portefeuille pour le calcul du drawdown
-        if current_value > self.max_portfolio_value:
-            self.max_portfolio_value = current_value
-
-        # Si c'est le premier pas ou si nous n'avons pas d'historique suffisant, retourner une récompense nulle
-        if len(self.portfolio_value_history) < 2:
-            return 0.0
-
-        # Calculer le retour en pourcentage
-        previous_value = self.portfolio_value_history[-2]
-        pct_change = (
-            (current_value - previous_value) / previous_value
-            if previous_value > 0
-            else 0
-        )
-        self.returns_history.append(pct_change)
-
-        # Choisir la fonction de récompense appropriée
-        if self.reward_function == "simple":
-            reward = self._simple_reward(pct_change)
-        elif self.reward_function == "sharpe":
-            reward = self._sharpe_reward()
-        elif self.reward_function == "transaction_penalty":
-            reward = self._transaction_penalty_reward(pct_change, action)
-        elif self.reward_function == "drawdown":
-            reward = self._drawdown_reward(pct_change)
-        else:
-            reward = self._simple_reward(pct_change)
-
-        return reward
-
-    def _simple_reward(self, pct_change):
-        """
-        Fonction de récompense simple basée sur le changement de valeur du portefeuille.
-
-        Args:
-            pct_change: Changement en pourcentage de la valeur du portefeuille
-
-        Returns:
-            float: La récompense calculée
-        """
-        # Récompense de base: changement en pourcentage de la valeur du portefeuille
-        reward = pct_change
-
-        # Ajout de bonus/malus basés sur la tendance récente
-        if len(self.returns_history) >= 3:
-            # Bonus pour une tendance positive constante
-            if all(r > 0 for r in self.returns_history[-3:]):
-                reward *= 1.1  # Bonus de 10%
-
-            # Malus pour une tendance négative constante
-            elif all(r < 0 for r in self.returns_history[-3:]):
-                reward *= 0.9  # Malus de 10%
-
-        return reward
-
-    def _sharpe_reward(self):
-        """
-        Fonction de récompense basée sur le ratio de Sharpe.
-
-        Returns:
-            float: La récompense calculée basée sur le ratio de Sharpe
-        """
-        # Vérifier que nous avons suffisamment d'historique pour calculer le ratio de Sharpe
-        if len(self.returns_history) < self.lookback_window:
-            return 0.0
-
-        # Calculer le ratio de Sharpe sur la fenêtre de lookback
-        returns = np.array(self.returns_history[-self.lookback_window :])
-
-        # Éviter les divisions par zéro
-        if np.std(returns) == 0:
-            if np.mean(returns) > 0:
-                return 1.0  # Récompense positive si les rendements sont positifs mais constants
-            elif np.mean(returns) < 0:
-                return (
-                    -1.0
-                )  # Récompense négative si les rendements sont négatifs mais constants
-            else:
-                return 0.0  # Pas de récompense si les rendements sont tous nuls
-
-        # Calculer le ratio de Sharpe (version simplifiée sans taux sans risque)
-        sharpe_ratio = (
-            np.mean(returns) / np.std(returns) * np.sqrt(252)
-        )  # Annualisé (252 jours de trading)
-
-        # Normaliser la récompense pour éviter les valeurs extrêmes
-        reward = np.clip(sharpe_ratio, -10, 10)
-
-        return reward
-
-    def _transaction_penalty_reward(self, pct_change, action):
-        """
-        Fonction de récompense avec pénalité pour les transactions fréquentes.
-
-        Args:
-            pct_change: Changement en pourcentage de la valeur du portefeuille
-            action: L'action qui a été prise
-
-        Returns:
-            float: La récompense calculée avec pénalité pour les transactions
-        """
-        # Récompense de base
-        reward = pct_change
-
-        # Appliquer une pénalité si une transaction a été effectuée (action 1=achat ou 2=vente)
-        if action in [1, 2]:
-            # Incrémenter le compteur de transactions
-            self.transaction_count += 1
-
-            # Calculer la pénalité basée sur la fréquence des transactions
-            steps_since_last_transaction = (
-                self.current_step - self.last_transaction_step
-                if self.last_transaction_step > 0
-                else self.window_size
-            )
-
-            # Plus la transaction est proche de la précédente, plus la pénalité est élevée
-            frequency_penalty = self.transaction_penalty * (
-                1.0 / max(1, steps_since_last_transaction)
-            )
-
-            # Appliquer la pénalité
-            reward -= frequency_penalty
-
-            # Mettre à jour le pas de la dernière transaction
-            self.last_transaction_step = self.current_step
-
-        return reward
-
-    def _drawdown_reward(self, pct_change):
-        """
-        Fonction de récompense qui pénalise les drawdowns importants.
-
-        Args:
-            pct_change: Changement en pourcentage de la valeur du portefeuille
-
-        Returns:
-            float: La récompense calculée avec pénalité pour les drawdowns
-        """
-        # Récompense de base
-        reward = pct_change
-
-        # Calculer le drawdown actuel
-        current_value = self.portfolio_value_history[-1]
-        drawdown = (
-            (self.max_portfolio_value - current_value) / self.max_portfolio_value
-            if self.max_portfolio_value > 0
-            else 0
-        )
-
-        # Pénaliser les drawdowns importants
-        drawdown_penalty = (
-            self.risk_aversion * drawdown * drawdown
-        )  # Pénalité quadratique
-
-        # Appliquer la pénalité
-        reward -= drawdown_penalty
-
+    def _calculate_reward(self, portfolio_return):
+        """Calcule la récompense basée sur le rendement du portefeuille."""
+        # Récompense basée sur le rendement
+        reward = portfolio_return
+        
+        # Pénalité pour le turnover excessif
+        if len(self.returns_history) > 1:
+            turnover = np.abs(portfolio_return - self.returns_history[-1])
+            if turnover > self.max_turnover:
+                reward -= self.turnover_penalty * (turnover - self.max_turnover)
+        
+        # Pénalité pour le drawdown
+        if len(self.portfolio_history) > 1:
+            current_value = self.portfolio_history[-1]
+            peak_value = max(self.portfolio_history)
+            drawdown = (peak_value - current_value) / peak_value
+            if drawdown > self.max_drawdown:
+                reward -= self.drawdown_penalty * (drawdown - self.max_drawdown)
+        
         return reward
 
     def visualize_technical_indicators(self, window_size=100):
@@ -1062,3 +806,24 @@ class TradingEnvironment(gym.Env):
         else:  # Sell
             sell_action = action - self.n_discrete_actions
             return -sell_action / self.n_discrete_actions
+
+    def _allocate_assets(self, action):
+        """Alloue les actifs selon la stratégie spécifiée."""
+        if self.allocation_strategy == "equal":
+            # Allocation égale entre tous les actifs
+            allocation = np.ones(self.n_assets) / self.n_assets
+        elif self.allocation_strategy == "proportional":
+            # Allocation proportionnelle aux poids d'action
+            allocation = np.abs(action) / np.sum(np.abs(action))
+        elif self.allocation_strategy == "risk_parity":
+            # Allocation basée sur la volatilité inverse
+            volatilities = self.df.iloc[self.current_step][[f"volatility_{i}" for i in range(self.n_assets)]].values
+            allocation = 1 / (volatilities + 1e-6)
+            allocation = allocation / np.sum(allocation)
+        else:
+            raise ValueError(f"Stratégie d'allocation inconnue: {self.allocation_strategy}")
+        
+        # Mettre à jour l'historique d'allocation
+        self.allocation_history.append(allocation)
+        
+        return allocation
