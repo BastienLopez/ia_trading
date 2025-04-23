@@ -785,19 +785,7 @@ class SACAgent:
 
     @tf.function
     def _train_step(self, states, actions, rewards, next_states, dones):
-        """
-        Effectue une étape d'entraînement pour tous les réseaux.
-
-        Args:
-            states: Lot d'états
-            actions: Lot d'actions
-            rewards: Lot de récompenses
-            next_states: Lot d'états suivants
-            dones: Lot d'indicateurs de fin d'épisode
-
-        Returns:
-            tuple: (critic_loss, actor_loss, alpha_loss, entropy)
-        """
+        """Effectue une étape d'entraînement pour tous les réseaux."""
         with tf.GradientTape(persistent=True) as tape:
             # Échantillonner des actions pour l'état suivant
             next_means, next_log_stds = self.actor(next_states)
@@ -807,7 +795,6 @@ class SACAgent:
             next_actions = tf.tanh(next_actions_raw)
 
             # Calculer log-prob pour les actions suivantes
-            # log_prob = log_prob_raw - log(1 - tanh(action_raw)²)
             log_probs_next = next_normal_dists.log_prob(next_actions_raw) - tf.math.log(
                 1.0 - tf.square(next_actions) + 1e-6
             )
@@ -830,7 +817,7 @@ class SACAgent:
             critic1_loss = tf.reduce_mean(tf.square(current_q1 - target_q))
             critic2_loss = tf.reduce_mean(tf.square(current_q2 - target_q))
 
-            # Échantillonner des actions pour l'état actuel (pour l'apprentissage de l'acteur)
+            # Échantillonner des actions pour l'état actuel
             means, log_stds = self.actor(states)
             stds = tf.exp(log_stds)
             normal_dists = tfp.distributions.Normal(means, stds)
@@ -851,11 +838,9 @@ class SACAgent:
             # Calcul de l'entropie
             entropy = -tf.reduce_mean(log_probs)
 
-            # Perte de l'acteur = valeur Q attendue - entropie
-            # Ajout d'une régularisation d'entropie supplémentaire
-            actor_loss = (
-                tf.reduce_mean(self.alpha * log_probs - q_min)
-                - self.entropy_regularization * entropy
+            # Perte de l'acteur avec régularisation d'entropie
+            actor_loss = tf.reduce_mean(
+                self.alpha * log_probs - q_min - self.entropy_regularization * entropy
             )
 
             # Perte pour l'adaptation d'alpha (si activée)

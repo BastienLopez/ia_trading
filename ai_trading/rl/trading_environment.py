@@ -30,8 +30,10 @@ from ai_trading.rl.risk_manager import RiskManager
 # Ajouter l'import de la classe TechnicalIndicators
 from .technical_indicators import TechnicalIndicators
 
-# Définir le chemin pour les visualisations
-VISUALIZATION_DIR = Path(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) / "visualizations" / "trading_env"
+# Utiliser directement VISUALIZATION_DIR de config.py
+from ai_trading.config import VISUALIZATION_DIR
+
+VISUALIZATION_DIR = VISUALIZATION_DIR / "trading_env"
 VISUALIZATION_DIR.mkdir(parents=True, exist_ok=True)
 
 

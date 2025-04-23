@@ -21,8 +21,9 @@ keras==2.15.0
 tf-keras==2.15.0
 gymnasium==0.29.1
 stable-baselines3==2.2.1
-torch>=2.1.0
+torch>=2.2.0
 optuna>=2.10.0
+packaging>=23.0
 
 # API et collecte de données
 requests>=2.31.0
@@ -35,7 +36,7 @@ newsapi-python==0.2.7
 # Traitement du langage naturel
 nltk>=3.8.1
 textblob>=0.15.3
-transformers>=4.28.1
+transformers>=4.35.0
 sentence-transformers==2.2.2
 emoji==0.6.0
 spacy>=3.2.0

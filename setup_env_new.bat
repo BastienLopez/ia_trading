@@ -104,7 +104,7 @@ del "%TEMP_SCRIPT%" 2>nul
 del "%OUTPUT_FILE%" 2>nul
 
 echo.
-echo Pour executer les tests, utilisez:
+echo Pour executer les tests:
 echo python -m pytest ai_trading/tests/
 echo.
 echo Pour lancer l'application web:

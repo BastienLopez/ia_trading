@@ -1,5 +1,5 @@
 """
-Configuration principale du système de trading IA.
+Configuration globale pour le projet ai_trading.
 """
 
 import os
@@ -10,19 +10,75 @@ from dotenv import load_dotenv
 # Chargement des variables d'environnement
 load_dotenv()
 
-# Chemins des dossiers
-BASE_DIR = Path(__file__).parent.parent
-INFO_RETOUR_DIR = BASE_DIR / "ai_trading/info_retour"
-MODELS_DIR = INFO_RETOUR_DIR / "models"
-DATA_DIR = INFO_RETOUR_DIR / "data"
-CHECKPOINTS_DIR = INFO_RETOUR_DIR / "checkpoints"
-SENTIMENT_CACHE_DIR = INFO_RETOUR_DIR / "sentiment_cache"
-VISUALIZATION_DIR = INFO_RETOUR_DIR / "visualization"
-LOGS_DIR = INFO_RETOUR_DIR / "logs"
+# Obtenir le chemin absolu du répertoire du projet
+PROJECT_ROOT = Path(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# Création des dossiers nécessaires
-for directory in [INFO_RETOUR_DIR, MODELS_DIR, DATA_DIR, CHECKPOINTS_DIR, SENTIMENT_CACHE_DIR, VISUALIZATION_DIR, LOGS_DIR]:
-    directory.mkdir(exist_ok=True)
+# Définir les chemins des répertoires
+INFO_RETOUR_DIR = PROJECT_ROOT / "ai_trading" / "info_retour"
+VISUALIZATION_DIR = INFO_RETOUR_DIR / "visualization"
+DATA_DIR = INFO_RETOUR_DIR / "data"
+MODELS_DIR = INFO_RETOUR_DIR / "models"
+LOGS_DIR = INFO_RETOUR_DIR / "logs"
+CHECKPOINTS_DIR = INFO_RETOUR_DIR / "checkpoints"
+EVALUATION_DIR = INFO_RETOUR_DIR / "evaluation"
+TEST_DIR = INFO_RETOUR_DIR / "test"
+SENTIMENT_CACHE_DIR = INFO_RETOUR_DIR / "sentiment_cache"
+
+# Créer les répertoires s'ils n'existent pas
+for directory in [
+    INFO_RETOUR_DIR,
+    VISUALIZATION_DIR,
+    DATA_DIR,
+    MODELS_DIR,
+    LOGS_DIR,
+    CHECKPOINTS_DIR,
+    EVALUATION_DIR,
+    TEST_DIR,
+    SENTIMENT_CACHE_DIR,
+]:
+    directory.mkdir(parents=True, exist_ok=True)
+
+# Configuration du modèle
+MODEL_CONFIG = {
+    "learning_rate": 0.001,
+    "batch_size": 32,
+    "buffer_size": 100000,
+    "target_update_tau": 0.005,
+    "reward_scaling": 1.0,
+    "use_automatic_entropy_tuning": True,
+    "hidden_sizes": [256, 256],
+}
+
+# Configuration de l'environnement
+ENV_CONFIG = {
+    "initial_balance": 10000.0,
+    "transaction_fee": 0.001,
+    "window_size": 20,
+    "include_position": True,
+    "include_balance": True,
+    "include_technical_indicators": True,
+    "risk_management": True,
+    "normalize_observation": True,
+    "reward_function": "sharpe",
+    "risk_aversion": 0.1,
+    "transaction_penalty": 0.001,
+    "lookback_window": 20,
+    "action_type": "continuous",
+    "n_discrete_actions": 5,
+    "slippage_model": "dynamic",
+    "slippage_value": 0.001,
+    "execution_delay": 1,
+}
+
+# Configuration du trading
+TRADING_CONFIG = {
+    "max_episodes": 1000,
+    "max_steps": 10000,
+    "evaluation_interval": 10,
+    "save_interval": 100,
+    "log_interval": 1,
+    "random_seed": 42,
+}
 
 # Configuration des APIs
 BINANCE_CONFIG = {
@@ -49,14 +105,6 @@ TWITTER_CONFIG = {
 
 # Configuration de la base de données
 DATABASE_CONFIG = {"url": os.getenv("DATABASE_URL")}
-
-# Paramètres de trading
-TRADING_CONFIG = {
-    "risk_percentage": float(os.getenv("RISK_PERCENTAGE", 1)),
-    "max_position_size": float(os.getenv("MAX_POSITION_SIZE", 5000)),
-    "stop_loss_percentage": float(os.getenv("STOP_LOSS_PERCENTAGE", 2)),
-    "take_profit_percentage": float(os.getenv("TAKE_PROFIT_PERCENTAGE", 6)),
-}
 
 # Configuration des paires de trading
 TRADING_PAIRS = ["BTC/USDT", "ETH/USDT", "BNB/USDT", "XRP/USDT", "ADA/USDT"]

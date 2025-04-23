@@ -1,3 +1,11 @@
+import warnings
+# Avertissements de dépréciation connus :
+# 1. PyTorch: torch.utils._pytree._register_pytree_node est déprécié
+#    Solution: Utiliser torch.utils._pytree.register_pytree_node à la place
+# 2. TensorFlow Probability: distutils.version.LooseVersion est déprécié
+#    Solution: Utiliser packaging.version à la place
+# Ces avertissements n'affectent pas le fonctionnement du code mais seront corrigés dans les futures versions
+
 import logging
 import os
 import shutil
