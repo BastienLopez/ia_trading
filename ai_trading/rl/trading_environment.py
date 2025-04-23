@@ -326,11 +326,11 @@ class TradingEnvironment(gym.Env):
         
         self.returns_history.append(portfolio_return)
         
-        # Traiter les ordres en attente
-        self._process_pending_orders()
-        
         # Passer à l'étape suivante
         self.current_step += 1
+        
+        # Traiter les ordres en attente
+        self._process_pending_orders()
         
         # Vérifier si l'épisode est terminé
         done = self.current_step >= len(self.df) - 1
@@ -340,6 +340,13 @@ class TradingEnvironment(gym.Env):
         
         # Calculer la récompense
         reward = self._calculate_reward(portfolio_return)
+        
+        # Ajouter la valeur du portefeuille aux informations
+        info["portfolio_value"] = portfolio_value
+        info["balance"] = self.balance
+        info["crypto_held"] = self.crypto_held
+        info["current_price"] = current_price
+        info["portfolio_return"] = portfolio_return
         
         return next_state, reward, done, False, info
 
@@ -359,8 +366,15 @@ class TradingEnvironment(gym.Env):
                 return price * (1 + slippage_factor)
             else:  # Vente
                 return price * (1 - slippage_factor)
+        elif self.slippage_model == "proportional":
+            # Slippage proportionnel à la taille de l'action
+            action_abs = abs(action_value)
+            if action_value > 0:  # Achat
+                return price * (1 + self.slippage_value * action_abs)
+            else:  # Vente
+                return price * (1 - self.slippage_value * action_abs)
         else:
-            # Slippage fixe
+            # Slippage constant (par défaut)
             if action_value > 0:  # Achat
                 return price * (1 + self.slippage_value)
             else:  # Vente
@@ -423,15 +437,25 @@ class TradingEnvironment(gym.Env):
             # Calculer la quantité de crypto à acheter
             max_crypto_to_buy = buy_value / (current_price * (1 + self.transaction_fee))
 
-            # Acheter la quantité calculée
-            self.crypto_held += max_crypto_to_buy
-            self.balance -= (
-                max_crypto_to_buy * current_price * (1 + self.transaction_fee)
-            )
-
-            logger.debug(
-                f"Achat: {max_crypto_to_buy:.6f} unités à ${current_price:.2f} (limité à 30% du portefeuille)"
-            )
+            # Si délai d'exécution > 0, ajouter à la liste des ordres en attente
+            if self.execution_delay > 0:
+                self.pending_orders.append({
+                    "action_value": buy_percentage,
+                    "amount": max_crypto_to_buy,
+                    "delay": self.execution_delay
+                })
+                logger.debug(
+                    f"Ordre d'achat en attente: {max_crypto_to_buy:.6f} unités à ${current_price:.2f}, délai: {self.execution_delay}"
+                )
+            else:
+                # Acheter la quantité calculée immédiatement
+                self.crypto_held += max_crypto_to_buy
+                self.balance -= (
+                    max_crypto_to_buy * current_price * (1 + self.transaction_fee)
+                )
+                logger.debug(
+                    f"Achat: {max_crypto_to_buy:.6f} unités à ${current_price:.2f} (limité à 30% du portefeuille)"
+                )
 
         elif self.n_discrete_actions < action <= 2 * self.n_discrete_actions:  # Vente
             if self.crypto_held > 0:
@@ -441,16 +465,25 @@ class TradingEnvironment(gym.Env):
                 ) / self.n_discrete_actions
                 crypto_to_sell = self.crypto_held * sell_percentage
 
-                # Vendre la quantité calculée
-                self.balance += (
-                    crypto_to_sell * current_price * (1 - self.transaction_fee)
-                )
-
-                logger.debug(
-                    f"Vente: {crypto_to_sell:.6f} unités ({sell_percentage*100:.0f}%) à ${current_price:.2f}"
-                )
-
-                self.crypto_held -= crypto_to_sell
+                # Si délai d'exécution > 0, ajouter à la liste des ordres en attente
+                if self.execution_delay > 0:
+                    self.pending_orders.append({
+                        "action_value": -sell_percentage,  # Négatif pour indiquer une vente
+                        "amount": crypto_to_sell,
+                        "delay": self.execution_delay
+                    })
+                    logger.debug(
+                        f"Ordre de vente en attente: {crypto_to_sell:.6f} unités à ${current_price:.2f}, délai: {self.execution_delay}"
+                    )
+                else:
+                    # Vendre la quantité calculée immédiatement
+                    self.balance += (
+                        crypto_to_sell * current_price * (1 - self.transaction_fee)
+                    )
+                    self.crypto_held -= crypto_to_sell
+                    logger.debug(
+                        f"Vente: {crypto_to_sell:.6f} unités ({sell_percentage*100:.0f}%) à ${current_price:.2f}"
+                    )
             else:
                 logger.debug("Tentative de vente sans crypto détenue")
 
@@ -488,31 +521,50 @@ class TradingEnvironment(gym.Env):
             # Calculer la quantité de crypto à acheter
             max_crypto_to_buy = buy_value / (current_price * (1 + self.transaction_fee))
 
-            # Acheter la quantité calculée
-            self.crypto_held += max_crypto_to_buy
-            self.balance -= (
-                max_crypto_to_buy * current_price * (1 + self.transaction_fee)
-            )
-
-            logger.debug(
-                f"Achat: {max_crypto_to_buy:.6f} unités ({buy_percentage*100:.0f}%) à ${current_price:.2f} (limité à 30% du portefeuille)"
-            )
+            # Si délai d'exécution > 0, ajouter à la liste des ordres en attente
+            if self.execution_delay > 0:
+                self.pending_orders.append({
+                    "action_value": action_value,
+                    "amount": max_crypto_to_buy,
+                    "delay": self.execution_delay
+                })
+                logger.debug(
+                    f"Ordre d'achat en attente: {max_crypto_to_buy:.6f} unités ({buy_percentage*100:.0f}%) à ${current_price:.2f}, délai: {self.execution_delay}"
+                )
+            else:
+                # Acheter la quantité calculée immédiatement
+                self.crypto_held += max_crypto_to_buy
+                self.balance -= (
+                    max_crypto_to_buy * current_price * (1 + self.transaction_fee)
+                )
+                logger.debug(
+                    f"Achat: {max_crypto_to_buy:.6f} unités ({buy_percentage*100:.0f}%) à ${current_price:.2f} (limité à 30% du portefeuille)"
+                )
 
         else:  # Vente (action_value < 0)
             if self.crypto_held > 0:
                 sell_percentage = -action_value
                 crypto_to_sell = self.crypto_held * sell_percentage
 
-                # Vendre la quantité calculée
-                self.balance += (
-                    crypto_to_sell * current_price * (1 - self.transaction_fee)
-                )
-
-                logger.debug(
-                    f"Vente: {crypto_to_sell:.6f} unités ({sell_percentage*100:.0f}%) à ${current_price:.2f}"
-                )
-
-                self.crypto_held -= crypto_to_sell
+                # Si délai d'exécution > 0, ajouter à la liste des ordres en attente
+                if self.execution_delay > 0:
+                    self.pending_orders.append({
+                        "action_value": action_value,
+                        "amount": crypto_to_sell,
+                        "delay": self.execution_delay
+                    })
+                    logger.debug(
+                        f"Ordre de vente en attente: {crypto_to_sell:.6f} unités ({sell_percentage*100:.0f}%) à ${current_price:.2f}, délai: {self.execution_delay}"
+                    )
+                else:
+                    # Vendre la quantité calculée immédiatement
+                    self.balance += (
+                        crypto_to_sell * current_price * (1 - self.transaction_fee)
+                    )
+                    self.crypto_held -= crypto_to_sell
+                    logger.debug(
+                        f"Vente: {crypto_to_sell:.6f} unités ({sell_percentage*100:.0f}%) à ${current_price:.2f}"
+                    )
             else:
                 logger.debug("Tentative de vente sans crypto détenue")
 

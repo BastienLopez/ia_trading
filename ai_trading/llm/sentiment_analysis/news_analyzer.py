@@ -650,8 +650,15 @@ class NewsAnalyzer:
 
             import matplotlib.pyplot as plt
 
-            # Mettre à jour tous les chemins de visualisation
-            visualization_path = os.path.join(VISUALIZATION_DIR, "sentiment_analysis.png")
+            # Assurer que le répertoire existe
+            sentiment_dir = os.path.join(VISUALIZATION_DIR, "sentiment")
+            os.makedirs(sentiment_dir, exist_ok=True)
+            
+            # Utiliser le nom de fichier fourni dans le répertoire sentiment
+            visualization_path = os.path.join(sentiment_dir, filename)
+            
+            # Aussi sauvegarder dans le chemin principal pour la rétrocompatibilité
+            main_path = os.path.join(VISUALIZATION_DIR, "sentiment_analysis.png")
 
             plt.figure(figsize=(12, 6))
 
@@ -661,7 +668,12 @@ class NewsAnalyzer:
                     lambda x: x["score"] if isinstance(x, dict) else 0.5
                 ).plot(title="Évolution du sentiment global")
                 plt.tight_layout()
+                
+                # Sauvegarder aux deux emplacements
+                plt.savefig(main_path)
                 plt.savefig(visualization_path)
+                
+                logger.info(f"Graphique sauvegardé dans {main_path}")
                 logger.info(f"Graphique sauvegardé dans {visualization_path}")
                 plt.close()
             else:

@@ -267,6 +267,12 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
         if action_sum > 0:
             action = action / action_sum
         
+        # Enregistrer l'allocation actuelle dans l'historique
+        current_allocation = {}
+        for i, symbol in enumerate(self.symbols):
+            current_allocation[symbol] = action[i] if i < len(action) else 0
+        self.allocation_history.append(current_allocation)
+        
         # Appliquer les allocations
         for i, symbol in enumerate(self.active_assets):
             action_value = action[i]
