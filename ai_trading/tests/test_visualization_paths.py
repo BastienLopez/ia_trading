@@ -5,8 +5,7 @@ Tests unitaires pour vérifier le bon fonctionnement de la sauvegarde des visual
 import os
 import sys
 import unittest
-
-# Configurer matplotlib pour utiliser un backend non-interactif
+from pathlib import Path
 import matplotlib
 import numpy as np
 import pandas as pd
@@ -54,6 +53,9 @@ class TestVisualizationPaths(unittest.TestCase):
 
         self.examples_visualization_dir = INFO_RETOUR_DIR / "test" / "visualizations"
         os.makedirs(self.examples_visualization_dir, exist_ok=True)
+
+        self.sentiment_visualization_dir = VISUALIZATION_DIR / "sentiment"
+        self.sentiment_visualization_dir.mkdir(parents=True, exist_ok=True)
 
     def tearDown(self):
         """Nettoyage après chaque test."""
