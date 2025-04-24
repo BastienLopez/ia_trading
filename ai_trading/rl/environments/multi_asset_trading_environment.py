@@ -10,7 +10,10 @@ class MultiAssetTradingEnvironment:
         self.assets = assets
         self.initial_balance = initial_balance
         self.market_constraints = MarketConstraints()
-        self.asset_correlations = {}  # Initialisation de asset_correlations
+        self.asset_correlations = {}
+        self.allocation_history = []  # Ajout de l'historique des allocations
+        self.min_diversification_factor = 0.2
+        self.max_diversification_factor = 2.0
         self.reset()
 
     def reset(self):
@@ -18,11 +21,19 @@ class MultiAssetTradingEnvironment:
         self.holdings = {asset: 0.0 for asset in self.assets}
         self.portfolio_value = self.initial_balance
         self.slippage_value = 0.0
-        self.asset_correlations = self._calculate_correlations()  # Mise à jour des corrélations
+        self.asset_correlations = self._calculate_correlations()
+        self.allocation_history = []  # Réinitialisation de l'historique
         return self._get_state()
 
     def step(self, actions: Dict[str, float]):
-        """Exécute une étape de trading."""
+        """Exécute une étape de trading.
+
+        Args:
+            actions (Dict[str, float]): Actions pour chaque actif (-1 à 1)
+
+        Returns:
+            tuple: (état, récompense, terminé, info)
+        """
         old_portfolio_value = self.portfolio_value
         total_slippage = 0.0
 
@@ -62,13 +73,19 @@ class MultiAssetTradingEnvironment:
 
         # Calcul de la récompense
         reward = (self.portfolio_value - old_portfolio_value) / old_portfolio_value
-        reward += self._calculate_diversification_reward()
+        reward = self._diversification_reward(reward)
 
         # Vérification de fin d'épisode
         done = self.portfolio_value <= 0  # L'épisode se termine si le portfolio est vide
-        truncated = False  # Pas de troncature dans cet environnement
 
-        return self._get_state(), reward, done, truncated, {}
+        # Mise à jour de l'historique des allocations
+        current_weights = {
+            asset: (self.holdings[asset] * self._get_current_price(asset)) / max(self.portfolio_value, 1e-6)
+            for asset in self.assets
+        }
+        self.allocation_history.append(current_weights)
+
+        return self._get_state(), reward, done, self._get_info()
 
     def _get_state(self):
         """Retourne l'état actuel de l'environnement."""
@@ -81,11 +98,23 @@ class MultiAssetTradingEnvironment:
         }
         return state
 
-    def _calculate_diversification_reward(self):
-        """Calcule la récompense de diversification."""
-        total_value = self.portfolio_value
+    def _diversification_reward(self, base_reward: float) -> float:
+        """Calcule la récompense de diversification.
+
+        Args:
+            base_reward (float): La récompense de base à ajuster.
+
+        Returns:
+            float: La récompense ajustée selon la diversification.
+        """
+        total_value = sum(
+            self.holdings[asset] * self._get_current_price(asset)
+            for asset in self.assets
+        )
+
+        # Si le portefeuille est vide, retourner la récompense de base
         if total_value <= 0:
-            return 0.0
+            return base_reward
 
         # Calcul des poids du portfolio
         weights = {
@@ -93,17 +122,46 @@ class MultiAssetTradingEnvironment:
             for asset in self.assets
         }
 
-        # Calcul de la corrélation moyenne
-        correlations = self._calculate_correlations()
-        avg_correlation = (
-            np.mean([corr for pair, corr in correlations.items() if not np.isnan(corr)])
-            if correlations
-            else 0.0
-        )
+        # Calcul de l'indice de diversification (HHI inversé)
+        hhi = sum(w * w for w in weights.values())
+        n = len(weights)
+        diversification_index = (1 - hhi) / (1 - 1/n) if n > 1 else 0
 
-        # Bonus de diversification
-        diversification_score = 1 - abs(avg_correlation)
-        return diversification_score * 0.001  # Petit bonus
+        # Calcul de la pénalité de corrélation
+        correlation_penalty = 0.0
+        if self.asset_correlations and len(weights) > 1:
+            weighted_correlations = []
+            for i, (asset1, w1) in enumerate(weights.items()):
+                for j, (asset2, w2) in enumerate(weights.items()):
+                    if i < j and w1 > 0 and w2 > 0:
+                        corr = abs(self.asset_correlations.get((asset1, asset2), 0))
+                        weighted_corr = corr * w1 * w2 * 5.0  # Augmentation de l'impact
+                        weighted_correlations.append(weighted_corr)
+            
+            if weighted_correlations:
+                correlation_penalty = sum(weighted_correlations)
+
+        # Calcul du facteur de diversification
+        if diversification_index < 0.5:
+            diversification_factor = max(
+                self.min_diversification_factor,
+                0.5 * (1.0 + diversification_index - correlation_penalty)
+            )
+        else:
+            diversification_factor = min(
+                self.max_diversification_factor,
+                1.0 + diversification_index - correlation_penalty
+            )
+
+        # Stockage des métriques pour les tests
+        self.last_diversification_metrics = {
+            "diversification_index": diversification_index,
+            "correlation_penalty": correlation_penalty,
+            "weights": weights,
+            "diversification_factor": diversification_factor
+        }
+
+        return base_reward * diversification_factor
 
     def _calculate_correlations(self):
         """Calcule les corrélations entre les actifs."""
@@ -138,3 +196,12 @@ class MultiAssetTradingEnvironment:
         """Retourne les rendements historiques d'un actif."""
         # À implémenter avec les données réelles
         return np.array([0.01, -0.01, 0.02])  # Rendements fictifs pour l'exemple
+
+    def _get_info(self):
+        """Retourne des informations supplémentaires sur l'épisode."""
+        return {
+            "portfolio_value": self.portfolio_value,
+            "holdings": self.holdings.copy(),
+            "slippage": self.slippage_value,
+            "allocation_history": self.allocation_history
+        }

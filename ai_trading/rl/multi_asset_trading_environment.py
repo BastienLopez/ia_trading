@@ -744,64 +744,94 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
         """Calcule la récompense de diversification.
 
         Args:
-            base_reward (float): La récompense de base à ajuster.
+            base_reward (float): Récompense de base à ajuster.
 
         Returns:
-            float: La récompense ajustée selon la diversification.
+            float: Récompense ajustée selon la diversification.
         """
-        # Calculer les poids normalisés du portefeuille
-        total_value = sum(self.crypto_holdings.values())
-        if total_value == 0:
+        portfolio_value = self.get_portfolio_value()
+        
+        # Si le portefeuille est vide ou a une valeur nulle, retourner la récompense de base
+        if portfolio_value <= 0:
             self.last_diversification_metrics = {
                 "diversification_index": 0.0,
                 "correlation_penalty": 0.0,
-                "weights": {asset: 0.0 for asset in self.crypto_holdings},
-                "diversification_factor": self.min_diversification_factor
+                "diversification_factor": 1.0
             }
-            return base_reward * self.min_diversification_factor
+            return base_reward
 
-        weights = {
-            asset: value / total_value
-            for asset, value in self.crypto_holdings.items()
-        }
+        # Calculer les poids du portefeuille
+        weights = {}
+        for asset, quantity in self.crypto_holdings.items():
+            price = self.data_dict[asset].iloc[self.current_step]["close"]
+            value = quantity * price
+            if value > 0:  # Ne considérer que les positions non nulles
+                weights[asset] = value / portfolio_value
 
-        # Calculer l'indice de diversification (HHI inversé)
+        # Si aucun actif n'a de poids positif, retourner la récompense de base
+        if not weights:
+            self.last_diversification_metrics = {
+                "diversification_index": 0.0,
+                "correlation_penalty": 0.0,
+                "diversification_factor": 1.0
+            }
+            return base_reward
+
+        # Calculer l'indice de diversification (HHI normalisé)
         hhi = sum(w * w for w in weights.values())
-        n = len(weights)
-        diversification_index = (1 - hhi) / (1 - 1/n) if n > 1 else 0
+        n = len(weights)  # Nombre d'actifs avec position non nulle
+        
+        # Pour un portefeuille concentré (n=1), on veut une récompense élevée
+        if n <= 1:
+            diversification_factor = 1.5  # Récompense fixe pour concentration
+            correlation_penalty = 0.0
+        else:
+            # Calculer l'indice de diversification normalisé
+            min_hhi = 1 / n
+            max_hhi = 1.0
+            normalized_hhi = 1 - ((hhi - min_hhi) / (max_hhi - min_hhi))
 
-        # Calculer la pénalité de corrélation
-        correlation_penalty = 0.0
-        if self.asset_correlations is not None and len(weights) > 1:
-            weighted_correlations = []
-            for i, (asset1, w1) in enumerate(weights.items()):
-                for j, (asset2, w2) in enumerate(weights.items()):
-                    if i < j:  # Éviter les doublons et la diagonale
-                        corr = self.asset_correlations.loc[asset1, asset2]
-                        weighted_corr = abs(corr) * w1 * w2
-                        weighted_correlations.append(weighted_corr)
+            # Calculer la pénalité de corrélation
+            correlation_penalty = 0.0
+            if self.asset_correlations is not None:
+                active_assets = list(weights.keys())
+                total_weight = 0
+                weighted_correlations = []
+                
+                # Calculer la corrélation moyenne pondérée
+                for i in range(len(active_assets)):
+                    for j in range(i + 1, len(active_assets)):
+                        asset1, asset2 = active_assets[i], active_assets[j]
+                        corr = abs(self.asset_correlations.loc[asset1, asset2])
+                        # Utiliser la racine carrée des poids pour réduire l'impact des petites positions
+                        weight_factor = np.sqrt(weights[asset1] * weights[asset2])
+                        weighted_correlations.append(corr)
+                        total_weight += weight_factor
+                
+                if weighted_correlations:
+                    # Calculer la moyenne des corrélations
+                    avg_correlation = sum(weighted_correlations) / len(weighted_correlations)
+                    # Amplifier l'effet des corrélations élevées
+                    correlation_penalty = min(avg_correlation * avg_correlation * 2.0, 1.0)
+
+            # Calculer le facteur de diversification
+            diversification_factor = normalized_hhi * (1 - correlation_penalty)
             
-            if weighted_correlations:
-                correlation_penalty = sum(weighted_correlations) * 2  # Multiplier par 2 pour compenser les paires manquantes
-
-        # Calculer le facteur de diversification final
-        diversification_factor = 1.0
-        if diversification_index < 0.5:  # Mauvaise diversification
-            diversification_factor = max(
-                self.min_diversification_factor,
-                1.0 - (0.5 - diversification_index) - correlation_penalty
+            # Ajuster le facteur pour qu'il soit entre min_diversification_factor et max_diversification_factor
+            diversification_factor = self.min_diversification_factor + (
+                (self.max_diversification_factor - self.min_diversification_factor) * diversification_factor
             )
-        else:  # Bonne diversification
+            
+            # S'assurer que le facteur reste dans les limites
             diversification_factor = min(
                 self.max_diversification_factor,
-                1.0 + (diversification_index - 0.5) - correlation_penalty
+                max(self.min_diversification_factor, diversification_factor)
             )
 
-        # Stocker les métriques pour les tests
+        # Sauvegarder les métriques pour le debugging
         self.last_diversification_metrics = {
-            "diversification_index": diversification_index,
+            "diversification_index": 0.0 if n <= 1 else normalized_hhi,
             "correlation_penalty": correlation_penalty,
-            "weights": weights,
             "diversification_factor": diversification_factor
         }
 
