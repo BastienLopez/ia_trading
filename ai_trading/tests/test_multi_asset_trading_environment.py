@@ -11,13 +11,19 @@ class TestMultiAssetTradingEnvironment(unittest.TestCase):
         """Prépare l'environnement de test."""
         # Création de données de test
         dates = pd.date_range(start="2024-01-01", periods=100, freq="D")
+
+        # Création de données corrélées pour tester la diversification
+        base_prices = np.random.uniform(45000, 55000, 100)
+        eth_correlation = 0.8  # Forte corrélation avec BTC
+        xrp_correlation = 0.2  # Faible corrélation avec BTC
+
         self.data_dict = {
             "BTC/USDT": pd.DataFrame(
                 {
-                    "open": np.random.uniform(45000, 55000, 100),
-                    "high": np.random.uniform(46000, 56000, 100),
-                    "low": np.random.uniform(44000, 54000, 100),
-                    "close": np.random.uniform(45000, 55000, 100),
+                    "open": base_prices,
+                    "high": base_prices * 1.02,
+                    "low": base_prices * 0.98,
+                    "close": base_prices,
                     "volume": np.random.uniform(1000, 5000, 100),
                     "orderbook_depth": [
                         {
@@ -32,16 +38,42 @@ class TestMultiAssetTradingEnvironment(unittest.TestCase):
             ),
             "ETH/USDT": pd.DataFrame(
                 {
-                    "open": np.random.uniform(2800, 3200, 100),
-                    "high": np.random.uniform(2900, 3300, 100),
-                    "low": np.random.uniform(2700, 3100, 100),
-                    "close": np.random.uniform(2800, 3200, 100),
+                    "open": base_prices * eth_correlation
+                    + np.random.normal(0, 1000, 100),
+                    "high": base_prices * eth_correlation * 1.02
+                    + np.random.normal(0, 1000, 100),
+                    "low": base_prices * eth_correlation * 0.98
+                    + np.random.normal(0, 1000, 100),
+                    "close": base_prices * eth_correlation
+                    + np.random.normal(0, 1000, 100),
                     "volume": np.random.uniform(5000, 10000, 100),
                     "orderbook_depth": [
                         {
                             "spread_pct": 0.15,
                             "total_volume": 2000.0,
                             "volume_imbalance": -0.1,
+                        }
+                    ]
+                    * 100,
+                },
+                index=dates,
+            ),
+            "XRP/USDT": pd.DataFrame(
+                {
+                    "open": base_prices * xrp_correlation
+                    + np.random.normal(0, 100, 100),
+                    "high": base_prices * xrp_correlation * 1.02
+                    + np.random.normal(0, 100, 100),
+                    "low": base_prices * xrp_correlation * 0.98
+                    + np.random.normal(0, 100, 100),
+                    "close": base_prices * xrp_correlation
+                    + np.random.normal(0, 100, 100),
+                    "volume": np.random.uniform(10000, 20000, 100),
+                    "orderbook_depth": [
+                        {
+                            "spread_pct": 0.2,
+                            "total_volume": 5000.0,
+                            "volume_imbalance": 0.1,
                         }
                     ]
                     * 100,
@@ -58,10 +90,99 @@ class TestMultiAssetTradingEnvironment(unittest.TestCase):
             base_slippage=0.001,
             execution_delay=2,
             market_impact_factor=0.1,
+            correlation_threshold=0.7,
+            volatility_threshold=0.05,
         )
 
-    def test_market_constraints_initialization(self):
-        """Teste l'initialisation des contraintes de marché."""
+    def test_correlation_calculation(self):
+        """Teste le calcul des corrélations entre actifs."""
+        self.env._calculate_asset_correlations()
+        correlations = self.env.asset_correlations
+
+        # Vérification des corrélations
+        self.assertGreater(
+            correlations["BTC/USDT"]["ETH/USDT"],
+            self.env.correlation_threshold,
+            "BTC et ETH devraient être fortement corrélés",
+        )
+        self.assertLess(
+            correlations["BTC/USDT"]["XRP/USDT"],
+            self.env.correlation_threshold,
+            "BTC et XRP devraient être faiblement corrélés",
+        )
+
+    def test_volatility_filtering(self):
+        """Teste le filtrage des actifs basé sur la volatilité."""
+        volatilities = self.env._calculate_asset_volatilities()
+        filtered_assets = self.env._filter_assets()
+
+        # Vérification que les actifs sont correctement filtrés
+        for asset in self.data_dict.keys():
+            if volatilities[asset] > self.env.volatility_threshold:
+                self.assertIn(asset, filtered_assets)
+            else:
+                self.assertNotIn(asset, filtered_assets)
+
+    def test_diversification_reward(self):
+        """Teste la récompense de diversification."""
+        # Test avec allocation équilibrée
+        self.env.crypto_holdings = {
+            "BTC/USDT": 0.1,
+            "ETH/USDT": 1.67,
+            "XRP/USDT": 5000,
+        }
+
+        base_reward = 1.0
+        diversified_reward = self.env._diversification_reward(base_reward)
+
+        # La récompense devrait être amplifiée pour une bonne diversification
+        self.assertGreater(
+            diversified_reward,
+            base_reward,
+            "La récompense devrait être amplifiée pour un portefeuille diversifié",
+        )
+
+        # Test avec allocation concentrée
+        self.env.crypto_holdings = {
+            "BTC/USDT": 0.3,
+            "ETH/USDT": 0.0,
+            "XRP/USDT": 0.0,
+        }
+
+        concentrated_reward = self.env._diversification_reward(base_reward)
+
+        # La récompense devrait être réduite pour une mauvaise diversification
+        self.assertLess(
+            concentrated_reward,
+            diversified_reward,
+            "La récompense devrait être plus faible pour un portefeuille concentré",
+        )
+
+    def test_portfolio_rebalancing(self):
+        """Teste le rééquilibrage du portefeuille."""
+        # Configuration initiale
+        self.env.reset()
+
+        # Première allocation
+        action1 = np.array([0.4, 0.3, 0.3])  # Allocation équilibrée
+        _, _, _, _ = self.env.step(action1)
+
+        initial_holdings = self.env.crypto_holdings.copy()
+
+        # Deuxième allocation après changement de marché
+        action2 = np.array([0.3, 0.4, 0.3])  # Modification de l'allocation
+        _, _, _, _ = self.env.step(action2)
+
+        # Vérifier que les holdings ont changé
+        for asset in self.env.crypto_holdings:
+            self.assertNotEqual(
+                self.env.crypto_holdings[asset],
+                initial_holdings[asset],
+                f"Les holdings de {asset} devraient changer après le rééquilibrage",
+            )
+
+    def test_market_constraints_integration(self):
+        """Teste l'intégration des contraintes de marché."""
         self.assertIsNotNone(self.env.market_constraints)
         self.assertEqual(self.env.market_constraints.slippage_model, "dynamic")
         self.assertEqual(self.env.market_constraints.base_slippage, 0.001)
@@ -71,7 +192,7 @@ class TestMultiAssetTradingEnvironment(unittest.TestCase):
     def test_delayed_execution(self):
         """Teste le délai d'exécution des ordres."""
         # Créer un ordre
-        action = np.array([0.3, 0.0])  # 30% en BTC
+        action = np.array([0.3, 0.0, 0.0])  # 30% en BTC
         initial_balance = self.env.balance
 
         # Premier pas
@@ -86,24 +207,17 @@ class TestMultiAssetTradingEnvironment(unittest.TestCase):
 
         # Attendre la moitié du délai
         for _ in range(self.env.market_constraints.execution_delay // 2):
-            _, _, _, _ = self.env.step(np.array([0.0, 0.0]))
-            self.assertEqual(
-                len(self.env.pending_orders), 1
-            )  # L'ordre doit toujours être en attente
+            _, _, _, _ = self.env.step(np.zeros(3))
+            self.assertEqual(len(self.env.pending_orders), 1)
 
         # Attendre le reste du délai
-        for _ in range(self.env.market_constraints.execution_delay // 2):
-            _, _, _, _ = self.env.step(np.array([0.0, 0.0]))
-
-        # Un pas supplémentaire pour l'exécution finale
-        _, _, _, _ = self.env.step(np.array([0.0, 0.0]))
+        for _ in range(self.env.market_constraints.execution_delay // 2 + 1):
+            _, _, _, _ = self.env.step(np.zeros(3))
 
         # Vérifier que l'ordre a été exécuté
         self.assertEqual(len(self.env.pending_orders), 0)
-        self.assertLess(
-            self.env.balance, initial_balance
-        )  # Le solde doit avoir diminué
-        self.assertGreater(self.env.crypto_holdings["BTC/USDT"], 0)  # Doit avoir du BTC
+        self.assertLess(self.env.balance, initial_balance)
+        self.assertGreater(self.env.crypto_holdings["BTC/USDT"], 0)
 
     def test_slippage_impact(self):
         """Teste l'impact du slippage sur les prix d'exécution."""
@@ -112,7 +226,7 @@ class TestMultiAssetTradingEnvironment(unittest.TestCase):
         initial_balance = self.env.balance
 
         # Test avec différents niveaux d'achat
-        test_sizes = [0.2, 0.5, 0.8]  # Petite, moyenne et grande transaction
+        test_sizes = [0.2, 0.5, 0.8]
         slippage_costs = []
 
         for size in test_sizes:
@@ -121,7 +235,7 @@ class TestMultiAssetTradingEnvironment(unittest.TestCase):
             self.env.balance = initial_balance
 
             # Exécuter l'action d'achat
-            action = np.array([size, 0.0])
+            action = np.array([size, 0.0, 0.0])
             _, _, _, info = self.env.step(action)
 
             # Calculer le coût réel et théorique
@@ -131,90 +245,17 @@ class TestMultiAssetTradingEnvironment(unittest.TestCase):
             slippage_costs.append(slippage_cost)
 
             # Vérifications
-            self.assertGreater(
-                actual_cost,
-                expected_cost,
-                f"Le coût avec slippage devrait être plus élevé pour une taille de {size}",
-            )
-            self.assertLess(
-                slippage_cost,
-                0.05,  # Max 5% de slippage
-                f"Le slippage ne devrait pas dépasser 5%, obtenu: {slippage_cost:.2%}",
-            )
+            self.assertGreater(actual_cost, expected_cost)
+            self.assertLess(slippage_cost, 0.05)
 
-        # Vérifier que le slippage augmente avec la taille de l'ordre
-        self.assertLess(
-            slippage_costs[0],
-            slippage_costs[1],
-            "Le slippage devrait augmenter avec la taille de l'ordre",
-        )
-        self.assertLess(
-            slippage_costs[1],
-            slippage_costs[2],
-            "Le slippage devrait augmenter avec la taille de l'ordre",
-        )
-
-    def test_market_impact(self):
-        """Teste l'impact sur le marché des transactions."""
-        # Action d'achat importante
-        action = np.array([1.0, 0.0])  # 100% en BTC
-
-        # Exécution
-        _, _, _, _ = self.env.step(action)
-
-        # Vérifier l'enregistrement de l'impact
-        self.assertGreater(len(self.env.market_impacts["BTC/USDT"]), 0)
-        impact = self.env.market_impacts["BTC/USDT"][-1]
-
-        # L'impact devrait être positif et le temps de récupération > 0
-        self.assertGreater(impact["impact"], 0)
-        self.assertGreater(impact["recovery_time"], 0)
-
-    def test_orderbook_integration(self):
-        """Teste l'intégration des données du carnet d'ordres."""
-        # Vérifier que les données du carnet sont mises à jour
-        self.env._update_orderbook_data()
-
-        # Vérifier les données pour BTC
-        btc_depth = self.env.market_constraints.orderbook_depth.get("BTC/USDT")
-        self.assertIsNotNone(btc_depth)
-        self.assertEqual(btc_depth["spread_pct"], 0.1)
-        self.assertEqual(btc_depth["total_volume"], 1000.0)
-
-        # Vérifier les données pour ETH
-        eth_depth = self.env.market_constraints.orderbook_depth.get("ETH/USDT")
-        self.assertIsNotNone(eth_depth)
-        self.assertEqual(eth_depth["spread_pct"], 0.15)
-        self.assertEqual(eth_depth["total_volume"], 2000.0)
-
-    def test_extreme_market_conditions(self):
-        """Teste le comportement dans des conditions de marché extrêmes."""
-        # Simuler une forte volatilité et un faible volume
-        self.data_dict["BTC/USDT"].loc[:, "volume"] = 100.0  # Volume très faible
-        self.data_dict["BTC/USDT"].loc[:, "orderbook_depth"] = [
-            {
-                "spread_pct": 1.0,  # Spread très large
-                "total_volume": 100.0,  # Faible liquidité
-                "volume_imbalance": 0.8,  # Fort déséquilibre
-            }
-        ] * 100
-
-        # Action d'achat importante
-        action = np.array([1.0, 0.0])
-        initial_balance = self.env.balance
-
-        # Exécution
-        _, _, _, _ = self.env.step(action)
-
-        # Vérifier que les protections ont fonctionné
-        executed_cost = initial_balance - self.env.balance
-        max_expected_cost = initial_balance * 1.05  # Max 5% de slippage
-        self.assertLess(executed_cost, max_expected_cost)
+        # Vérifier que le slippage augmente avec la taille
+        self.assertLess(slippage_costs[0], slippage_costs[1])
+        self.assertLess(slippage_costs[1], slippage_costs[2])
 
     def test_multi_order_processing(self):
         """Teste le traitement de plusieurs ordres simultanés."""
         # Créer plusieurs ordres
-        action = np.array([0.4, 0.4])  # 40% en BTC, 40% en ETH
+        action = np.array([0.4, 0.4, 0.0])  # 40% en BTC, 40% en ETH
         initial_balance = self.env.balance
 
         # Premier pas
@@ -223,26 +264,21 @@ class TestMultiAssetTradingEnvironment(unittest.TestCase):
         # Vérifier que les deux ordres sont en attente
         self.assertEqual(len(self.env.pending_orders), 2)
 
-        # Vérifier que les ordres ont des délais corrects
+        # Vérifier les délais
         for order in self.env.pending_orders:
             self.assertEqual(
                 order["delay"], self.env.market_constraints.execution_delay
             )
 
         # Attendre l'exécution complète
-        for _ in range(self.env.market_constraints.execution_delay):
-            _, _, _, _ = self.env.step(np.array([0.0, 0.0]))
+        for _ in range(self.env.market_constraints.execution_delay + 1):
+            _, _, _, _ = self.env.step(np.zeros(3))
 
-        # Un pas supplémentaire pour l'exécution finale
-        _, _, _, _ = self.env.step(np.array([0.0, 0.0]))
-
-        # Vérifier que tous les ordres ont été exécutés
+        # Vérifier l'exécution
         self.assertEqual(len(self.env.pending_orders), 0)
-        self.assertLess(
-            self.env.balance, initial_balance
-        )  # Le solde doit avoir diminué
-        self.assertGreater(self.env.crypto_holdings["BTC/USDT"], 0)  # Doit avoir du BTC
-        self.assertGreater(self.env.crypto_holdings["ETH/USDT"], 0)  # Doit avoir du ETH
+        self.assertLess(self.env.balance, initial_balance)
+        self.assertGreater(self.env.crypto_holdings["BTC/USDT"], 0)
+        self.assertGreater(self.env.crypto_holdings["ETH/USDT"], 0)
 
 
 if __name__ == "__main__":

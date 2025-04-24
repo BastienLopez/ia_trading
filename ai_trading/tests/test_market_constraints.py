@@ -22,6 +22,15 @@ class TestMarketConstraints(unittest.TestCase):
             "depth_range_asks_5": 120.0,
         }
 
+        # Données pour conditions de marché extrêmes
+        self.extreme_depth = {
+            "spread_pct": 2.0,  # Spread très large
+            "total_volume": 10.0,  # Très faible liquidité
+            "volume_imbalance": 0.9,  # Fort déséquilibre
+            "depth_range_bids_5": 5.0,
+            "depth_range_asks_5": 50.0,
+        }
+
         self.constraints.update_orderbook_depth("BTC/USDT", self.mock_depth)
 
     def test_slippage_fixed(self):
@@ -128,41 +137,123 @@ class TestMarketConstraints(unittest.TestCase):
         )
         self.assertEqual(delay, 0)
 
-    def test_orderbook_update(self):
-        """Teste la mise à jour des données du carnet d'ordres."""
-        new_depth = {
-            "spread_pct": 0.2,
-            "total_volume": 2000.0,
-            "volume_imbalance": -0.1,
-        }
+    def test_extreme_market_conditions(self):
+        """Teste le comportement dans des conditions de marché extrêmes."""
+        # Mise à jour avec des conditions extrêmes
+        self.constraints.update_orderbook_depth("BTC/USDT", self.extreme_depth)
 
-        self.constraints.update_orderbook_depth("ETH/USDT", new_depth)
-
-        # Vérifier que les données ont été mises à jour
-        self.assertEqual(self.constraints.orderbook_depth["ETH/USDT"], new_depth)
-
-    def test_extreme_values(self):
-        """Teste le comportement avec des valeurs extrêmes."""
-        # Test avec un très grand volume
+        # Test slippage en conditions extrêmes
         slippage = self.constraints.calculate_slippage(
             symbol="BTC/USDT",
             action_value=1.0,
-            volume=1e6,  # Volume très élevé
+            volume=5.0,  # 50% du volume total disponible
             volatility=0.5,  # Forte volatilité
-            avg_volume=1000.0,
+            avg_volume=10.0,
         )
-        self.assertLessEqual(slippage, 0.01)  # Ne devrait pas dépasser 1%
+        self.assertLessEqual(slippage, 0.01, "Le slippage ne doit pas dépasser 1%")
 
-        # Test avec une forte volatilité
+        # Test impact marché en conditions extrêmes
         impact, recovery = self.constraints.calculate_market_impact(
             symbol="BTC/USDT",
             action_value=1.0,
-            volume=1e6,
+            volume=5.0,
             price=50000.0,
-            avg_volume=1000.0,
+            avg_volume=10.0,
         )
-        self.assertLessEqual(impact, 0.05)  # Ne devrait pas dépasser 5%
-        self.assertLessEqual(recovery, 100)  # Ne devrait pas dépasser 100 pas
+        self.assertLessEqual(impact, 0.05, "L'impact ne doit pas dépasser 5%")
+        self.assertEqual(recovery, 100, "Le temps de récupération doit être maximal")
+
+        # Test délai en conditions extrêmes
+        delay = self.constraints.calculate_execution_delay(
+            symbol="BTC/USDT", action_value=1.0, volume=5.0, avg_volume=10.0
+        )
+        self.assertEqual(delay, 10, "Le délai doit être maximal")
+
+    def test_gradual_market_degradation(self):
+        """Teste la dégradation progressive des conditions de marché."""
+        volumes = [100.0, 500.0, 1000.0]
+        spreads = [0.1, 0.5, 1.0]
+        previous_slippage = 0
+        previous_impact = 0
+
+        for i, (volume, spread) in enumerate(zip(volumes, spreads)):
+            # Mise à jour des conditions de marché
+            depth_data = self.mock_depth.copy()
+            depth_data["spread_pct"] = spread
+            depth_data["total_volume"] = 1000.0 - volume
+            self.constraints.update_orderbook_depth("BTC/USDT", depth_data)
+
+            # Calcul du slippage
+            slippage = self.constraints.calculate_slippage(
+                symbol="BTC/USDT",
+                action_value=1.0,
+                volume=volume,
+                volatility=0.02 * (i + 1),
+                avg_volume=1000.0,
+            )
+
+            # Calcul de l'impact
+            impact, _ = self.constraints.calculate_market_impact(
+                symbol="BTC/USDT",
+                action_value=1.0,
+                volume=volume,
+                price=50000.0,
+                avg_volume=1000.0,
+            )
+
+            # Vérification de la dégradation progressive
+            if i > 0:
+                self.assertGreater(
+                    slippage,
+                    previous_slippage,
+                    "Le slippage devrait augmenter avec la dégradation du marché",
+                )
+                self.assertGreater(
+                    impact,
+                    previous_impact,
+                    "L'impact devrait augmenter avec la dégradation du marché",
+                )
+
+            previous_slippage = slippage
+            previous_impact = impact
+
+    def test_invalid_inputs(self):
+        """Teste le comportement avec des entrées invalides."""
+        # Test avec volume négatif
+        slippage = self.constraints.calculate_slippage(
+            symbol="BTC/USDT",
+            action_value=1.0,
+            volume=-1.0,
+            volatility=0.02,
+            avg_volume=100.0,
+        )
+        self.assertEqual(
+            slippage, 0.0, "Le slippage doit être 0 pour un volume négatif"
+        )
+
+        # Test avec volatilité négative
+        slippage = self.constraints.calculate_slippage(
+            symbol="BTC/USDT",
+            action_value=1.0,
+            volume=1.0,
+            volatility=-0.02,
+            avg_volume=100.0,
+        )
+        self.assertGreaterEqual(slippage, 0.0, "Le slippage ne doit pas être négatif")
+
+        # Test avec symbole invalide
+        slippage = self.constraints.calculate_slippage(
+            symbol="INVALID/PAIR",
+            action_value=1.0,
+            volume=1.0,
+            volatility=0.02,
+            avg_volume=100.0,
+        )
+        self.assertEqual(
+            slippage,
+            self.constraints.base_slippage,
+            "Doit utiliser le slippage de base pour un symbole invalide",
+        )
 
 
 if __name__ == "__main__":

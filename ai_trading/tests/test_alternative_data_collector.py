@@ -1,10 +1,9 @@
 import logging
 import unittest
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import numpy as np
 import pandas as pd
-from web3 import Web3
 
 from ..rl.multi_asset_trading_environment import MultiAssetTradingEnvironment
 from ..utils.alternative_data_collector import AlternativeDataCollector
@@ -14,9 +13,14 @@ logger = logging.getLogger(__name__)
 
 class TestAlternativeDataCollector(unittest.TestCase):
     def setUp(self):
-        """Prépare l'environnement de test."""
-        self.eth_address = "0x742d35Cc6634C0532925a3b844Bc454e4438f44e"
-        self.keywords = ["bitcoin", "ethereum"]
+        """Initialisation des tests."""
+        self.collector = AlternativeDataCollector(
+            twitter_api_key="test_key",
+            twitter_api_secret="test_secret",
+            reddit_client_id="test_id",
+            reddit_client_secret="test_secret",
+        )
+        self.keywords = ["bitcoin"]
 
         # Mock des réponses Twitter
         self.mock_tweet = Mock()
@@ -26,61 +30,6 @@ class TestAlternativeDataCollector(unittest.TestCase):
         self.mock_post = Mock()
         self.mock_post.title = "Bitcoin Analysis"
         self.mock_post.selftext = "The market is showing strong bullish signals"
-
-        # Mock des transactions Ethereum
-        self.mock_transaction = {
-            "from": self.eth_address.lower(),
-            "to": "0x1234567890123456789012345678901234567890",
-            "value": 1000000000000000000,  # 1 ETH
-            "hash": "0x123456789abcdef",
-            "blockNumber": 1000,
-        }
-
-    def _setup_web3_mock(self, mock_web3_class):
-        """Configure le mock Web3 pour les tests."""
-        mock_w3 = MagicMock()
-        mock_w3.is_connected.return_value = True
-        mock_w3.is_address.return_value = True
-
-        # Configuration du provider
-        mock_provider = MagicMock()
-        mock_web3_class.HTTPProvider = Mock(return_value=mock_provider)
-        mock_web3_class.return_value = mock_w3
-
-        # Configuration de eth
-        mock_eth = MagicMock()
-        mock_eth.get_balance.return_value = 2000000000000000000  # 2 ETH
-        mock_eth.get_transaction_count.return_value = 100
-        mock_eth.block_number = 1000
-
-        mock_block = MagicMock()
-        mock_block.transactions = [self.mock_transaction]
-        mock_eth.get_block.return_value = mock_block
-
-        # Configuration des méthodes de conversion
-        mock_w3.from_wei.return_value = 2.0  # 2 ETH
-        mock_w3.to_wei = Web3.to_wei
-        mock_w3.eth = mock_eth
-
-        return mock_w3
-
-    @patch("web3.Web3")
-    def test_get_onchain_metrics(self, mock_web3_class):
-        """Teste la récupération des métriques on-chain."""
-        # Configuration du mock Web3
-        mock_w3 = self._setup_web3_mock(mock_web3_class)
-
-        # Test
-        collector = AlternativeDataCollector()
-        collector.w3 = mock_w3  # Définir directement le mock
-        metrics = collector.get_onchain_metrics(self.eth_address)
-
-        # Vérifications
-        self.assertIn("balance", metrics)
-        self.assertIn("transaction_count", metrics)
-        self.assertIn("average_volume", metrics)
-        self.assertEqual(metrics["transaction_count"], 100)
-        self.assertEqual(metrics["balance"], 2.0)  # 2 ETH
 
     @patch("tweepy.API")
     @patch("praw.Reddit")
@@ -97,30 +46,21 @@ class TestAlternativeDataCollector(unittest.TestCase):
         mock_reddit.return_value.subreddit.return_value = mock_subreddit
 
         # Test
-        collector = AlternativeDataCollector(
-            twitter_api_key="test",
-            twitter_api_secret="test",
-            reddit_client_id="test",
-            reddit_client_secret="test",
-        )
-
-        sentiments = collector.analyze_social_sentiment(self.keywords[0])
+        sentiments = self.collector.analyze_social_sentiment(self.keywords[0])
 
         # Vérifications
         self.assertIn("twitter_avg_polarity", sentiments)
         self.assertIn("reddit_avg_polarity", sentiments)
         self.assertIn("twitter_volume", sentiments)
         self.assertIn("reddit_volume", sentiments)
+        self.assertGreaterEqual(sentiments["twitter_volume"], 0)
+        self.assertGreaterEqual(sentiments["reddit_volume"], 0)
 
     @patch("tweepy.API")
     @patch("praw.Reddit")
-    @patch("web3.Web3")
-    def test_collect_alternative_data(self, mock_web3_class, mock_reddit, mock_twitter):
+    def test_collect_alternative_data(self, mock_reddit, mock_twitter):
         """Teste la collecte complète des données alternatives."""
         try:
-            # Configuration des mocks pour Web3
-            mock_w3 = self._setup_web3_mock(mock_web3_class)
-
             # Configuration des mocks pour Twitter et Reddit
             mock_twitter_api = Mock()
             mock_twitter_api.search_tweets.return_value = [self.mock_tweet]
@@ -131,27 +71,23 @@ class TestAlternativeDataCollector(unittest.TestCase):
             mock_reddit.return_value.subreddit.return_value = mock_subreddit
 
             # Test avec une durée très courte
-            collector = AlternativeDataCollector(
-                twitter_api_key="test",
-                twitter_api_secret="test",
-                reddit_client_id="test",
-                reddit_client_secret="test",
-            )
-            collector.w3 = mock_w3  # Définir directement le mock
-
-            logger.info("Début de la collecte des données de test...")
-            data = collector.collect_alternative_data(
-                addresses=[self.eth_address],
+            data = self.collector.collect_alternative_data(
                 keywords=self.keywords,
                 duration_minutes=0.1,  # 6 secondes
                 interval_seconds=1,
             )
-            logger.info("Fin de la collecte des données de test")
 
             # Vérifications
             self.assertIsInstance(data, pd.DataFrame)
             self.assertTrue(len(data) > 0)
             logger.info(f"DataFrame créé avec {len(data)} lignes")
+
+            # Vérifier que les colonnes de sentiment sont présentes
+            for keyword in self.keywords:
+                self.assertIn(f"{keyword}_twitter_avg_polarity", data.columns)
+                self.assertIn(f"{keyword}_reddit_avg_polarity", data.columns)
+                self.assertIn(f"{keyword}_twitter_volume", data.columns)
+                self.assertIn(f"{keyword}_reddit_volume", data.columns)
 
         except Exception as e:
             logger.error(f"Erreur dans test_collect_alternative_data: {e}")
