@@ -268,7 +268,7 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
         Exécute une étape de trading.
 
         Args:
-            action: Action de trading pour chaque actif
+            action: Action de trading pour chaque actif (-1 à 1)
 
         Returns:
             tuple: (observation, reward, terminated, truncated, info)
@@ -279,50 +279,48 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
         # Traitement des ordres en attente
         self._process_pending_orders()
 
+        # Normaliser les actions pour qu'elles représentent des pourcentages du portefeuille
+        normalized_actions = self._normalize_allocation(action)
+
         # Création des nouveaux ordres
         for i, symbol in enumerate(self.symbols):
-            if abs(action[i]) > 1e-6:  # Seulement si l'action n'est pas nulle
-                volume = abs(action[i]) * self.balance / self.last_prices[symbol]
+            if abs(normalized_actions[i]) > 1e-6:  # Seulement si l'action n'est pas nulle
+                # Calculer la valeur cible pour cet actif
+                target_value = normalized_actions[i] * self.balance
+                current_price = self.data_dict[symbol].iloc[self.current_step]["close"]
+                
+                # Calculer la quantité à trader
+                quantity = target_value / current_price
 
                 # Calculer l'impact marché
                 impact, recovery_time = self.market_constraints.calculate_market_impact(
                     symbol=symbol,
-                    action_value=action[i],
-                    volume=volume,
-                    price=self.last_prices[symbol],
+                    action_value=normalized_actions[i],
+                    volume=quantity * current_price,
+                    price=current_price,
                     avg_volume=self._calculate_average_volume(symbol),
                 )
 
                 # Enregistrer l'impact marché
                 if symbol not in self.market_impacts:
                     self.market_impacts[symbol] = []
-                self.market_impacts[symbol].append(
-                    {
-                        "step": self.current_step,
-                        "impact": impact,
-                        "recovery_time": recovery_time,
-                    }
-                )
+                self.market_impacts[symbol].append({
+                    "step": self.current_step,
+                    "impact": impact,
+                    "recovery_time": recovery_time,
+                })
 
-                delay = self.market_constraints.calculate_execution_delay(
-                    symbol, action[i], volume, self._calculate_average_volume(symbol)
+                # Calculer le slippage
+                slippage = self._calculate_slippage(symbol, normalized_actions[i], quantity)
+
+                # Exécuter la transaction
+                self._execute_trade(
+                    symbol=symbol,
+                    action_value=normalized_actions[i],
+                    volume=quantity,
+                    price=current_price,
+                    slippage=slippage
                 )
-                if delay > 0:
-                    self.pending_orders.append(
-                        {
-                            "symbol": symbol,
-                            "action_value": action[i],
-                            "volume": volume,
-                            "price": self.last_prices[symbol],
-                            "delay": delay,
-                        }
-                    )
-                else:
-                    # Exécution immédiate si pas de délai
-                    slippage = self._calculate_slippage(symbol, action[i], volume)
-                    self._execute_trade(
-                        symbol, action[i], volume, self.last_prices[symbol], slippage
-                    )
 
         # Mettre à jour l'étape courante et les données
         self.current_step += 1
@@ -331,6 +329,13 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
         # Calculer la nouvelle valeur du portefeuille et la récompense
         current_value = self.get_portfolio_value()
         reward = self._calculate_reward(previous_value, current_value)
+
+        # Mettre à jour l'historique des allocations
+        current_weights = {
+            symbol: (self.crypto_holdings[symbol] * self.data_dict[symbol].iloc[self.current_step]["close"]) / max(current_value, 1e-6)
+            for symbol in self.symbols
+        }
+        self.allocation_history.append(current_weights)
 
         # Vérifier si l'épisode est terminé
         terminated = self.current_step >= len(self.data_dict[self.symbols[0]]) - 1
@@ -741,101 +746,98 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
         return reward
 
     def _diversification_reward(self, base_reward: float) -> float:
-        """Calcule la récompense de diversification.
-
-        Args:
-            base_reward (float): Récompense de base à ajuster.
-
-        Returns:
-            float: Récompense ajustée selon la diversification.
-        """
-        portfolio_value = self.get_portfolio_value()
-        
-        # Si le portefeuille est vide ou a une valeur nulle, retourner la récompense de base
-        if portfolio_value <= 0:
+        """Calcule la récompense de diversification."""
+        # Cas du portefeuille vide
+        if not any(self.crypto_holdings.values()):
             self.last_diversification_metrics = {
                 "diversification_index": 0.0,
                 "correlation_penalty": 0.0,
-                "diversification_factor": 1.0
+                "hhi": 1.0,
+                "n_assets": 0,
+                "weights": {},
+                "diversification_factor": self.min_diversification_factor
             }
             return base_reward
 
-        # Calculer les poids du portefeuille
+        # Calcul des poids du portefeuille
         weights = {}
+        total_value = 0
         for asset, quantity in self.crypto_holdings.items():
-            price = self.data_dict[asset].iloc[self.current_step]["close"]
-            value = quantity * price
-            if value > 0:  # Ne considérer que les positions non nulles
-                weights[asset] = value / portfolio_value
+            if quantity > 0:
+                value = quantity * self.data_dict[asset]["close"].iloc[self.current_step]
+                weights[asset] = value
+                total_value += value
 
-        # Si aucun actif n'a de poids positif, retourner la récompense de base
-        if not weights:
+        # Normalisation des poids
+        if total_value > 0:
+            for asset in weights:
+                weights[asset] /= total_value
+
+        # Calcul de l'indice HHI normalisé (0 = concentré, 1 = diversifié)
+        hhi = sum(w * w for w in weights.values())
+        n = len(weights)
+        
+        # Cas où il n'y a qu'un seul actif ou moins
+        if n <= 1:
             self.last_diversification_metrics = {
                 "diversification_index": 0.0,
                 "correlation_penalty": 0.0,
-                "diversification_factor": 1.0
+                "hhi": 1.0,
+                "n_assets": n,
+                "weights": weights,
+                "diversification_factor": self.min_diversification_factor
             }
-            return base_reward
-
-        # Calculer l'indice de diversification (HHI normalisé)
-        hhi = sum(w * w for w in weights.values())
-        n = len(weights)  # Nombre d'actifs avec position non nulle
+            return base_reward * (1.0 + self.min_diversification_factor) if base_reward >= 0 else base_reward / (1.0 + self.min_diversification_factor)
         
-        # Pour un portefeuille concentré (n=1), on veut une récompense élevée
-        if n <= 1:
-            diversification_factor = 1.5  # Récompense fixe pour concentration
-            correlation_penalty = 0.0
-        else:
-            # Calculer l'indice de diversification normalisé
-            min_hhi = 1 / n
-            max_hhi = 1.0
-            normalized_hhi = 1 - ((hhi - min_hhi) / (max_hhi - min_hhi))
+        # Calcul de l'indice de diversification
+        min_hhi = 1 / n
+        max_hhi = 1
+        normalized_hhi = (hhi - min_hhi) / (max_hhi - min_hhi)
+        diversification_index = 1 - normalized_hhi
 
-            # Calculer la pénalité de corrélation
-            correlation_penalty = 0.0
-            if self.asset_correlations is not None:
-                active_assets = list(weights.keys())
-                total_weight = 0
-                weighted_correlations = []
-                
-                # Calculer la corrélation moyenne pondérée
-                for i in range(len(active_assets)):
-                    for j in range(i + 1, len(active_assets)):
-                        asset1, asset2 = active_assets[i], active_assets[j]
+        # Calcul de la pénalité de corrélation
+        correlation_penalty = 0
+        if n > 1:
+            total_weight = 0
+            for i, (asset1, w1) in enumerate(weights.items()):
+                for asset2, w2 in list(weights.items())[i + 1:]:
+                    if asset1 in self.asset_correlations.index and asset2 in self.asset_correlations.columns:
                         corr = abs(self.asset_correlations.loc[asset1, asset2])
-                        # Utiliser la racine carrée des poids pour réduire l'impact des petites positions
-                        weight_factor = np.sqrt(weights[asset1] * weights[asset2])
-                        weighted_correlations.append(corr)
-                        total_weight += weight_factor
-                
-                if weighted_correlations:
-                    # Calculer la moyenne des corrélations
-                    avg_correlation = sum(weighted_correlations) / len(weighted_correlations)
-                    # Amplifier l'effet des corrélations élevées
-                    correlation_penalty = min(avg_correlation * avg_correlation * 2.0, 1.0)
+                        pair_weight = w1 * w2
+                        correlation_penalty += corr * pair_weight
+                        total_weight += pair_weight
+            if total_weight > 0:
+                correlation_penalty = (correlation_penalty / total_weight) * 2  # Facteur de corrélation réduit
 
-            # Calculer le facteur de diversification
-            diversification_factor = normalized_hhi * (1 - correlation_penalty)
-            
-            # Ajuster le facteur pour qu'il soit entre min_diversification_factor et max_diversification_factor
-            diversification_factor = self.min_diversification_factor + (
-                (self.max_diversification_factor - self.min_diversification_factor) * diversification_factor
-            )
-            
-            # S'assurer que le facteur reste dans les limites
-            diversification_factor = min(
-                self.max_diversification_factor,
-                max(self.min_diversification_factor, diversification_factor)
-            )
+        # Calcul du facteur final (basé sur une diversification cible)
+        diversification_factor = (
+            self.min_diversification_factor +
+            (self.max_diversification_factor - self.min_diversification_factor) *
+            (diversification_index * (1.0 - correlation_penalty))
+        )
 
-        # Sauvegarder les métriques pour le debugging
+        # Assurer que le facteur est dans les limites
+        diversification_factor = max(
+            self.min_diversification_factor,
+            min(self.max_diversification_factor, diversification_factor)
+        )
+
+        # Stockage des métriques pour le monitoring
         self.last_diversification_metrics = {
-            "diversification_index": 0.0 if n <= 1 else normalized_hhi,
+            "diversification_index": diversification_index,
             "correlation_penalty": correlation_penalty,
+            "hhi": hhi,
+            "n_assets": n,
+            "weights": weights,
             "diversification_factor": diversification_factor
         }
 
-        return base_reward * diversification_factor
+        # Pour les récompenses négatives, une meilleure diversification réduit la perte
+        # Pour les récompenses positives, une meilleure diversification amplifie le gain
+        if base_reward >= 0:
+            return base_reward * (1.0 + diversification_factor)
+        else:
+            return base_reward / (1.0 + diversification_factor)
 
     def visualize_portfolio_allocation(self):
         """
