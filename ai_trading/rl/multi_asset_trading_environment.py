@@ -10,6 +10,7 @@ from datetime import datetime
 
 from ai_trading.rl.portfolio_allocator import PortfolioAllocator
 from ai_trading.config import VISUALIZATION_DIR
+from .market_constraints import MarketConstraints
 
 # Configuration du logger
 logger = logging.getLogger("MultiAssetTradingEnvironment")
@@ -50,9 +51,10 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
         rebalance_frequency=5,  # Fréquence de rééquilibrage (en pas de temps)
         max_active_positions=3,  # Nombre maximum de positions actives simultanées
         action_type="continuous",  # Pour le multi-actifs, on utilise des actions continues
-        slippage_model="constant",
-        slippage_value=0.001,
+        slippage_model="dynamic",
+        base_slippage=0.001,
         execution_delay=0,
+        market_impact_factor=0.1,
         correlation_threshold=0.7,  # Seuil de corrélation pour la diversification
         volatility_threshold=0.05,  # Seuil de volatilité pour le filtrage des actifs
         **kwargs,
@@ -77,8 +79,9 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
             max_active_positions (int): Nombre maximum de positions actives simultanées
             action_type (str): Type d'action (doit être "continuous" pour multi-actifs)
             slippage_model (str): Modèle de slippage
-            slippage_value (float): Valeur du slippage
+            base_slippage (float): Slippage de base
             execution_delay (int): Délai d'exécution
+            market_impact_factor (float): Facteur d'impact marché
             correlation_threshold (float): Seuil de corrélation pour la diversification
             volatility_threshold (float): Seuil de volatilité pour le filtrage des actifs
         """
@@ -100,6 +103,7 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
             "sharpe",
             "transaction_penalty",
             "drawdown",
+            "diversification"
         ], "Fonction de récompense invalide"
         assert allocation_method in [
             "equal",
@@ -129,8 +133,9 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
         self.max_active_positions = min(max_active_positions, self.num_assets)
         self.action_type = action_type
         self.slippage_model = slippage_model
-        self.slippage_value = slippage_value
+        self.base_slippage = base_slippage
         self.execution_delay = execution_delay
+        self.market_impact_factor = market_impact_factor
         self.correlation_threshold = correlation_threshold
         self.volatility_threshold = volatility_threshold
 
@@ -178,6 +183,17 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
         # Ajouter les paramètres de gestion de portefeuille
         self.asset_correlations = self._calculate_asset_correlations()
         self.asset_volatilities = self._calculate_asset_volatilities()
+
+        # Initialisation des contraintes de marché
+        self.market_constraints = MarketConstraints(
+            slippage_model=slippage_model,
+            base_slippage=base_slippage,
+            execution_delay=execution_delay,
+            market_impact_factor=market_impact_factor
+        )
+        
+        # Historique des impacts marché
+        self.market_impacts = {symbol: [] for symbol in self.symbols}
 
         logger.info(
             f"Environnement de trading multi-actifs initialisé avec {self.num_assets} actifs: {', '.join(self.symbols)}"
@@ -248,124 +264,165 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
 
     def step(self, action):
         """
-        Exécute une action dans l'environnement multi-actifs.
-
+        Exécute une étape de trading.
+        
         Args:
-            action: Vecteur d'actions pour chaque actif (entre -1 et 1)
-
-        Returns:
-            tuple: (observation, reward, terminated, truncated, info)
-        """
-        # Filtrer les actifs si nécessaire
-        if self.steps_since_rebalance >= self.rebalance_frequency:
-            self.active_assets = self._filter_assets()
-            self.steps_since_rebalance = 0
-        
-        # Normaliser les actions pour qu'elles somment à 1
-        action = np.clip(action, -1, 1)
-        action_sum = np.sum(np.abs(action))
-        if action_sum > 0:
-            action = action / action_sum
-        
-        # Enregistrer l'allocation actuelle dans l'historique
-        current_allocation = {}
-        for i, symbol in enumerate(self.symbols):
-            current_allocation[symbol] = action[i] if i < len(action) else 0
-        self.allocation_history.append(current_allocation)
-        
-        # Appliquer les allocations
-        for i, symbol in enumerate(self.active_assets):
-            action_value = action[i]
-            current_price = self.data_dict[symbol].iloc[self.current_step]["close"]
+            action: Action de trading pour chaque actif
             
-            if self.execution_delay > 0:
-                # Ajouter l'ordre à la liste des ordres en attente
-                self.pending_orders.append({
-                    "symbol": symbol,
-                    "action_value": action_value,
-                    "amount": abs(action_value) * self.balance / current_price,
-                    "delay": self.execution_delay
+        Returns:
+            tuple: (observation, reward, done, info)
+        """
+        # Sauvegarder la valeur précédente du portefeuille
+        previous_value = self.get_portfolio_value()
+        
+        # Traitement des ordres en attente
+        self._process_pending_orders()
+        
+        # Création des nouveaux ordres
+        for i, symbol in enumerate(self.symbols):
+            if abs(action[i]) > 1e-6:  # Seulement si l'action n'est pas nulle
+                volume = abs(action[i]) * self.balance / self.last_prices[symbol]
+                
+                # Calculer l'impact marché
+                impact, recovery_time = self.market_constraints.calculate_market_impact(
+                    symbol=symbol,
+                    action_value=action[i],
+                    volume=volume,
+                    price=self.last_prices[symbol],
+                    avg_volume=self._calculate_average_volume(symbol)
+                )
+                
+                # Enregistrer l'impact marché
+                if symbol not in self.market_impacts:
+                    self.market_impacts[symbol] = []
+                self.market_impacts[symbol].append({
+                    'step': self.current_step,
+                    'impact': impact,
+                    'recovery_time': recovery_time
                 })
-            else:
-                # Exécution immédiate
-                price_with_slippage = self._apply_slippage(current_price, action_value)
                 
-                if action_value > 0:  # Achat
-                    self.balance -= action_value * self.balance * (1 + self.transaction_fee)
-                    self.crypto_holdings[symbol] += action_value * self.balance / price_with_slippage
-                else:  # Vente
-                    self.balance += abs(action_value) * self.crypto_holdings[symbol] * price_with_slippage * (1 - self.transaction_fee)
-                    self.crypto_holdings[symbol] -= abs(action_value) * self.crypto_holdings[symbol]
-                
-        self.steps_since_rebalance += 1
-
-        # Passer à l'étape suivante
+                delay = self.market_constraints.calculate_execution_delay(
+                    symbol, action[i], volume, self._calculate_average_volume(symbol)
+                )
+                if delay > 0:
+                    self.pending_orders.append({
+                        'symbol': symbol,
+                        'action_value': action[i],
+                        'volume': volume,
+                        'price': self.last_prices[symbol],
+                        'delay': delay
+                    })
+                else:
+                    # Exécution immédiate si pas de délai
+                    slippage = self._calculate_slippage(symbol, action[i], volume)
+                    self._execute_trade(symbol, action[i], volume, 
+                                     self.last_prices[symbol], 
+                                     slippage)
+        
+        # Mettre à jour l'étape courante et les données
         self.current_step += 1
-
-        # Mettre à jour les derniers prix connus
-        for symbol in self.symbols:
-            self.last_prices[symbol] = self.data_dict[symbol].iloc[self.current_step][
-                "close"
-            ]
-
+        self._update_orderbook_data()
+        
+        # Calculer la nouvelle valeur du portefeuille et la récompense
+        current_value = self.get_portfolio_value()
+        reward = self._calculate_reward(previous_value, current_value)
+        
         # Vérifier si l'épisode est terminé
-        done = self.current_step >= min(len(df) for df in self.data_dict.values()) - 1
+        done = self.current_step >= len(self.data_dict[self.symbols[0]]) - 1
+        
+        return self._get_observation(), reward, done, self._get_info()
 
-        # Calculer la valeur actuelle du portefeuille
-        current_portfolio_value = self.get_portfolio_value()
-
-        # Calculer la récompense
-        reward = self._calculate_reward(
-            self.portfolio_value_history[-1], current_portfolio_value
-        )
-
-        # Enregistrer la valeur du portefeuille
-        self.portfolio_value_history.append(current_portfolio_value)
-
-        # Calculer le rendement
-        pct_change = (
-            (current_portfolio_value - self.portfolio_value_history[-2])
-            / self.portfolio_value_history[-2]
-            if self.portfolio_value_history[-2] > 0
-            else 0
-        )
-        self.returns_history.append(pct_change)
-
-        # Obtenir l'observation et les informations
-        observation = self._get_observation()
-        info = self._get_info()
-
-        return observation, reward, done, False, info
-
-    def _apply_slippage(self, price, action_value):
+    def _process_pending_orders(self):
         """
-        Applique le slippage à l'action.
+        Traite les ordres en attente.
+        """
+        remaining_orders = []
+        for order in self.pending_orders:
+            order['delay'] -= 1
+            if order['delay'] <= 0:
+                # Exécution de l'ordre
+                slippage = self._calculate_slippage(
+                    order['symbol'], 
+                    order['action_value'], 
+                    order['volume']
+                )
+                self._execute_trade(
+                    order['symbol'],
+                    order['action_value'],
+                    order['volume'],
+                    self.last_prices[order['symbol']],
+                    slippage
+                )
+            else:
+                remaining_orders.append(order)
+        self.pending_orders = remaining_orders
 
+    def _execute_trade(self, symbol: str, action_value: float, volume: float, price: float, slippage: float):
+        """
+        Exécute une transaction.
+        
         Args:
-            price (float): Prix actuel de l'actif
-            action_value (float): Valeur de l'action
-
-        Returns:
-            float: Prix après application du slippage
+            symbol (str): Symbole de l'actif
+            action_value (float): Valeur de l'action (-1 à 1)
+            volume (float): Volume à trader
+            price (float): Prix de base
+            slippage (float): Slippage calculé
         """
-        if self.slippage_model == "constant":
-            return price * (1 + self.slippage_value * np.sign(action_value))
-        else:
-            raise ValueError("Modèle de slippage invalide")
+        # Appliquer le slippage au prix
+        execution_price = price * (1 + slippage if action_value > 0 else 1 - slippage)
+        
+        if action_value > 0:  # Achat
+            cost = volume * execution_price * (1 + self.transaction_fee)
+            if cost <= self.balance:
+                self.balance -= cost
+                self.crypto_holdings[symbol] += volume
+        else:  # Vente
+            revenue = volume * execution_price * (1 - self.transaction_fee)
+            if volume <= self.crypto_holdings[symbol]:
+                self.balance += revenue
+                self.crypto_holdings[symbol] -= volume
 
-    def _calculate_asset_correlations(self) -> pd.DataFrame:
+    def _calculate_volatility(self, symbol: str) -> float:
+        """Calcule la volatilité sur la fenêtre d'observation."""
+        prices = self.data_dict[symbol].iloc[max(0, self.current_step - self.window_size):self.current_step]['close']
+        return np.std(np.log(prices / prices.shift(1)).dropna())
+
+    def _calculate_average_volume(self, symbol: str) -> float:
+        """Calcule le volume moyen sur la fenêtre d'observation."""
+        volumes = self.data_dict[symbol].iloc[max(0, self.current_step - self.window_size):self.current_step]['volume']
+        return np.mean(volumes)
+
+    def _update_orderbook_data(self):
+        """Met à jour les données de profondeur du carnet d'ordres."""
+        for symbol in self.active_assets:
+            if 'orderbook_depth' in self.data_dict[symbol].columns:
+                depth_data = self.data_dict[symbol].iloc[self.current_step]['orderbook_depth']
+                self.market_constraints.update_orderbook_depth(symbol, depth_data)
+
+    def _calculate_asset_correlations(self):
         """
-        Calcule la matrice de corrélation entre les actifs.
+        Calcule la matrice de corrélation entre les actifs sur une fenêtre glissante.
         
         Returns:
-            DataFrame: Matrice de corrélation
+            pd.DataFrame: Matrice de corrélation entre les actifs
         """
-        returns = {}
-        for symbol, df in self.data_dict.items():
-            returns[symbol] = df["close"].pct_change()
+        # Créer un DataFrame avec les prix de clôture des derniers jours
+        window_size = min(30, self.current_step)  # Utiliser au maximum 30 jours d'historique
+        prices_data = {}
         
-        returns_df = pd.DataFrame(returns)
-        return returns_df.corr()
+        for symbol in self.symbols:
+            prices = self.data_dict[symbol].iloc[max(0, self.current_step - window_size):self.current_step + 1]["close"]
+            prices_data[symbol] = prices
+            
+        prices_df = pd.DataFrame(prices_data)
+        
+        # Calculer les rendements journaliers
+        returns_df = prices_df.pct_change().dropna()
+        
+        # Calculer la matrice de corrélation
+        correlation_matrix = returns_df.corr()
+        
+        return correlation_matrix
 
     def _calculate_asset_volatilities(self) -> pd.Series:
         """
@@ -581,18 +638,47 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
         )
 
         # Choisir la fonction de récompense appropriée
-        if self.reward_function == "simple":
-            return pct_change
-        elif self.reward_function == "sharpe":
-            return self._sharpe_reward()
-        elif self.reward_function == "transaction_penalty":
-            # TODO: Implement transaction penalty reward for multi-asset
-            return pct_change
-        elif self.reward_function == "drawdown":
-            # TODO: Implement drawdown reward for multi-asset
-            return pct_change
-        else:
-            return pct_change
+        reward_functions = {
+            "simple": lambda: pct_change,
+            "sharpe": self._sharpe_reward,
+            "diversification": lambda: self._diversification_reward(pct_change),
+            "transaction_penalty": lambda: pct_change,  # TODO: Implement
+            "drawdown": lambda: pct_change,  # TODO: Implement
+        }
+
+        # Obtenir et exécuter la fonction de récompense
+        reward_func = reward_functions.get(self.reward_function, lambda: pct_change)
+        return reward_func()
+
+    def _normalize_allocation(self, allocation):
+        """
+        Normalise les allocations du portefeuille pour s'assurer que leur somme est égale à 1.
+
+        Args:
+            allocation (np.ndarray): Tableau des allocations brutes
+
+        Returns:
+            np.ndarray: Tableau des allocations normalisées
+        """
+        # Gérer le cas où toutes les allocations sont nulles
+        if np.sum(np.abs(allocation)) == 0:
+            return np.zeros_like(allocation)
+        
+        # Normaliser les allocations positives et négatives séparément
+        positive_mask = allocation > 0
+        negative_mask = allocation < 0
+        
+        positive_sum = np.sum(allocation[positive_mask])
+        negative_sum = np.abs(np.sum(allocation[negative_mask]))
+        
+        normalized_allocation = np.zeros_like(allocation)
+        
+        if positive_sum > 0:
+            normalized_allocation[positive_mask] = allocation[positive_mask] / positive_sum
+        if negative_sum > 0:
+            normalized_allocation[negative_mask] = allocation[negative_mask] / negative_sum
+        
+        return normalized_allocation
 
     def _sharpe_reward(self):
         """
@@ -628,6 +714,69 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
         reward = np.clip(sharpe_ratio, -10, 10)
 
         return reward
+
+    def _diversification_reward(self, base_reward):
+        """
+        Calcule une récompense qui encourage la diversification du portefeuille.
+        
+        Args:
+            base_reward (float): La récompense de base (variation du portefeuille)
+            
+        Returns:
+            float: La récompense ajustée selon la diversification
+        """
+        # Paramètres de configuration pour la diversification
+        diversification_weight = getattr(self, 'diversification_weight', 0.5)  # Poids relatif de la diversification
+        min_diversification_factor = getattr(self, 'min_diversification_factor', 0.2)  # Facteur minimum
+        max_diversification_factor = getattr(self, 'max_diversification_factor', 2.0)  # Facteur maximum
+        correlation_penalty_weight = getattr(self, 'correlation_penalty_weight', 1.0)  # Poids de la pénalité de corrélation
+        
+        # Obtenir les allocations actuelles (en excluant le cash)
+        current_allocations = np.array([self.crypto_holdings[symbol] * self.data_dict[symbol].iloc[self.current_step]["close"] 
+                                      for symbol in self.symbols])
+        total_value = np.sum(current_allocations)
+        
+        if total_value == 0:
+            return base_reward
+            
+        # Calculer les poids normalisés
+        weights = current_allocations / total_value
+        
+        # Calculer l'indice de diversification (1 - somme des carrés des poids)
+        # Plus l'indice est proche de 1, plus le portefeuille est diversifié
+        diversification_index = 1 - np.sum(weights ** 2)
+        
+        # Calculer les corrélations entre les actifs
+        correlations = self._calculate_asset_correlations()
+        
+        # Calculer la moyenne des corrélations absolues (excluant la diagonale)
+        mask = ~np.eye(correlations.shape[0], dtype=bool)
+        mean_correlation = np.abs(correlations.values[mask]).mean()
+        
+        # Pénalité de corrélation (plus forte pour les corrélations élevées)
+        correlation_penalty = mean_correlation * correlation_penalty_weight
+        
+        # Facteur de diversification avec pénalité de corrélation
+        diversification_factor = (diversification_index * (1 - correlation_penalty)) * diversification_weight
+        
+        # Appliquer les seuils min/max
+        diversification_factor = np.clip(diversification_factor, min_diversification_factor, max_diversification_factor)
+        
+        # Ajuster la récompense
+        # Si le portefeuille est bien diversifié (facteur proche de max_diversification_factor), 
+        # la récompense est amplifiée
+        adjusted_reward = base_reward * (1 + diversification_factor)
+        
+        # Ajouter les métriques aux informations de l'environnement
+        self.last_diversification_metrics = {
+            'diversification_index': diversification_index,
+            'mean_correlation': mean_correlation,
+            'correlation_penalty': correlation_penalty,
+            'diversification_factor': diversification_factor,
+            'adjusted_reward': adjusted_reward
+        }
+        
+        return adjusted_reward
 
     def visualize_portfolio_allocation(self):
         """
@@ -686,3 +835,26 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
         plt.close()
 
         return str(output_path)
+
+    def _calculate_slippage(self, symbol: str, action_value: float, volume: float) -> float:
+        """
+        Calcule le slippage pour une transaction.
+        
+        Args:
+            symbol (str): Symbole de l'actif
+            action_value (float): Valeur de l'action (-1 à 1)
+            volume (float): Volume de la transaction
+            
+        Returns:
+            float: Slippage calculé
+        """
+        volatility = self._calculate_volatility(symbol)
+        avg_volume = self._calculate_average_volume(symbol)
+        
+        return self.market_constraints.calculate_slippage(
+            symbol=symbol,
+            action_value=action_value,
+            volume=volume,
+            volatility=volatility,
+            avg_volume=avg_volume
+        )

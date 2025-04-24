@@ -103,19 +103,19 @@ Ce module contient l'implémentation d'un système de trading de cryptomonnaies 
   - [x] Adapter l'environnement pour `gym` / `gymnasium`
 
   ### 2. **Intégration de données avancées**
-  - [ ] Sélection automatique de caractéristiques
-  - [ ] Ajouter données de flux d'ordres, profondeur du carnet
-  - [ ] Intégrer des données alternatives (on-chain, réseaux sociaux)
+  - [x] Sélection automatique de caractéristiques
+  - [x] Ajouter données de flux d'ordres, profondeur du carnet
+  - [x] Intégrer des données alternatives (on-chain, réseaux sociaux)
 
   ### 3. **Récompenses avancées**
   - [x] Ratio de Sortino
-  - [ ] Récompense pour diversification
+  - [x] Récompense pour diversification
   - [x] Récompense adaptative selon conditions de marché
 
   ### 4. **Contraintes de marché réalistes**
-  - [ ] Délais d'exécution
-  - [ ] Slippage
-  - [ ] Impact du carnet d'ordres
+  - [x] Délais d'exécution
+  - [x] Slippage
+  - [x] Impact du carnet d'ordres
 
   ### 5. **Multi-actifs**
   - [ ] Étendre à 2–3 crypto-actifs

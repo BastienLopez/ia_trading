@@ -1,111 +1,173 @@
 import unittest
 import numpy as np
-import pandas as pd
-from datetime import datetime, timedelta
-
-from ai_trading.rl.trading_environment import TradingEnvironment
+from ..rl.market_constraints import MarketConstraints
 
 class TestMarketConstraints(unittest.TestCase):
     def setUp(self):
-        # Créer des données de test avec volatilité
-        dates = pd.date_range(start="2020-01-01", periods=100, freq="D")
-        self.test_data = pd.DataFrame(
-            {
-                "open": np.random.uniform(100, 200, 100),
-                "high": np.random.uniform(150, 250, 100),
-                "low": np.random.uniform(50, 150, 100),
-                "close": np.random.uniform(100, 200, 100),
-                "volume": np.random.uniform(1000, 5000, 100),
-                "volatility": np.random.uniform(0.01, 0.05, 100),
-            },
-            index=dates,
+        """Prépare l'environnement de test."""
+        self.constraints = MarketConstraints(
+            slippage_model="dynamic",
+            base_slippage=0.001,
+            execution_delay=2,
+            market_impact_factor=0.1
         )
         
-    def test_slippage_constant(self):
-        """Teste le modèle de slippage constant."""
-        env = TradingEnvironment(
-            df=self.test_data,
-            slippage_model="constant",
-            slippage_value=0.001
+        # Données de profondeur du carnet d'ordres fictives
+        self.mock_depth = {
+            'spread_pct': 0.1,  # 0.1%
+            'total_volume': 1000.0,
+            'volume_imbalance': 0.2,  # Déséquilibre positif (plus d'ordres d'achat)
+            'depth_range_bids_5': 100.0,
+            'depth_range_asks_5': 120.0
+        }
+        
+        self.constraints.update_orderbook_depth('BTC/USDT', self.mock_depth)
+        
+    def test_slippage_fixed(self):
+        """Teste le modèle de slippage fixe."""
+        constraints = MarketConstraints(slippage_model="fixed", base_slippage=0.002)
+        
+        slippage = constraints.calculate_slippage(
+            symbol='BTC/USDT',
+            action_value=0.5,
+            volume=1.0,
+            volatility=0.02,
+            avg_volume=10.0
         )
         
-        price = 100.0
-        action_value = 0.5
-        
-        # Test achat
-        price_with_slippage = env._apply_slippage(price, action_value)
-        self.assertAlmostEqual(price_with_slippage, 100.1)  # 100 * (1 + 0.001)
-        
-        # Test vente
-        price_with_slippage = env._apply_slippage(price, -action_value)
-        self.assertAlmostEqual(price_with_slippage, 99.9)  # 100 * (1 - 0.001)
-        
-    def test_slippage_proportional(self):
-        """Teste le modèle de slippage proportionnel."""
-        env = TradingEnvironment(
-            df=self.test_data,
-            slippage_model="proportional",
-            slippage_value=0.001
-        )
-        
-        price = 100.0
-        action_value = 0.5
-        
-        # Test achat
-        price_with_slippage = env._apply_slippage(price, action_value)
-        self.assertAlmostEqual(price_with_slippage, 100.05)  # 100 * (1 + 0.001 * 0.5)
-        
-        # Test vente
-        price_with_slippage = env._apply_slippage(price, -action_value)
-        self.assertAlmostEqual(price_with_slippage, 99.95)  # 100 * (1 - 0.001 * 0.5)
+        self.assertEqual(slippage, 0.002)
         
     def test_slippage_dynamic(self):
         """Teste le modèle de slippage dynamique."""
-        env = TradingEnvironment(
-            df=self.test_data.copy(),  # Créer une copie pour éviter les avertissements
-            slippage_model="dynamic",
-            slippage_value=0.001
+        slippage = self.constraints.calculate_slippage(
+            symbol='BTC/USDT',
+            action_value=0.5,
+            volume=20.0,  # Volume supérieur à la moyenne
+            volatility=0.02,
+            avg_volume=10.0
         )
         
-        price = 100.0
-        action_value = 0.5
+        # Le slippage devrait être plus élevé que le slippage de base
+        self.assertGreater(slippage, self.constraints.base_slippage)
+        # Mais ne devrait pas dépasser 1%
+        self.assertLessEqual(slippage, 0.01)
         
-        # Test avec des valeurs de volume et volatilité spécifiques
-        env.df.at[env.df.index[env.current_step], "volatility"] = 0.02
-        env.df.at[env.df.index[env.current_step], "volume"] = 2000
+    def test_slippage_orderbook(self):
+        """Teste le modèle de slippage basé sur le carnet d'ordres."""
+        constraints = MarketConstraints(slippage_model="orderbook", base_slippage=0.001)
+        constraints.update_orderbook_depth('BTC/USDT', self.mock_depth)
         
-        # Définir le volume pour les 20 derniers pas
-        start_idx = max(0, env.current_step - 20)
-        env.df.loc[env.df.index[start_idx:env.current_step], "volume"] = 1000
+        slippage = constraints.calculate_slippage(
+            symbol='BTC/USDT',
+            action_value=0.5,
+            volume=500.0,  # 50% du volume total
+            volatility=0.02,
+            avg_volume=1000.0
+        )
         
-        price_with_slippage = env._apply_slippage(price, action_value)
-        expected_slippage = 0.001 * (1 + 0.02) * (2000 / 1000)
-        self.assertAlmostEqual(price_with_slippage, price * (1 + expected_slippage), places=4)
+        # Le slippage devrait être proportionnel au spread
+        expected_min = (self.mock_depth['spread_pct'] / 100) * 0.5  # 50% du spread
+        self.assertGreater(slippage, expected_min)
+        self.assertLessEqual(slippage, 0.01)  # Max 1%
+        
+    def test_market_impact(self):
+        """Teste le calcul de l'impact sur le marché."""
+        impact, recovery = self.constraints.calculate_market_impact(
+            symbol='BTC/USDT',
+            action_value=1.0,  # Action maximale
+            volume=100.0,
+            price=50000.0,
+            avg_volume=1000.0
+        )
+        
+        # L'impact devrait être positif mais limité
+        self.assertGreater(impact, 0)
+        self.assertLessEqual(impact, 0.05)  # Max 5%
+        
+        # Le temps de récupération devrait être proportionnel au carré du ratio de volume
+        self.assertGreater(recovery, 0)
+        self.assertLessEqual(recovery, 100)  # Max 100 pas
         
     def test_execution_delay(self):
-        """Teste le délai d'exécution des ordres."""
-        env = TradingEnvironment(
-            df=self.test_data.copy(),
-            execution_delay=2,
-            action_type="discrete",  # Spécifier le type d'action
-            n_discrete_actions=5  # Spécifier le nombre d'actions discrètes
+        """Teste le calcul du délai d'exécution."""
+        delay = self.constraints.calculate_execution_delay(
+            symbol='BTC/USDT',
+            action_value=0.5,
+            volume=200.0,
+            avg_volume=100.0
         )
         
-        # Exécuter une action d'achat
-        initial_balance = env.balance
-        env.step(1)  # Action d'achat
+        # Le délai devrait être supérieur au délai de base mais limité
+        self.assertGreater(delay, self.constraints.execution_delay)
+        self.assertLessEqual(delay, 10)  # Max 10 pas
         
-        # Vérifier que l'ordre est en attente
-        self.assertEqual(len(env.pending_orders), 1)
-        # Comme nous incrémenton current_step avant de traiter les ordres en attente,
-        # le délai est déjà réduit à 1 après le premier step
-        self.assertEqual(env.pending_orders[0]["delay"], 1)
-        self.assertEqual(env.balance, initial_balance)  # Le solde ne doit pas avoir changé
+    def test_zero_volume(self):
+        """Teste le comportement avec un volume nul."""
+        # Test slippage
+        slippage = self.constraints.calculate_slippage(
+            symbol='BTC/USDT',
+            action_value=0.0,
+            volume=0.0,
+            volatility=0.02,
+            avg_volume=10.0
+        )
+        self.assertEqual(slippage, 0.0)
         
-        # Avancer d'un pas
-        env.step(0)  # Action neutre
-        self.assertEqual(len(env.pending_orders), 0)  # L'ordre devrait être exécuté
-        self.assertNotEqual(env.balance, initial_balance)  # Le solde doit avoir changé
+        # Test impact
+        impact, recovery = self.constraints.calculate_market_impact(
+            symbol='BTC/USDT',
+            action_value=0.0,
+            volume=0.0,
+            price=50000.0,
+            avg_volume=1000.0
+        )
+        self.assertEqual(impact, 0.0)
+        self.assertEqual(recovery, 0)
         
-if __name__ == "__main__":
+        # Test délai
+        delay = self.constraints.calculate_execution_delay(
+            symbol='BTC/USDT',
+            action_value=0.0,
+            volume=0.0,
+            avg_volume=100.0
+        )
+        self.assertEqual(delay, 0)
+        
+    def test_orderbook_update(self):
+        """Teste la mise à jour des données du carnet d'ordres."""
+        new_depth = {
+            'spread_pct': 0.2,
+            'total_volume': 2000.0,
+            'volume_imbalance': -0.1
+        }
+        
+        self.constraints.update_orderbook_depth('ETH/USDT', new_depth)
+        
+        # Vérifier que les données ont été mises à jour
+        self.assertEqual(self.constraints.orderbook_depth['ETH/USDT'], new_depth)
+        
+    def test_extreme_values(self):
+        """Teste le comportement avec des valeurs extrêmes."""
+        # Test avec un très grand volume
+        slippage = self.constraints.calculate_slippage(
+            symbol='BTC/USDT',
+            action_value=1.0,
+            volume=1e6,  # Volume très élevé
+            volatility=0.5,  # Forte volatilité
+            avg_volume=1000.0
+        )
+        self.assertLessEqual(slippage, 0.01)  # Ne devrait pas dépasser 1%
+        
+        # Test avec une forte volatilité
+        impact, recovery = self.constraints.calculate_market_impact(
+            symbol='BTC/USDT',
+            action_value=1.0,
+            volume=1e6,
+            price=50000.0,
+            avg_volume=1000.0
+        )
+        self.assertLessEqual(impact, 0.05)  # Ne devrait pas dépasser 5%
+        self.assertLessEqual(recovery, 100)  # Ne devrait pas dépasser 100 pas
+        
+if __name__ == '__main__':
     unittest.main() 
