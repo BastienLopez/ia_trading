@@ -5,11 +5,11 @@ from unittest.mock import Mock, patch
 
 import numpy as np
 
+from ai_trading.config import INFO_RETOUR_DIR
 from ai_trading.data.synthetic_data_generator import generate_synthetic_market_data
 from ai_trading.rl.agents.sac_agent import SACAgent
 from ai_trading.rl.hyperparameter_optimizer import HyperparameterOptimizer
 from ai_trading.rl.trading_environment import TradingEnvironment
-from ai_trading.config import MODELS_DIR, INFO_RETOUR_DIR
 
 
 # Définir une fonction fictive pour remplacer les imports manquants

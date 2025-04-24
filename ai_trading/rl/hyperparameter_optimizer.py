@@ -9,9 +9,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
+from ai_trading.config import INFO_RETOUR_DIR
 from ai_trading.rl.agents.sac_agent import SACAgent
 from ai_trading.rl.trading_environment import TradingEnvironment
-from ai_trading.config import INFO_RETOUR_DIR
 
 
 # Définition des fonctions de métriques directement dans ce fichier
@@ -130,13 +130,13 @@ class HyperparameterOptimizer:
         self.max_steps = max_steps
         self.eval_episodes = eval_episodes
         self.metrics = metrics
-        
+
         # Utiliser INFO_RETOUR_DIR/hyperopt par défaut si save_dir n'est pas spécifié
         if save_dir is None:
             self.save_dir = INFO_RETOUR_DIR / "hyperopt"
         else:
             self.save_dir = save_dir
-            
+
         self.n_jobs = n_jobs
         self.verbose = verbose
 
@@ -690,7 +690,7 @@ def optimize_sac_agent(
             "entropy_regularization": [0.0, 0.001, 0.01],
             "grad_clip_value": [None, 0.5, 1.0],
         }
-        
+
     # Utiliser INFO_RETOUR_DIR/sac_optimization par défaut
     if save_dir is None:
         save_dir = INFO_RETOUR_DIR / "sac_optimization"
@@ -758,7 +758,7 @@ def optimize_gru_sac_agent(
             "sequence_length": [5, 10],
             "gru_units": [32, 64, 128],
         }
-        
+
     # Utiliser INFO_RETOUR_DIR/gru_sac_optimization par défaut
     if save_dir is None:
         save_dir = INFO_RETOUR_DIR / "gru_sac_optimization"

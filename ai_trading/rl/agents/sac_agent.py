@@ -464,18 +464,18 @@ class SACAgent:
         """Construit le réseau de l'acteur."""
         # Couche d'entrée
         inputs = tf.keras.layers.Input(shape=(self.state_size,))
-        
+
         # Couches denses
         x = tf.keras.layers.Dense(256, activation="relu")(inputs)
         x = tf.keras.layers.Dense(256, activation="relu")(x)
-        
+
         # Couche de sortie pour la moyenne
         mean = tf.keras.layers.Dense(self.action_size, activation="tanh")(x)
-        
+
         # Couche de sortie pour l'écart-type
         log_std = tf.keras.layers.Dense(self.action_size)(x)
         log_std = tf.clip_by_value(log_std, -20, 2)
-        
+
         return tf.keras.Model(inputs=inputs, outputs=[mean, log_std])
 
     def _build_critic_network(self):
@@ -488,7 +488,9 @@ class SACAgent:
         state_x = tf.keras.layers.Dense(self.hidden_size, activation="relu")(state_x)
         state_x = tf.keras.layers.Dense(self.hidden_size, activation="relu")(state_x)
 
-        action_x = tf.keras.layers.Dense(self.hidden_size, activation="relu")(action_input)
+        action_x = tf.keras.layers.Dense(self.hidden_size, activation="relu")(
+            action_input
+        )
         action_x = tf.keras.layers.Dense(self.hidden_size, activation="relu")(action_x)
 
         x = tf.keras.layers.Concatenate()([state_x, action_x])
@@ -693,7 +695,7 @@ class SACAgent:
         try:
             # Prétraiter l'état
             state = self._preprocess_state(state)
-            
+
             # Convertir en tensor
             state = tf.convert_to_tensor(state, dtype=tf.float32)
 
@@ -707,7 +709,7 @@ class SACAgent:
             # retirer cette dimension pour avoir la forme (action_size,)
             if len(action.shape) > 1 and action.shape[0] == 1:
                 action = np.squeeze(action, axis=0)
-            
+
             # Correction supplémentaire pour assurer la forme (1,) pour les actions unidimensionnelles
             if self.action_size == 1 and action.shape != (1,):
                 action = np.array([action[0]])
@@ -721,7 +723,9 @@ class SACAgent:
             if self.action_size == 1:
                 return np.random.uniform(self.action_low, self.action_high, 1)
             else:
-                return np.random.uniform(self.action_low, self.action_high, self.action_size)
+                return np.random.uniform(
+                    self.action_low, self.action_high, self.action_size
+                )
 
     def _scale_action(self, action):
         """
@@ -1072,40 +1076,58 @@ class SACAgent:
                     "actor_loss": 0.0,
                     "alpha_loss": 0.0,
                     "entropy": 0.0,
-                    "alpha": float(self.alpha.numpy()) if hasattr(self, "alpha") else 0.0,
+                    "alpha": (
+                        float(self.alpha.numpy()) if hasattr(self, "alpha") else 0.0
+                    ),
                 }
 
             # Échantillonner un lot d'expériences depuis la mémoire
-            states, actions, rewards, next_states, dones = self.memory.sample(self.batch_size)
+            states, actions, rewards, next_states, dones = self.memory.sample(
+                self.batch_size
+            )
 
             # Prétraiter les états et les next_states pour s'assurer qu'ils ont la bonne forme
-            states_processed = np.zeros((self.batch_size, self.state_size), dtype=np.float32)
-            next_states_processed = np.zeros((self.batch_size, self.state_size), dtype=np.float32)
-            
+            states_processed = np.zeros(
+                (self.batch_size, self.state_size), dtype=np.float32
+            )
+            next_states_processed = np.zeros(
+                (self.batch_size, self.state_size), dtype=np.float32
+            )
+
             for i in range(self.batch_size):
                 states_processed[i] = self._preprocess_state(states[i])
                 next_states_processed[i] = self._preprocess_state(next_states[i])
-            
+
             # Convertir les tableaux numpy en tensors TensorFlow
             states_tensor = tf.convert_to_tensor(states_processed, dtype=tf.float32)
             actions_tensor = tf.convert_to_tensor(actions, dtype=tf.float32)
             rewards_tensor = tf.convert_to_tensor(rewards, dtype=tf.float32)
-            next_states_tensor = tf.convert_to_tensor(next_states_processed, dtype=tf.float32)
+            next_states_tensor = tf.convert_to_tensor(
+                next_states_processed, dtype=tf.float32
+            )
             dones_tensor = tf.convert_to_tensor(dones, dtype=tf.float32)
 
             # Vérifier la forme des tenseurs
             logger.debug(f"states_tensor.shape: {states_tensor.shape}")
             logger.debug(f"next_states_tensor.shape: {next_states_tensor.shape}")
-            
+
             if self.use_gru:
                 # Utiliser le train_step GRU spécifique
                 critic_loss, actor_loss, alpha_loss, entropy = self._train_step_gru(
-                    states_tensor, actions_tensor, rewards_tensor, next_states_tensor, dones_tensor
+                    states_tensor,
+                    actions_tensor,
+                    rewards_tensor,
+                    next_states_tensor,
+                    dones_tensor,
                 )
             else:
                 # Utiliser le train_step standard
                 critic_loss, actor_loss, alpha_loss, entropy = self._train_step(
-                    states_tensor, actions_tensor, rewards_tensor, next_states_tensor, dones_tensor
+                    states_tensor,
+                    actions_tensor,
+                    rewards_tensor,
+                    next_states_tensor,
+                    dones_tensor,
                 )
 
             # Mettre à jour les réseaux cibles
@@ -1232,25 +1254,27 @@ class SACAgent:
             # Si l'état a une forme incorrecte mais le nombre correct d'éléments, le reformer
             if state.shape != (self.state_size,) and state.size == self.state_size:
                 state = state.reshape(self.state_size)
-            
+
             # Si l'état est 2D avec la première dimension = 1, le convertir en 1D
             if len(state.shape) == 2 and state.shape[0] == 1:
                 state = state.flatten()
-                
+
                 # Vérifier si après aplatissement, la taille correspond à state_size
                 if state.size != self.state_size:
                     # Si la taille ne correspond pas, tronquer ou remplir avec des zéros
                     if state.size > self.state_size:
-                        state = state[:self.state_size]
+                        state = state[: self.state_size]
                     else:
                         padded_state = np.zeros(self.state_size, dtype=np.float32)
-                        padded_state[:state.size] = state
+                        padded_state[: state.size] = state
                         state = padded_state
 
             # Si les dimensions ne correspondent toujours pas, gérer ce cas
             if state.shape != (self.state_size,):
-                logger.warning(f"Forme d'état inattendue: {state.shape}, attendue: ({self.state_size},)")
-                
+                logger.warning(
+                    f"Forme d'état inattendue: {state.shape}, attendue: ({self.state_size},)"
+                )
+
                 # Si l'état a plus de dimensions que prévu, essayer de l'adapter
                 if len(state.shape) > 1:
                     # Si c'est un état 2D (batch, features), prendre le premier élément
@@ -1259,19 +1283,19 @@ class SACAgent:
                             state = state[0]
                         else:
                             # Essayer de restructurer
-                            state = state.reshape(-1)[:self.state_size]
+                            state = state.reshape(-1)[: self.state_size]
                     else:
                         # Pour les dimensions supérieures, aplatir et tronquer
-                        state = state.flatten()[:self.state_size]
-                        
+                        state = state.flatten()[: self.state_size]
+
                 # Si l'état est trop petit, le remplir de zéros
                 if state.size < self.state_size:
                     padded_state = np.zeros(self.state_size, dtype=np.float32)
-                    padded_state[:state.size] = state
+                    padded_state[: state.size] = state
                     state = padded_state
                 # Si l'état est trop grand, le tronquer
                 elif state.size > self.state_size:
-                    state = state[:self.state_size]
+                    state = state[: self.state_size]
 
             return state.astype(np.float32)
         except Exception as e:

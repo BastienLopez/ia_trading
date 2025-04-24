@@ -278,9 +278,18 @@ def main():
     args = parser.parse_args()
 
     # Création des dossiers de données
-    os.makedirs(os.path.join(os.path.dirname(__file__), "info_retour/data/sentiment"), exist_ok=True)
-    os.makedirs(os.path.join(os.path.dirname(__file__), "info_retour/data/sentiment/raw"), exist_ok=True)
-    os.makedirs(os.path.join(os.path.dirname(__file__), "info_retour/data/sentiment/analyzed"), exist_ok=True)
+    os.makedirs(
+        os.path.join(os.path.dirname(__file__), "info_retour/data/sentiment"),
+        exist_ok=True,
+    )
+    os.makedirs(
+        os.path.join(os.path.dirname(__file__), "info_retour/data/sentiment/raw"),
+        exist_ok=True,
+    )
+    os.makedirs(
+        os.path.join(os.path.dirname(__file__), "info_retour/data/sentiment/analyzed"),
+        exist_ok=True,
+    )
 
     # 1. Collecte des actualités
     logger.info("Étape 1: Collecte des actualités")

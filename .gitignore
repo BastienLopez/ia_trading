@@ -190,4 +190,52 @@ ai_trading/info_retour/visualization/*
 
 !ai_trading/info_retour/test/
 ai_trading/info_retour/test/*
-!ai_trading/info_retour/test/.gitkeep 
+!ai_trading/info_retour/test/.gitkeep
+
+# Poetry
+poetry.lock
+.poetry/
+
+# Node (pour les composants front-end potentiels)
+node_modules/
+package-lock.json
+yarn.lock
+.npm
+.yarn
+
+# Docker
+.docker/
+docker-compose.override.yml
+*.env
+.dockerignore
+docker-compose.*.yml
+!docker-compose.yml
+!docker-compose.example.yml
+docker-volumes/
+.docker-sync/
+
+# MLflow
+mlruns/
+mlflow/
+
+# DVC
+.dvc/
+/dvc.lock
+/dvc.yaml
+
+# Wandb
+wandb/
+.wandb
+
+# Ray
+ray_results/
+ray_logs/
+
+# Autres
+.history/
+.vim/
+*.pyc
+__pycache__/
+.python-version
+.tool-versions
+.direnv/ 

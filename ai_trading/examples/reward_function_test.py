@@ -45,10 +45,10 @@ logger.addHandler(console_handler)
 # Ajouter le répertoire parent au chemin pour pouvoir importer les modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from ai_trading.config import VISUALIZATION_DIR
 from ai_trading.data.market_data import MarketDataFetcher
 from ai_trading.rl.dqn_agent import DQNAgent
 from ai_trading.rl.trading_environment import TradingEnvironment
-from ai_trading.config import VISUALIZATION_DIR
 
 
 # Configuration des arguments en ligne de commande

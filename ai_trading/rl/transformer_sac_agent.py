@@ -2,7 +2,6 @@ import datetime
 import logging
 import os
 from collections import deque
-from typing import List, Tuple, Union
 
 import numpy as np
 import tensorflow as tf
@@ -101,7 +100,7 @@ class TransformerSACAgent:
         self.sequence_length = sequence_length
         self.n_step_returns = n_step_returns
         self.model_type = model_type
-        
+
         # Utiliser CHECKPOINTS_DIR de config.py si checkpoints_dir n'est pas spécifié
         if checkpoints_dir is None:
             self.checkpoints_dir = CHECKPOINTS_DIR / "transformer_sac"
@@ -691,7 +690,7 @@ class TransformerSACAgent:
             suffix: Suffixe pour les noms de fichiers
         """
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        
+
         # Utiliser MODELS_DIR de config.py pour le chemin de sauvegarde
         model_path = MODELS_DIR / f"transformer_sac/{timestamp}_{suffix}"
         os.makedirs(model_path, exist_ok=True)

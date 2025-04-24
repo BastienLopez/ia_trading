@@ -162,7 +162,12 @@ class TestEnhancedDataCollector(unittest.TestCase):
         )
 
         # Sauvegarde des données
-        test_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), "info_retour", "data", "test_save_enhanced.csv")
+        test_file = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)),
+            "info_retour",
+            "data",
+            "test_save_enhanced.csv",
+        )
         os.makedirs(os.path.dirname(test_file), exist_ok=True)
         self.collector.save_data(test_data, "test_save_enhanced.csv")
 

@@ -12,10 +12,10 @@ sys.path.append(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 )
 
+from ai_trading.config import INFO_RETOUR_DIR
 from ai_trading.rl.agents.sac_agent import SACAgent
 from ai_trading.rl.data_integration import RLDataIntegrator
 from ai_trading.rl.trading_environment import TradingEnvironment
-from ai_trading.config import INFO_RETOUR_DIR
 
 # Configuration du logger
 logging.basicConfig(
@@ -322,7 +322,12 @@ def main():
 
         # Sauvegarder le modèle si demandé
         if args.save:
-            save_dir = INFO_RETOUR_DIR / "models" / "sac" / f"{args.symbol}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            save_dir = (
+                INFO_RETOUR_DIR
+                / "models"
+                / "sac"
+                / f"{args.symbol}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            )
             os.makedirs(os.path.dirname(save_dir), exist_ok=True)
             agent.save(save_dir)
             logger.info(f"Modèle sauvegardé dans {save_dir}")

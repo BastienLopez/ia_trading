@@ -13,7 +13,12 @@ class TradeLogger:
     Classe pour enregistrer et analyser les trades
     """
 
-    def __init__(self, log_dir=os.path.join(os.path.dirname(os.path.dirname(__file__)), "info_retour/logs")):
+    def __init__(
+        self,
+        log_dir=os.path.join(
+            os.path.dirname(os.path.dirname(__file__)), "info_retour/logs"
+        ),
+    ):
         self.log_dir = log_dir
         os.makedirs(log_dir, exist_ok=True)
         self.trades_file = f"{log_dir}/trades.csv"

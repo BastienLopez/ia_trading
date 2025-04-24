@@ -7,8 +7,8 @@ import os
 
 import tensorflow as tf
 
-from ai_trading.rl.multi_period_trainer import MultiPeriodTrainer
 from ai_trading.config import INFO_RETOUR_DIR
+from ai_trading.rl.multi_period_trainer import MultiPeriodTrainer
 
 # Configuration du logger
 logging.basicConfig(

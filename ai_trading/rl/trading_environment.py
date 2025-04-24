@@ -1,7 +1,5 @@
 import datetime
 import logging
-import os
-from pathlib import Path
 
 import gymnasium as gym
 import matplotlib.dates as mdates
@@ -21,6 +19,9 @@ if not logger.handlers:
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
+# Utiliser directement VISUALIZATION_DIR de config.py
+from ai_trading.config import VISUALIZATION_DIR
+
 # Ajouter l'import
 from ai_trading.rl.adaptive_normalization import AdaptiveNormalizer
 
@@ -28,10 +29,7 @@ from ai_trading.rl.adaptive_normalization import AdaptiveNormalizer
 from ai_trading.rl.risk_manager import RiskManager
 
 # Ajouter l'import de la classe TechnicalIndicators
-from .technical_indicators import TechnicalIndicators
 
-# Utiliser directement VISUALIZATION_DIR de config.py
-from ai_trading.config import VISUALIZATION_DIR
 
 VISUALIZATION_DIR = VISUALIZATION_DIR / "trading_env"
 VISUALIZATION_DIR.mkdir(parents=True, exist_ok=True)
@@ -145,21 +143,21 @@ class TradingEnvironment(gym.Env):
         # Calculer les indicateurs techniques si nécessaire
         if self.include_technical_indicators:
             # RSI
-            delta = self.df['close'].diff()
+            delta = self.df["close"].diff()
             gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
             loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
             rs = gain / loss
-            self.df['rsi'] = 100 - (100 / (1 + rs))
+            self.df["rsi"] = 100 - (100 / (1 + rs))
 
             # MACD
-            exp1 = self.df['close'].ewm(span=12, adjust=False).mean()
-            exp2 = self.df['close'].ewm(span=26, adjust=False).mean()
-            self.df['macd'] = exp1 - exp2
+            exp1 = self.df["close"].ewm(span=12, adjust=False).mean()
+            exp2 = self.df["close"].ewm(span=26, adjust=False).mean()
+            self.df["macd"] = exp1 - exp2
 
             # Bandes de Bollinger
-            sma = self.df['close'].rolling(window=20).mean()
-            std = self.df['close'].rolling(window=20).std()
-            self.df['bollinger_middle'] = sma
+            sma = self.df["close"].rolling(window=20).mean()
+            std = self.df["close"].rolling(window=20).std()
+            self.df["bollinger_middle"] = sma
 
             # Remplacer les NaN par des 0
             self.df.fillna(0, inplace=True)
@@ -174,13 +172,19 @@ class TradingEnvironment(gym.Env):
         self.slippage_value = slippage_value
         self.execution_delay = execution_delay
         self.pending_orders = []  # Liste des ordres en attente d'exécution
-        self.allocation_strategy = allocation_strategy  # Stocker la stratégie d'allocation
+        self.allocation_strategy = (
+            allocation_strategy  # Stocker la stratégie d'allocation
+        )
         self.n_assets = 1  # Par défaut, nous avons un seul actif
         self.allocation_history = []  # Historique des allocations
 
         # Initialiser les attributs manquants
-        self._discrete_to_continuous = self._discrete_to_continuous  # Référence à la méthode
-        self.allocation_strategy = allocation_strategy  # Réinitialiser pour s'assurer qu'il est défini
+        self._discrete_to_continuous = (
+            self._discrete_to_continuous
+        )  # Référence à la méthode
+        self.allocation_strategy = (
+            allocation_strategy  # Réinitialiser pour s'assurer qu'il est défini
+        )
 
         # Variables supplémentaires pour le calcul des récompenses
         self.portfolio_value_history = []
@@ -282,14 +286,14 @@ class TradingEnvironment(gym.Env):
         """Exécute une étape de trading."""
         # Initialiser le dictionnaire d'informations
         info = {}
-        
+
         # Stocker l'action dans l'historique
         self.actions_history.append(action)
-        
+
         # Vérifier si le risk manager devrait ajuster l'action
         original_action = action
         adjustment_applied = False
-        
+
         if self.risk_management and self.risk_manager.should_limit_position(
             self.portfolio_value_history, self.crypto_held
         ):
@@ -299,55 +303,59 @@ class TradingEnvironment(gym.Env):
             info["risk_info"] = {
                 "original_action": original_action,
                 "position_size": self.crypto_held,
-                "portfolio_value": self.portfolio_value_history[-1] if self.portfolio_value_history else 0,
+                "portfolio_value": (
+                    self.portfolio_value_history[-1]
+                    if self.portfolio_value_history
+                    else 0
+                ),
             }
-        
+
         # Appliquer l'action selon le type
         if self.action_type == "discrete":
             self._apply_discrete_action(action)
         else:
             self._apply_continuous_action(action)
-        
+
         # Obtenir le prix actuel
         current_price = self.df.iloc[self.current_step]["close"]
-        
+
         # Calculer la valeur du portefeuille
         portfolio_value = self.get_portfolio_value()
-        
+
         # Mettre à jour l'historique
         self.portfolio_value_history.append(portfolio_value)
-        
+
         # Calculer le rendement du portefeuille
         portfolio_return = 0.0
         if len(self.portfolio_value_history) > 1:
             prev_value = self.portfolio_value_history[-2]
             if prev_value > 0:
                 portfolio_return = (portfolio_value - prev_value) / prev_value
-        
+
         self.returns_history.append(portfolio_return)
-        
+
         # Passer à l'étape suivante
         self.current_step += 1
-        
+
         # Traiter les ordres en attente
         self._process_pending_orders()
-        
+
         # Vérifier si l'épisode est terminé
         done = self.current_step >= len(self.df) - 1
-        
+
         # Obtenir l'état suivant
         next_state = self._get_observation()
-        
+
         # Calculer la récompense
         reward = self._calculate_reward(portfolio_return)
-        
+
         # Ajouter la valeur du portefeuille aux informations
         info["portfolio_value"] = portfolio_value
         info["balance"] = self.balance
         info["crypto_held"] = self.crypto_held
         info["current_price"] = current_price
         info["portfolio_return"] = portfolio_return
-        
+
         return next_state, reward, done, False, info
 
     def _apply_slippage(self, price, action_value):
@@ -355,12 +363,16 @@ class TradingEnvironment(gym.Env):
         if self.slippage_model == "dynamic":
             # Calculer le slippage en fonction du volume et de la volatilité
             current_volume = self.df.iloc[self.current_step]["volume"]
-            avg_volume = self.df.iloc[max(0, self.current_step - 20):self.current_step]["volume"].mean()
+            avg_volume = self.df.iloc[
+                max(0, self.current_step - 20) : self.current_step
+            ]["volume"].mean()
             volatility = self.df.iloc[self.current_step]["volatility"]
-            
+
             # Calculer le facteur de slippage
-            slippage_factor = self.slippage_value * (1 + volatility) * (current_volume / avg_volume)
-            
+            slippage_factor = (
+                self.slippage_value * (1 + volatility) * (current_volume / avg_volume)
+            )
+
             # Appliquer le slippage
             if action_value > 0:  # Achat
                 return price * (1 + slippage_factor)
@@ -386,24 +398,36 @@ class TradingEnvironment(gym.Env):
         """
         current_price = self.df.iloc[self.current_step]["close"]
         executed_orders = []
-        
+
         for order in self.pending_orders:
             order["delay"] -= 1
             if order["delay"] <= 0:
                 # Exécuter l'ordre
-                price_with_slippage = self._apply_slippage(current_price, order["action_value"])
-                
+                price_with_slippage = self._apply_slippage(
+                    current_price, order["action_value"]
+                )
+
                 if order["action_value"] > 0:  # Achat
-                    self.balance -= order["amount"] * price_with_slippage * (1 + self.transaction_fee)
+                    self.balance -= (
+                        order["amount"]
+                        * price_with_slippage
+                        * (1 + self.transaction_fee)
+                    )
                     self.crypto_held += order["amount"]
                 else:  # Vente
-                    self.balance += order["amount"] * price_with_slippage * (1 - self.transaction_fee)
+                    self.balance += (
+                        order["amount"]
+                        * price_with_slippage
+                        * (1 - self.transaction_fee)
+                    )
                     self.crypto_held -= order["amount"]
-                
+
                 executed_orders.append(order)
-        
+
         # Retirer les ordres exécutés
-        self.pending_orders = [order for order in self.pending_orders if order not in executed_orders]
+        self.pending_orders = [
+            order for order in self.pending_orders if order not in executed_orders
+        ]
 
     def _apply_discrete_action(self, action):
         """
@@ -439,11 +463,13 @@ class TradingEnvironment(gym.Env):
 
             # Si délai d'exécution > 0, ajouter à la liste des ordres en attente
             if self.execution_delay > 0:
-                self.pending_orders.append({
-                    "action_value": buy_percentage,
-                    "amount": max_crypto_to_buy,
-                    "delay": self.execution_delay
-                })
+                self.pending_orders.append(
+                    {
+                        "action_value": buy_percentage,
+                        "amount": max_crypto_to_buy,
+                        "delay": self.execution_delay,
+                    }
+                )
                 logger.debug(
                     f"Ordre d'achat en attente: {max_crypto_to_buy:.6f} unités à ${current_price:.2f}, délai: {self.execution_delay}"
                 )
@@ -467,11 +493,13 @@ class TradingEnvironment(gym.Env):
 
                 # Si délai d'exécution > 0, ajouter à la liste des ordres en attente
                 if self.execution_delay > 0:
-                    self.pending_orders.append({
-                        "action_value": -sell_percentage,  # Négatif pour indiquer une vente
-                        "amount": crypto_to_sell,
-                        "delay": self.execution_delay
-                    })
+                    self.pending_orders.append(
+                        {
+                            "action_value": -sell_percentage,  # Négatif pour indiquer une vente
+                            "amount": crypto_to_sell,
+                            "delay": self.execution_delay,
+                        }
+                    )
                     logger.debug(
                         f"Ordre de vente en attente: {crypto_to_sell:.6f} unités à ${current_price:.2f}, délai: {self.execution_delay}"
                     )
@@ -498,7 +526,9 @@ class TradingEnvironment(gym.Env):
         current_price = self.df.iloc[self.current_step]["close"]
 
         # Extraire la valeur scalaire de l'action numpy
-        action_value = float(action[0]) if isinstance(action, np.ndarray) else float(action)
+        action_value = (
+            float(action[0]) if isinstance(action, np.ndarray) else float(action)
+        )
 
         # Zone neutre autour de 0 pour éviter des micro-transactions
         if -0.05 <= action_value <= 0.05:
@@ -523,11 +553,13 @@ class TradingEnvironment(gym.Env):
 
             # Si délai d'exécution > 0, ajouter à la liste des ordres en attente
             if self.execution_delay > 0:
-                self.pending_orders.append({
-                    "action_value": action_value,
-                    "amount": max_crypto_to_buy,
-                    "delay": self.execution_delay
-                })
+                self.pending_orders.append(
+                    {
+                        "action_value": action_value,
+                        "amount": max_crypto_to_buy,
+                        "delay": self.execution_delay,
+                    }
+                )
                 logger.debug(
                     f"Ordre d'achat en attente: {max_crypto_to_buy:.6f} unités ({buy_percentage*100:.0f}%) à ${current_price:.2f}, délai: {self.execution_delay}"
                 )
@@ -548,11 +580,13 @@ class TradingEnvironment(gym.Env):
 
                 # Si délai d'exécution > 0, ajouter à la liste des ordres en attente
                 if self.execution_delay > 0:
-                    self.pending_orders.append({
-                        "action_value": action_value,
-                        "amount": crypto_to_sell,
-                        "delay": self.execution_delay
-                    })
+                    self.pending_orders.append(
+                        {
+                            "action_value": action_value,
+                            "amount": crypto_to_sell,
+                            "delay": self.execution_delay,
+                        }
+                    )
                     logger.debug(
                         f"Ordre de vente en attente: {crypto_to_sell:.6f} unités ({sell_percentage*100:.0f}%) à ${current_price:.2f}, délai: {self.execution_delay}"
                     )
@@ -603,7 +637,7 @@ class TradingEnvironment(gym.Env):
 
         # S'assurer que les données sont dans le bon format
         window_data = window_data.astype(np.float32)
-        
+
         return window_data
 
     def render(self, mode="human"):
@@ -733,7 +767,9 @@ class TradingEnvironment(gym.Env):
 
         # Pénalité pour le drawdown
         if len(self.portfolio_value_history) > 1:
-            current_drawdown = (max(self.portfolio_value_history) - self.portfolio_value_history[-1]) / max(self.portfolio_value_history)
+            current_drawdown = (
+                max(self.portfolio_value_history) - self.portfolio_value_history[-1]
+            ) / max(self.portfolio_value_history)
             if current_drawdown > self.max_drawdown:
                 reward -= self.drawdown_penalty * (current_drawdown - self.max_drawdown)
 
@@ -876,10 +912,10 @@ class TradingEnvironment(gym.Env):
     def _discrete_to_continuous(self, action):
         """
         Convertit une action discrète en valeur continue.
-        
+
         Args:
             action (int): Action discrète (0: hold, 1-n: buy x%, n+1-2n: sell x%)
-            
+
         Returns:
             float: Valeur continue entre -1 et 1
         """
@@ -901,13 +937,17 @@ class TradingEnvironment(gym.Env):
             allocation = np.abs(action) / np.sum(np.abs(action))
         elif self.allocation_strategy == "risk_parity":
             # Allocation basée sur la volatilité inverse
-            volatilities = self.df.iloc[self.current_step][[f"volatility_{i}" for i in range(self.n_assets)]].values
+            volatilities = self.df.iloc[self.current_step][
+                [f"volatility_{i}" for i in range(self.n_assets)]
+            ].values
             allocation = 1 / (volatilities + 1e-6)
             allocation = allocation / np.sum(allocation)
         else:
-            raise ValueError(f"Stratégie d'allocation inconnue: {self.allocation_strategy}")
-        
+            raise ValueError(
+                f"Stratégie d'allocation inconnue: {self.allocation_strategy}"
+            )
+
         # Mettre à jour l'historique d'allocation
         self.allocation_history.append(allocation)
-        
+
         return allocation

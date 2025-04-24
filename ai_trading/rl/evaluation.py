@@ -1,7 +1,6 @@
 import datetime
 import logging
 import os
-from pathlib import Path
 
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
@@ -11,7 +10,6 @@ import seaborn as sns
 from tqdm import tqdm
 
 from ai_trading.config import VISUALIZATION_DIR
-from ai_trading.rl.trading_environment import TradingEnvironment
 
 # Configuration du logger
 logger = logging.getLogger("EvaluationRL")
@@ -31,7 +29,9 @@ if not logger.handlers:
 #     "evaluation",
 # )
 # Créer le répertoire s'il n'existe pas
-save_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "info_retour/evaluation")
+save_dir = os.path.join(
+    os.path.dirname(os.path.dirname(__file__)), "info_retour/evaluation"
+)
 os.makedirs(save_dir, exist_ok=True)
 
 

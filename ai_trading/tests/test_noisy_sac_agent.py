@@ -138,15 +138,15 @@ class TestNoisySACAgent(unittest.TestCase):
         if metrics["critic_loss"] != 0:
             self.assertFalse(np.isnan(metrics["critic_loss"]))
             self.assertFalse(np.isinf(metrics["critic_loss"]))
-        
+
         if metrics["actor_loss"] != 0:
             self.assertFalse(np.isnan(metrics["actor_loss"]))
             self.assertFalse(np.isinf(metrics["actor_loss"]))
-        
+
         if "alpha_loss" in metrics and metrics["alpha_loss"] != 0:
             self.assertFalse(np.isnan(metrics["alpha_loss"]))
             self.assertFalse(np.isinf(metrics["alpha_loss"]))
-        
+
         if metrics["entropy"] != 0:
             self.assertFalse(np.isnan(metrics["entropy"]))
             self.assertFalse(np.isinf(metrics["entropy"]))

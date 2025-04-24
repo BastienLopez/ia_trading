@@ -11,9 +11,9 @@ import pandas as pd
 # Ajouter le répertoire parent au chemin Python
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
+from ai_trading.config import VISUALIZATION_DIR
 from ai_trading.llm.sentiment_analysis import EnhancedNewsAnalyzer, SocialAnalyzer
 from ai_trading.rl.data_integration import RLDataIntegrator
-from ai_trading.config import VISUALIZATION_DIR
 
 
 class TestSentimentIntegration(unittest.TestCase):

@@ -11,6 +11,7 @@ from tqdm import tqdm
 # Ajouter le répertoire parent au chemin pour pouvoir importer les modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from ai_trading.config import VISUALIZATION_DIR
 from ai_trading.rl.adaptive_normalization import AdaptiveNormalizer
 from ai_trading.rl.risk_manager import RiskManager
 from ai_trading.rl.technical_indicators import TechnicalIndicators
@@ -18,7 +19,6 @@ from ai_trading.rl.technical_indicators import TechnicalIndicators
 # Imports de notre projet
 from ai_trading.rl.trading_environment import TradingEnvironment
 from ai_trading.utils.enhanced_data_collector import EnhancedDataCollector
-from ai_trading.config import VISUALIZATION_DIR
 
 
 def preprocess_data(df, window_size=20):

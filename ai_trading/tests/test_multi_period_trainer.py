@@ -15,8 +15,8 @@ import pandas as pd
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
 import pytest
-from ai_trading.config import MODELS_DIR, INFO_RETOUR_DIR
 
+from ai_trading.config import INFO_RETOUR_DIR
 from ai_trading.rl.multi_period_trainer import MultiPeriodTrainer
 
 

@@ -1,13 +1,13 @@
 import os
-from pathlib import Path
+
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-from datetime import datetime
+
+from ai_trading.config import VISUALIZATION_DIR
 
 # Utiliser des imports relatifs
 from ai_trading.rl.trading_environment import TradingEnvironment
-from ai_trading.config import VISUALIZATION_DIR
 
 # Définir le répertoire pour les visualisations
 # VISUALIZATION_DIR = os.path.join(

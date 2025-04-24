@@ -6,8 +6,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from ai_trading.rl.multi_asset_trading_environment import MultiAssetTradingEnvironment
 from ai_trading.config import VISUALIZATION_DIR
+from ai_trading.rl.multi_asset_trading_environment import MultiAssetTradingEnvironment
 
 # Configuration du logger
 logging.basicConfig(

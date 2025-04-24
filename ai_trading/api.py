@@ -61,11 +61,19 @@ class BacktestRequest(BaseModel):
 
 # Dépendances
 def get_data_processor():
-    return DataProcessor(data_dir=os.path.join(os.path.dirname(os.path.dirname(__file__)), "ai_trading/info_retour/data"))
+    return DataProcessor(
+        data_dir=os.path.join(
+            os.path.dirname(os.path.dirname(__file__)), "ai_trading/info_retour/data"
+        )
+    )
 
 
 def get_agent():
-    return RLAgent(model_dir=os.path.join(os.path.dirname(os.path.dirname(__file__)), "ai_trading/info_retour/models"))
+    return RLAgent(
+        model_dir=os.path.join(
+            os.path.dirname(os.path.dirname(__file__)), "ai_trading/info_retour/models"
+        )
+    )
 
 
 # Routes API
@@ -324,5 +332,7 @@ def get_ema_metrics():
 
 if __name__ == "__main__":
     # Créer le dossier logs s'il n'existe pas
-    os.makedirs(os.path.join(os.path.dirname(__file__), "info_retour/logs"), exist_ok=True)
+    os.makedirs(
+        os.path.join(os.path.dirname(__file__), "info_retour/logs"), exist_ok=True
+    )
     uvicorn.run("ai_trading.api:app", host="0.0.0.0", port=8000, reload=True)

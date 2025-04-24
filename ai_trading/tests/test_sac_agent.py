@@ -1,4 +1,3 @@
-import warnings
 # Avertissements de dépréciation connus :
 # 1. PyTorch: torch.utils._pytree._register_pytree_node est déprécié
 #    Solution: Utiliser torch.utils._pytree.register_pytree_node à la place
@@ -70,7 +69,9 @@ class TestSACAgent(unittest.TestCase):
         logger.info(f"État réel shape: {state.shape}")
         # Dans l'implémentation actuelle, la taille réelle de l'état diffère
         # de celle déclarée dans observation_space
-        self.state_size = state.shape[0]  # Utiliser la taille réelle, pas la taille déclarée
+        self.state_size = state.shape[
+            0
+        ]  # Utiliser la taille réelle, pas la taille déclarée
         logger.info(f"State size utilisé: {self.state_size}")
 
         # Créer l'agent SAC avec la bonne taille d'état

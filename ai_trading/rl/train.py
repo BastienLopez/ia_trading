@@ -13,8 +13,8 @@ import numpy as np
 import tensorflow as tf
 from tqdm import tqdm
 
+from ai_trading.config import LOGS_DIR, MODELS_DIR, VISUALIZATION_DIR
 from ai_trading.rl.dqn_agent import DQNAgent
-from ai_trading.config import MODELS_DIR, LOGS_DIR, VISUALIZATION_DIR
 
 # Configuration du logger
 logger = logging.getLogger("TrainRL")
@@ -43,17 +43,17 @@ class TrainingMonitor:
             plot_interval (int): Intervalle de mise à jour des graphiques
         """
         self.initial_balance = initial_balance
-        
+
         # Utiliser VISUALIZATION_DIR si aucun répertoire n'est spécifié
         if save_dir is None:
             self.save_dir = VISUALIZATION_DIR
         else:
             self.save_dir = save_dir
-            
+
         # Créer le répertoire si nécessaire
         if self.save_dir:
             os.makedirs(self.save_dir, exist_ok=True)
-            
+
         self.figs = {}  # Initialiser les dictionnaires de figures
         self.axes = {}  # Initialiser les dictionnaires d'axes
 
@@ -208,17 +208,17 @@ class TrainingMonitor:
         if not self.save_dir:
             logger.warning("Aucun répertoire de sauvegarde spécifié.")
             return
-            
+
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        
+
         # Mettre à jour les graphiques avant la sauvegarde
         self._update_plots()
-        
+
         # Sauvegarder chaque figure avec un timestamp unique
         for name, fig in self.figs.items():
             save_path = os.path.join(self.save_dir, f"{name}_{timestamp}.png")
             fig.savefig(save_path, dpi=300, bbox_inches="tight")
-            
+
         logger.info(f"Figures sauvegardées dans {self.save_dir}")
 
     def get_history(self):
@@ -294,7 +294,7 @@ def train_agent(
             log_dir = LOGS_DIR / f"tensorboard/{current_time}"
         else:
             log_dir = tensorboard_log_dir
-        
+
         os.makedirs(log_dir, exist_ok=True)
         summary_writer = tf.summary.create_file_writer(str(log_dir))
         logger.info(f"Logs TensorBoard disponibles dans {log_dir}")

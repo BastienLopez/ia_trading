@@ -6,10 +6,10 @@ import os
 import matplotlib.pyplot as plt
 import numpy as np
 
+from ai_trading.config import INFO_RETOUR_DIR
 from ai_trading.examples.multi_asset_trading_example import generate_synthetic_data
 from ai_trading.rl.multi_asset_trading_environment import MultiAssetTradingEnvironment
 from ai_trading.rl.transformer_sac_agent import TransformerSACAgent
-from ai_trading.config import INFO_RETOUR_DIR
 
 # Configuration du logger
 logging.basicConfig(
@@ -29,7 +29,12 @@ def visualize_training_results(history, save_path=None):
     # Créer un répertoire pour les visualisations
     if save_path is None:
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        save_path = INFO_RETOUR_DIR / "models" / "transformer_sac" / f"transformer_sac_{timestamp}"
+        save_path = (
+            INFO_RETOUR_DIR
+            / "models"
+            / "transformer_sac"
+            / f"transformer_sac_{timestamp}"
+        )
 
     os.makedirs(save_path, exist_ok=True)
 

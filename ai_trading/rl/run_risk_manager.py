@@ -1,15 +1,15 @@
 import os
-from pathlib import Path
 from datetime import datetime, timedelta
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
+from ai_trading.config import VISUALIZATION_DIR
+
 # Importer le gestionnaire de risques
 from .risk_manager import RiskManager
 from .technical_indicators import TechnicalIndicators
-from ai_trading.config import VISUALIZATION_DIR
 
 # Définir le répertoire pour les visualisations
 # VISUALIZATION_DIR = os.path.join(

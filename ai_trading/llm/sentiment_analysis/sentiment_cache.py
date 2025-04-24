@@ -1,5 +1,6 @@
-from ai_trading.config import SENTIMENT_CACHE_DIR
 import os
+
+from ai_trading.config import SENTIMENT_CACHE_DIR
 
 # ... existing code ...
 
@@ -13,4 +14,4 @@ import os
 # ... existing code ...
 
 # Mettre à jour tous les chemins du cache
-cache_path = os.path.join(SENTIMENT_CACHE_DIR, f"{symbol}_sentiment_cache.json") 
+cache_path = os.path.join(SENTIMENT_CACHE_DIR, f"{symbol}_sentiment_cache.json")

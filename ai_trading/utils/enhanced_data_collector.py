@@ -12,7 +12,6 @@ import pandas as pd
 import requests
 from dotenv import load_dotenv
 from pycoingecko import CoinGeckoAPI
-from ai_trading.config import DATA_DIR
 
 # Chargement des variables d'environnement
 load_dotenv()
@@ -91,7 +90,9 @@ class EnhancedDataCollector:
             return df
 
         except Exception as e:
-            self.logger.error(f"Erreur lors de la récupération des prix via CoinGecko: {e}")
+            self.logger.error(
+                f"Erreur lors de la récupération des prix via CoinGecko: {e}"
+            )
             return pd.DataFrame()
 
     def get_crypto_prices_coincap(
@@ -145,7 +146,9 @@ class EnhancedDataCollector:
             return df
 
         except Exception as e:
-            self.logger.error(f"Erreur lors de la récupération des prix via CoinCap: {e}")
+            self.logger.error(
+                f"Erreur lors de la récupération des prix via CoinCap: {e}"
+            )
             return pd.DataFrame()
 
     def get_crypto_prices_cryptocompare(
@@ -277,7 +280,9 @@ class EnhancedDataCollector:
             global_data = self.coingecko.get_global()
             return global_data
         except Exception as e:
-            self.logger.error(f"Erreur lors de la récupération des données globales: {e}")
+            self.logger.error(
+                f"Erreur lors de la récupération des données globales: {e}"
+            )
             return {}
 
     def get_crypto_news(self, limit: int = 10) -> List[Dict]:
@@ -291,7 +296,9 @@ class EnhancedDataCollector:
             Liste des actualités
         """
         try:
-            self.logger.info(f"Récupération de {limit} actualités crypto via Crypto Panic")
+            self.logger.info(
+                f"Récupération de {limit} actualités crypto via Crypto Panic"
+            )
 
             # Requête à l'API
             url = "https://cryptopanic.com/api/v1/posts/"
@@ -359,13 +366,17 @@ class EnhancedDataCollector:
         try:
             df_coingecko = self.get_crypto_prices_coingecko(coin_id, days, vs_currency)
         except Exception as e:
-            self.logger.warning(f"Erreur lors de la récupération des données CoinGecko: {e}")
+            self.logger.warning(
+                f"Erreur lors de la récupération des données CoinGecko: {e}"
+            )
             df_coingecko = pd.DataFrame()
 
         try:
             df_coincap = self.get_crypto_prices_coincap(coin_id, days)
         except Exception as e:
-            self.logger.warning(f"Erreur lors de la récupération des données CoinCap: {e}")
+            self.logger.warning(
+                f"Erreur lors de la récupération des données CoinCap: {e}"
+            )
             df_coincap = pd.DataFrame()
 
         # Conversion de l'ID CoinGecko vers le symbole pour CryptoCompare
@@ -458,7 +469,9 @@ class EnhancedDataCollector:
                         direction="nearest",
                     )
             except Exception as e:
-                self.logger.warning(f"Erreur lors de l'ajout de l'indice Fear & Greed: {e}")
+                self.logger.warning(
+                    f"Erreur lors de l'ajout de l'indice Fear & Greed: {e}"
+                )
 
         return df_merged
 
@@ -471,7 +484,9 @@ class EnhancedDataCollector:
             filename: Nom du fichier
         """
         # Utilisation du chemin relatif vers ai_trading/info_retour/data/
-        filepath = os.path.join(os.path.dirname(os.path.dirname(__file__)), "info_retour", "data", filename)
+        filepath = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)), "info_retour", "data", filename
+        )
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
         data.to_csv(filepath)
         self.logger.info(f"Données sauvegardées dans {filepath}")

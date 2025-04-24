@@ -111,16 +111,31 @@ class TestTrain(unittest.TestCase):
 
             # Vérifier que les fichiers ont été générés (avec timestamp)
             files_in_dir = os.listdir(temp_dir)
-            
+
             # Vérifier que chaque type de graphique a été généré
-            self.assertTrue(any(f.startswith("rewards_") and f.endswith(".png") for f in files_in_dir),
-                f"Fichier rewards_*.png non trouvé. Fichiers présents: {files_in_dir}")
-            
-            self.assertTrue(any(f.startswith("portfolio_") and f.endswith(".png") for f in files_in_dir),
-                f"Fichier portfolio_*.png non trouvé. Fichiers présents: {files_in_dir}")
-            
-            self.assertTrue(any(f.startswith("returns_") and f.endswith(".png") for f in files_in_dir),
-                f"Fichier returns_*.png non trouvé. Fichiers présents: {files_in_dir}")
+            self.assertTrue(
+                any(
+                    f.startswith("rewards_") and f.endswith(".png")
+                    for f in files_in_dir
+                ),
+                f"Fichier rewards_*.png non trouvé. Fichiers présents: {files_in_dir}",
+            )
+
+            self.assertTrue(
+                any(
+                    f.startswith("portfolio_") and f.endswith(".png")
+                    for f in files_in_dir
+                ),
+                f"Fichier portfolio_*.png non trouvé. Fichiers présents: {files_in_dir}",
+            )
+
+            self.assertTrue(
+                any(
+                    f.startswith("returns_") and f.endswith(".png")
+                    for f in files_in_dir
+                ),
+                f"Fichier returns_*.png non trouvé. Fichiers présents: {files_in_dir}",
+            )
 
     @unittest.skip("Incompatibilité de taille d'état")
     @pytest.mark.skip(reason="Incompatibilité de taille d'état")

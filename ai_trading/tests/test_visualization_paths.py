@@ -5,7 +5,7 @@ Tests unitaires pour vérifier le bon fonctionnement de la sauvegarde des visual
 import os
 import sys
 import unittest
-from pathlib import Path
+
 import matplotlib
 import numpy as np
 import pandas as pd
@@ -15,8 +15,8 @@ matplotlib.use("Agg")  # IMPORTANT: Ceci doit être fait avant d'importer pyplot
 # Ajouter le répertoire parent au chemin Python
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
+from ai_trading.config import INFO_RETOUR_DIR, VISUALIZATION_DIR
 from ai_trading.llm.sentiment_analysis import EnhancedNewsAnalyzer, NewsAnalyzer
-from ai_trading.config import VISUALIZATION_DIR, SENTIMENT_CACHE_DIR, INFO_RETOUR_DIR
 
 
 class TestVisualizationPaths(unittest.TestCase):

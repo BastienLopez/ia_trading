@@ -1,1 +1,1 @@
-# Package indicators 
+# Package indicators

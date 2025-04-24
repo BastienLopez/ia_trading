@@ -365,7 +365,10 @@ def main():
     if not os.path.exists(data_path):
         logger.error(f"Le fichier de données {data_path} n'existe pas.")
         # Essayer de trouver d'autres fichiers de données
-        data_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "ai_trading/info_retour/data/processed")
+        data_dir = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)),
+            "ai_trading/info_retour/data/processed",
+        )
         if os.path.exists(data_dir):
             files = os.listdir(data_dir)
             logger.info(f"Fichiers disponibles dans {data_dir}: {files}")
@@ -466,7 +469,9 @@ def main():
     )
 
     # Sauvegarde de l'agent
-    model_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "ai_trading/info_retour/models/sac")
+    model_dir = os.path.join(
+        os.path.dirname(os.path.dirname(__file__)), "ai_trading/info_retour/models/sac"
+    )
     os.makedirs(model_dir, exist_ok=True)
     agent.save(model_dir)
     logger.info(f"Agent sauvegardé dans {model_dir}")
