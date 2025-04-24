@@ -137,6 +137,11 @@ class TestDiversificationReward(unittest.TestCase):
         self.env.max_diversification_factor = 2.0
         self.env.correlation_penalty_weight = 1.0
 
+        # S'assurer que les corrélations sont calculées
+        self.env._align_data()
+        self.env.asset_correlations = self.env._calculate_asset_correlations()
+        self.env.asset_volatilities = self.env._calculate_asset_volatilities()
+
     def test_diversification_reward_equal_weights(self):
         """Teste la récompense avec une allocation équilibrée."""
         # Simuler une allocation équilibrée
@@ -208,6 +213,11 @@ class TestDiversificationReward(unittest.TestCase):
                 index=dates,
             ),
         }
+
+        # Recalculer les corrélations après avoir modifié les données
+        self.env._align_data()
+        self.env.asset_correlations = self.env._calculate_asset_correlations()
+        self.env.asset_volatilities = self.env._calculate_asset_volatilities()
 
         # Allocation équilibrée
         self.env.crypto_holdings = {"BTC": 0.1, "ETH": 1.67, "XRP": 5000}

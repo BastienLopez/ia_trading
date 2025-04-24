@@ -136,6 +136,7 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
         self.action_type = action_type
         self.slippage_model = slippage_model
         self.base_slippage = base_slippage
+        self.slippage_value = base_slippage  # Initialisation du slippage_value
         self.execution_delay = execution_delay
         self.market_impact_factor = market_impact_factor
         self.correlation_threshold = correlation_threshold
@@ -143,6 +144,10 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
 
         # Aligner toutes les données sur les mêmes dates
         self._align_data()
+
+        # Calculer les corrélations et volatilités avant l'initialisation du portfolio allocator
+        self.asset_correlations = self._calculate_asset_correlations()
+        self.asset_volatilities = self._calculate_asset_volatilities()
 
         # Initialiser le portfolio allocator
         self.portfolio_allocator = PortfolioAllocator(
@@ -170,9 +175,7 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
         # Réinitialiser l'environnement pour calculer la taille réelle de l'état
         temp_reset = self.reset()
         if isinstance(temp_reset, tuple):
-            temp_state = temp_reset[
-                0
-            ]  # Pour la compatibilité avec les nouvelles versions de gym
+            temp_state = temp_reset[0]  # Pour la compatibilité avec les nouvelles versions de gym
         else:
             temp_state = temp_reset
 
@@ -181,10 +184,6 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
         self.observation_space = spaces.Box(
             low=-np.inf, high=np.inf, shape=(real_state_size,), dtype=np.float32
         )
-
-        # Ajouter les paramètres de gestion de portefeuille
-        self.asset_correlations = self._calculate_asset_correlations()
-        self.asset_volatilities = self._calculate_asset_volatilities()
 
         # Initialisation des contraintes de marché
         self.market_constraints = MarketConstraints(
@@ -272,7 +271,7 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
             action: Action de trading pour chaque actif
 
         Returns:
-            tuple: (observation, reward, done, info)
+            tuple: (observation, reward, terminated, truncated, info)
         """
         # Sauvegarder la valeur précédente du portefeuille
         previous_value = self.get_portfolio_value()
@@ -334,9 +333,10 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
         reward = self._calculate_reward(previous_value, current_value)
 
         # Vérifier si l'épisode est terminé
-        done = self.current_step >= len(self.data_dict[self.symbols[0]]) - 1
+        terminated = self.current_step >= len(self.data_dict[self.symbols[0]]) - 1
+        truncated = False
 
-        return self._get_observation(), reward, done, self._get_info()
+        return self._get_observation(), reward, terminated, truncated, self._get_info()
 
     def _process_pending_orders(self):
         """
@@ -417,28 +417,32 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
                 self.market_constraints.update_orderbook_depth(symbol, depth_data)
 
     def _calculate_asset_correlations(self):
-        """Calcule les corrélations entre les actifs."""
-        self.asset_correlations = {}
-
+        """
+        Calcule les corrélations entre les actifs.
+        
+        Returns:
+            pd.DataFrame: DataFrame des corrélations entre les actifs
+        """
         # Calculer les rendements pour chaque actif
         returns = {}
         for symbol in self.data_dict:
             prices = self.data_dict[symbol]["close"]
             returns[symbol] = prices.pct_change().dropna()
 
+        # Créer un DataFrame de corrélations
+        correlation_matrix = pd.DataFrame(index=self.symbols, columns=self.symbols)
+        
         # Calculer les corrélations
-        for symbol1 in self.data_dict:
-            self.asset_correlations[symbol1] = {}
-            for symbol2 in self.data_dict:
+        for symbol1 in self.symbols:
+            correlation_matrix.loc[symbol1, symbol1] = 1.0  # Diagonale
+            for symbol2 in self.symbols:
                 if symbol1 != symbol2:
                     # Utiliser une fenêtre glissante pour les corrélations
-                    correlation = (
-                        returns[symbol1]
-                        .rolling(window=30)
-                        .corr(returns[symbol2])
-                        .mean()
-                    )
-                    self.asset_correlations[symbol1][symbol2] = correlation
+                    correlation = returns[symbol1].rolling(window=30).corr(returns[symbol2]).mean()
+                    correlation_matrix.loc[symbol1, symbol2] = correlation
+                    correlation_matrix.loc[symbol2, symbol1] = correlation  # Symétrie
+
+        return correlation_matrix
 
     def _calculate_asset_volatilities(self) -> pd.Series:
         """
@@ -482,7 +486,7 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
 
             for asset in remaining_assets:
                 max_corr = max(
-                    abs(self.asset_correlations.get(asset, {}).get(selected, 0))
+                    abs(self.asset_correlations.loc[asset, selected])
                     for selected in selected_assets
                 )
                 if max_corr < min_correlation:
@@ -736,43 +740,72 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
 
         return reward
 
-    def _diversification_reward(self, base_reward):
-        """Calcule la récompense de diversification."""
-        if not self.crypto_holdings or all(
-            v == 0 for v in self.crypto_holdings.values()
-        ):
-            return base_reward
+    def _diversification_reward(self, base_reward: float) -> float:
+        """Calcule la récompense de diversification.
 
-        # Calculer les poids du portefeuille
-        total_value = self.get_portfolio_value()
+        Args:
+            base_reward (float): La récompense de base à ajuster.
+
+        Returns:
+            float: La récompense ajustée selon la diversification.
+        """
+        # Calculer les poids normalisés du portefeuille
+        total_value = sum(self.crypto_holdings.values())
         if total_value == 0:
-            return base_reward
+            self.last_diversification_metrics = {
+                "diversification_index": 0.0,
+                "correlation_penalty": 0.0,
+                "weights": {asset: 0.0 for asset in self.crypto_holdings},
+                "diversification_factor": self.min_diversification_factor
+            }
+            return base_reward * self.min_diversification_factor
 
-        weights = {}
-        for symbol, amount in self.crypto_holdings.items():
-            price = self.data_dict[symbol]["close"].iloc[self.current_step]
-            weights[symbol] = (amount * price) / total_value
+        weights = {
+            asset: value / total_value
+            for asset, value in self.crypto_holdings.items()
+        }
 
         # Calculer l'indice de diversification (HHI inversé)
         hhi = sum(w * w for w in weights.values())
-        div_index = 1 - hhi
+        n = len(weights)
+        diversification_index = (1 - hhi) / (1 - 1/n) if n > 1 else 0
 
         # Calculer la pénalité de corrélation
-        correlation_penalty = 0
-        for symbol1, w1 in weights.items():
-            for symbol2, w2 in weights.items():
-                if symbol1 != symbol2:
-                    corr = self.asset_correlations.get(symbol1, {}).get(symbol2, 0)
-                    correlation_penalty += w1 * w2 * abs(corr)
+        correlation_penalty = 0.0
+        if self.asset_correlations is not None and len(weights) > 1:
+            weighted_correlations = []
+            for i, (asset1, w1) in enumerate(weights.items()):
+                for j, (asset2, w2) in enumerate(weights.items()):
+                    if i < j:  # Éviter les doublons et la diagonale
+                        corr = self.asset_correlations.loc[asset1, asset2]
+                        weighted_corr = abs(corr) * w1 * w2
+                        weighted_correlations.append(weighted_corr)
+            
+            if weighted_correlations:
+                correlation_penalty = sum(weighted_correlations) * 2  # Multiplier par 2 pour compenser les paires manquantes
 
-        # Facteur final de diversification
-        div_factor = div_index * (1 - correlation_penalty)
+        # Calculer le facteur de diversification final
+        diversification_factor = 1.0
+        if diversification_index < 0.5:  # Mauvaise diversification
+            diversification_factor = max(
+                self.min_diversification_factor,
+                1.0 - (0.5 - diversification_index) - correlation_penalty
+            )
+        else:  # Bonne diversification
+            diversification_factor = min(
+                self.max_diversification_factor,
+                1.0 + (diversification_index - 0.5) - correlation_penalty
+            )
 
-        # Ajuster la récompense
-        if div_factor > 0.5:  # Bonne diversification
-            return base_reward * (1 + 0.2)  # +20%
-        else:  # Mauvaise diversification
-            return base_reward * (1 - 0.2)  # -20%
+        # Stocker les métriques pour les tests
+        self.last_diversification_metrics = {
+            "diversification_index": diversification_index,
+            "correlation_penalty": correlation_penalty,
+            "weights": weights,
+            "diversification_factor": diversification_factor
+        }
+
+        return base_reward * diversification_factor
 
     def visualize_portfolio_allocation(self):
         """

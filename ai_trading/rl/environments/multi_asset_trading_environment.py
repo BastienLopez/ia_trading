@@ -10,6 +10,7 @@ class MultiAssetTradingEnvironment:
         self.assets = assets
         self.initial_balance = initial_balance
         self.market_constraints = MarketConstraints()
+        self.asset_correlations = {}  # Initialisation de asset_correlations
         self.reset()
 
     def reset(self):
@@ -17,6 +18,7 @@ class MultiAssetTradingEnvironment:
         self.holdings = {asset: 0.0 for asset in self.assets}
         self.portfolio_value = self.initial_balance
         self.slippage_value = 0.0
+        self.asset_correlations = self._calculate_correlations()  # Mise à jour des corrélations
         return self._get_state()
 
     def step(self, actions: Dict[str, float]):
@@ -62,7 +64,11 @@ class MultiAssetTradingEnvironment:
         reward = (self.portfolio_value - old_portfolio_value) / old_portfolio_value
         reward += self._calculate_diversification_reward()
 
-        return self._get_state(), reward, False, {}
+        # Vérification de fin d'épisode
+        done = self.portfolio_value <= 0  # L'épisode se termine si le portfolio est vide
+        truncated = False  # Pas de troncature dans cet environnement
+
+        return self._get_state(), reward, done, truncated, {}
 
     def _get_state(self):
         """Retourne l'état actuel de l'environnement."""
@@ -103,12 +109,14 @@ class MultiAssetTradingEnvironment:
         """Calcule les corrélations entre les actifs."""
         correlations = {}
         for i, asset1 in enumerate(self.assets):
-            for j, asset2 in enumerate(self.assets[i + 1 :], i + 1):
+            for j, asset2 in enumerate(self.assets[i + 1:], i + 1):
                 returns1 = self._get_returns(asset1)
                 returns2 = self._get_returns(asset2)
                 if len(returns1) > 1 and len(returns2) > 1:
                     correlation = np.corrcoef(returns1, returns2)[0, 1]
                     correlations[(asset1, asset2)] = correlation
+                    correlations[(asset2, asset1)] = correlation  # Ajout de la symétrie
+            correlations[(asset1, asset1)] = 1.0  # Corrélation avec soi-même
         return correlations
 
     def _get_current_price(self, asset: str) -> float:
