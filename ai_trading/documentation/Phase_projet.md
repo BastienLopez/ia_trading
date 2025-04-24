@@ -118,7 +118,7 @@ Ce module contient l'implémentation d'un système de trading de cryptomonnaies 
   - [x] Impact du carnet d'ordres
 
   ### 5. **Multi-actifs**
-  - [ ] Étendre à 2–3 crypto-actifs
+  - [ ] Étendre à 2–3 crypto-actifs + actifs (exemple : XAU/USD) + stocks (exemple : AAPL, NVDA)
   - [ ] Allocation de portefeuille simple
   - [ ] Contraintes de corrélation/diversification
 
