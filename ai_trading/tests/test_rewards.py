@@ -13,6 +13,7 @@ from ai_trading.rl.advanced_rewards import (
     DrawdownReward,
     SharpeRatioReward,
     TransactionCostReward,
+    DiversificationReward,
 )
 
 
@@ -178,6 +179,56 @@ def test_drawdown_reward():
         )
 
 
+def test_diversification_reward():
+    """Teste la récompense basée sur la diversification du portefeuille"""
+    print("\n=== Test du DiversificationReward ===")
+
+    # Initialiser le calculateur de récompense
+    reward_calculator = DiversificationReward(target_diversity=0.3, penalty_factor=1.5)
+
+    # Scénarios de test avec différentes allocations de portefeuille
+    scenarios = [
+        {
+            "allocations": {"BTC": 1.0},  # Portfolio non diversifié
+            "description": "Portfolio concentré sur un seul actif"
+        },
+        {
+            "allocations": {"BTC": 0.5, "ETH": 0.5},  # Diversification moyenne
+            "description": "Portfolio réparti sur deux actifs"
+        },
+        {
+            "allocations": {"BTC": 0.3, "ETH": 0.3, "SOL": 0.4},  # Bonne diversification
+            "description": "Portfolio bien diversifié"
+        }
+    ]
+
+    # Tester chaque scénario
+    print("Test des différents niveaux de diversification:")
+    for scenario in scenarios:
+        reward = reward_calculator.calculate(scenario["allocations"])
+        print(f"\n{scenario['description']}:")
+        print(f"  Allocations: {scenario['allocations']}")
+        print(f"  Récompense: {reward:.4f}")
+
+    # Test de l'évolution de la diversification
+    print("\nTest de l'évolution de la diversification:")
+    reward_calculator.reset()
+    
+    # Simulation d'une évolution d'allocations
+    evolution = [
+        {"BTC": 1.0},
+        {"BTC": 0.8, "ETH": 0.2},
+        {"BTC": 0.6, "ETH": 0.4},
+        {"BTC": 0.4, "ETH": 0.3, "SOL": 0.3},
+    ]
+
+    for i, allocation in enumerate(evolution):
+        reward = reward_calculator.calculate(allocation)
+        print(f"\nÉtape {i+1}:")
+        print(f"  Allocations: {allocation}")
+        print(f"  Récompense: {reward:.4f}")
+
+
 def plot_rewards_comparison():
     """Trace et compare les trois types de récompenses sur les mêmes données."""
     print("Comparaison des différentes fonctions de récompense...")
@@ -277,6 +328,7 @@ if __name__ == "__main__":
     test_sharpe_ratio_reward()
     test_transaction_cost_reward()
     test_drawdown_reward()
+    test_diversification_reward()
 
     # Comparer les récompenses
     plot_rewards_comparison()

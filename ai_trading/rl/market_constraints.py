@@ -8,9 +8,27 @@ logger = logging.getLogger(__name__)
 class MarketConstraints:
     """Gère les contraintes de marché réalistes pour l'environnement de trading."""
 
-    def __init__(self):
+    def __init__(
+        self,
+        slippage_model="dynamic",
+        base_slippage=0.001,
+        execution_delay=0,
+        market_impact_factor=0.1,
+    ):
+        """
+        Initialise les contraintes de marché.
+
+        Args:
+            slippage_model (str): Modèle de slippage ('fixed' ou 'dynamic')
+            base_slippage (float): Slippage de base
+            execution_delay (int): Délai d'exécution de base
+            market_impact_factor (float): Facteur d'impact marché
+        """
         self.orderbook_depth = {}
-        self.base_slippage = 0.001  # Slippage de base
+        self.slippage_model = slippage_model
+        self.base_slippage = base_slippage  # Slippage de base
+        self.execution_delay = execution_delay
+        self.market_impact_factor = market_impact_factor
         self.max_recovery_time = 100  # Temps de récupération maximal
         self.min_impact = 0.001  # Impact minimal
         self.max_impact = 0.05  # Impact maximal

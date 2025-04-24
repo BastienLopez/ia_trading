@@ -419,3 +419,64 @@ class DrawdownReward:
         Réinitialise l'historique des valeurs de portefeuille.
         """
         self.portfolio_values = []
+
+
+class DiversificationReward:
+    """
+    Classe pour le calcul de récompense basée sur la diversification du portefeuille.
+    """
+
+    def __init__(self, target_diversity=0.3, penalty_factor=1.5, window_size=30):
+        """
+        Initialise le calculateur de récompense basée sur la diversification.
+
+        Args:
+            target_diversity (float): Niveau de diversification cible (entre 0 et 1)
+            penalty_factor (float): Facteur de pénalité pour la sous-diversification
+            window_size (int): Taille de la fenêtre pour le calcul des corrélations
+        """
+        self.target_diversity = target_diversity
+        self.penalty_factor = penalty_factor
+        self.window_size = window_size
+        self.portfolio_history = []
+        self.asset_correlations = {}
+
+    def calculate(self, allocations):
+        """
+        Calcule la récompense basée sur la diversification du portefeuille.
+
+        Args:
+            allocations (dict): Dictionnaire des allocations par actif {symbol: weight}
+
+        Returns:
+            float: Récompense ajustée selon la diversification
+        """
+        # Ajouter les allocations à l'historique
+        self.portfolio_history.append(allocations)
+        if len(self.portfolio_history) > self.window_size:
+            self.portfolio_history = self.portfolio_history[-self.window_size:]
+
+        # Calculer l'indice de diversification (HHI inversé)
+        weights = list(allocations.values())
+        hhi = sum(w * w for w in weights)
+        diversity_index = 1 - hhi
+
+        # Calculer la pénalité de concentration
+        concentration_penalty = max(0, self.target_diversity - diversity_index)
+        penalty = concentration_penalty * self.penalty_factor
+
+        # Calculer la récompense finale
+        base_reward = 1.0  # Récompense de base
+        if diversity_index >= self.target_diversity:
+            reward = base_reward * (1 + 0.2)  # Bonus de 20% pour bonne diversification
+        else:
+            reward = base_reward * (1 - penalty)  # Pénalité pour sous-diversification
+
+        return reward
+
+    def reset(self):
+        """
+        Réinitialise l'historique du portefeuille.
+        """
+        self.portfolio_history = []
+        self.asset_correlations = {}
