@@ -133,7 +133,6 @@ Ce module contient l'implémentation d'un système de trading de cryptomonnaies 
 
   ### 7. **Validation et robustesse**
   - [x] Optimisation des hyperparamètres
-  - [ ] Validation croisée temporelle
   - [ ] Robustesse à conditions de marché changeantes
   - [ ] Tests statistiques de performance
 
@@ -153,7 +152,7 @@ Ce module contient l'implémentation d'un système de trading de cryptomonnaies 
   - [ ] Gestion multi-niveaux des risques
 
   ### 2. **Ordres avancés**
-  - [ ] Ordres limites, stop-loss dynamiques
+  - [ ] Ordres limites, stop-loss dynamiques (SL), Take Profit (TP),Taille du lot (Lot size), Pips
   - [ ] Gestion dynamique de taille des positions
   - [ ] Simulation complète d'un carnet d'ordres
 
