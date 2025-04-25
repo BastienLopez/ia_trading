@@ -48,6 +48,9 @@ class MultiAssetTradingSystem:
         self.initial_balance = initial_balance
         self.risk_per_trade = risk_per_trade
         self.max_position_size = max_position_size
+        
+        # Seuil de volatilité pour le rééquilibrage dynamique
+        self.volatility_threshold = 0.15  # 15% est un seuil typique
 
         # Initialiser les systèmes de trading individuels
         self.trading_systems: Dict[str, RLTradingSystem] = {}
@@ -57,6 +60,10 @@ class MultiAssetTradingSystem:
         self.balance = initial_balance
         self.positions: Dict[str, float] = {asset: 0.0 for asset in self.assets}
         self.prices: Dict[str, float] = {asset: 0.0 for asset in self.assets}
+        
+        # Initialiser les poids optimaux (allocation par défaut équilibrée)
+        self.optimal_weights = {asset: 1.0 / len(self.assets) for asset in self.assets}
+        self.weights = self.optimal_weights.copy()
 
         logger.info(
             f"Système de trading multi-actifs initialisé avec {len(self.assets)} actifs"
@@ -377,16 +384,29 @@ class MultiAssetTradingSystem:
 
         for asset in self.assets:
             if asset in data_to_use:
+                # Traiter différemment selon le type de données
                 if isinstance(data_to_use[asset], pd.DataFrame):
-                    prices = data_to_use[asset]["close"].values
-                else:
+                    # Si c'est un DataFrame, utiliser la colonne 'close'
+                    if 'close' in data_to_use[asset].columns:
+                        prices = data_to_use[asset]["close"].values
+                        if len(prices) > 1:
+                            returns = np.diff(prices) / prices[:-1]
+                            volatility = np.std(returns)
+                            volatilities.append(volatility)
+                elif isinstance(data_to_use[asset], (list, np.ndarray)):
+                    # Si c'est une liste ou un array
                     prices = data_to_use[asset]
+                    if len(prices) > 1:
+                        returns = np.diff(prices) / prices[:-1]
+                        volatility = np.std(returns)
+                        volatilities.append(volatility)
+                else:
+                    # Si c'est une valeur unique (float), on ne peut pas calculer la volatilité
+                    # et on la saute
+                    continue
 
-                if len(prices) > 1:
-                    returns = np.diff(prices) / prices[:-1]
-                    volatilities.append(np.std(returns))
-
-        return np.mean(volatilities) if volatilities else 0.0
+        # Retourner la volatilité moyenne ou 0 s'il n'y a pas assez de données
+        return float(np.mean(volatilities)) if volatilities else 0.0
 
     def needs_rebalancing(
         self, current_allocation: Dict[str, float], target_allocation: Dict[str, float]
@@ -404,6 +424,26 @@ class MultiAssetTradingSystem:
         threshold = self.calculate_rebalancing_threshold(
             current_allocation, target_allocation
         )
+        
+        # Calculer la déviation maximale
+        max_deviation = max(
+            abs(current_allocation[asset] - target_allocation[asset])
+            for asset in self.assets
+        )
+        
+        # Si un actif a une déviation très élevée (>15%), rééquilibrer immédiatement
+        if max_deviation > 0.15:
+            return True
+            
+        # Calculer la somme totale des déviations
+        total_deviation = sum(
+            abs(current_allocation[asset] - target_allocation[asset])
+            for asset in self.assets
+        )
+        
+        # Si la somme des déviations est significative (>20%), rééquilibrer
+        if total_deviation > 0.20:
+            return True
 
         # Vérifier si l'écart dépasse le seuil pour au moins un actif
         for asset in self.assets:
@@ -424,25 +464,77 @@ class MultiAssetTradingSystem:
         """
         current_weights = self.calculate_dynamic_weights(market_data)
         self.weights = current_weights
-        return current_weights
+        
+        # Calculer une nouvelle allocation basée sur les conditions de marché actuelles
+        new_allocation = self.calculate_adaptive_allocation(market_data)
+        
+        # Mettre à jour l'allocation personnalisée
+        if hasattr(self, "custom_allocation"):
+            self.custom_allocation = new_allocation
+        else:
+            self.set_custom_allocation(new_allocation)
+            
+        return new_allocation
 
     def calculate_dynamic_weights(
         self, market_data: Dict[str, pd.DataFrame]
     ) -> Dict[str, float]:
         """
-        Calcule les poids dynamiques en fonction de la volatilité du marché.
+        Calcule les poids dynamiques en fonction de la volatilité et de la corrélation du marché.
 
         Args:
             market_data: Données de marché pour le calcul des poids
         """
         market_volatility = self.calculate_market_volatility(market_data)
-
+        market_correlation = self.calculate_market_correlation(market_data)
+        
+        # Initialiser le dictionnaire des poids
+        result = {}
+        
+        # Poids pour la volatilité - plus élevé pendant les périodes volatiles
+        # Augmenter le poids de volatilité lorsque la volatilité du marché est élevée
+        volatility_ratio = market_volatility / self.volatility_threshold
+        volatility_weight = min(0.7, max(0.41, volatility_ratio * 0.5))
+        
+        # Poids pour la corrélation - plus élevé pendant les périodes stables
+        # Inverse par rapport à la volatilité : quand la volatilité est faible, 
+        # le marché est plus stable et on peut se fier davantage aux corrélations
+        correlation_weight = min(0.6, max(0.2, 0.8 - volatility_weight))
+        
+        # Ajuster pour que les poids volatilité + corrélation ne dépassent pas 0.8
+        total_weight = volatility_weight + correlation_weight
+        if total_weight > 0.8:
+            scaling_factor = 0.8 / total_weight
+            volatility_weight *= scaling_factor
+            correlation_weight *= scaling_factor
+        
+        result["volatility"] = volatility_weight
+        result["correlation"] = correlation_weight
+        
+        # Répartir le reste des poids entre les actifs
+        remaining_weight = 1.0 - (volatility_weight + correlation_weight)
+        asset_weights = {}
+        
         if market_volatility > self.volatility_threshold:
-            # En période de forte volatilité, réduire l'exposition
-            return {asset: 1.0 / len(self.assets) for asset in self.assets}
+            # En période de forte volatilité, distribution égale entre les actifs
+            for asset in self.assets:
+                asset_weights[asset] = remaining_weight / len(self.assets)
         else:
-            # En période de faible volatilité, utiliser les poids optimaux
-            return self.optimal_weights
+            # En période de faible volatilité, utiliser les poids optimaux ou une distribution égale
+            if hasattr(self, "optimal_weights") and self.optimal_weights:
+                # Normaliser les poids optimaux pour qu'ils somment à remaining_weight
+                total = sum(self.optimal_weights.values())
+                for asset, weight in self.optimal_weights.items():
+                    asset_weights[asset] = (weight / total) * remaining_weight
+            else:
+                # Si pas de poids optimaux, distribution égale
+                for asset in self.assets:
+                    asset_weights[asset] = remaining_weight / len(self.assets)
+        
+        # Combiner les deux dictionnaires
+        result.update(asset_weights)
+        
+        return result
 
     def calculate_market_trend(self, market_data: Dict[str, pd.DataFrame]) -> float:
         """

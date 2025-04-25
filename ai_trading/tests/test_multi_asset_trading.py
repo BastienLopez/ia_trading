@@ -319,13 +319,14 @@ class TestMultiAssetTradingSystem(unittest.TestCase):
             market_data[asset] = pd.DataFrame({"close": prices})
             system.prices[asset] = prices[-1]  # Dernier prix
 
-        # Initialiser les positions avec une allocation déséquilibrée
-        system.positions = {
+        # Initialiser une allocation déséquilibrée
+        desequilibree = {
             "BTC": 0.4,  # 40%
             "ETH": 0.3,  # 30%
             "XAU/USD": 0.2,  # 20%
             "AAPL": 0.1,  # 10%
         }
+        system.set_custom_allocation(desequilibree)
 
         # Vérifier que le rééquilibrage est nécessaire
         current_allocation = system.get_current_allocation()
