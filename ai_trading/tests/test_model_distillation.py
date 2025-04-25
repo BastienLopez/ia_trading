@@ -1,5 +1,8 @@
 import os
 
+import numpy as np
+import pandas as pd
+import pytest
 import torch
 
 from ai_trading.config import MODELS_DIR
@@ -11,7 +14,79 @@ from ai_trading.rl.models.model_distillation import (
     train_distilled_model,
 )
 from ai_trading.rl.trading_system import RLTradingSystem
-from ai_trading.tests.test_transformer_real_data import prepare_sequences
+
+
+# Fixture pour générer des données de marché réelles pour les tests
+@pytest.fixture
+def real_market_data():
+    """
+    Charge ou génère des données de marché réelles pour les tests.
+    Dans ce cas, nous utilisons des données synthétiques qui simulent des données réelles.
+    """
+    # Générer une série temporelle réaliste
+    np.random.seed(42)
+    n_days = 1000
+
+    # Prix initial
+    initial_price = 100.0
+
+    # Générer les variations de prix avec une tendance et de la volatilité
+    returns = np.random.normal(
+        0.0001, 0.02, n_days
+    )  # moyenne positive pour une tendance haussière
+    price_multipliers = np.exp(returns).cumprod()
+    closes = initial_price * price_multipliers
+
+    # Générer OHLCV
+    data = pd.DataFrame(
+        {
+            "open": closes * (1 + np.random.normal(0, 0.002, n_days)),
+            "high": closes * (1 + np.abs(np.random.normal(0, 0.004, n_days))),
+            "low": closes * (1 - np.abs(np.random.normal(0, 0.004, n_days))),
+            "close": closes,
+            "volume": np.random.lognormal(10, 1, n_days),
+        }
+    )
+
+    # Assurer que high est toujours le plus haut et low le plus bas
+    data["high"] = np.maximum(np.maximum(data["high"], data["open"]), data["close"])
+    data["low"] = np.minimum(np.minimum(data["low"], data["open"]), data["close"])
+
+    return data
+
+
+def prepare_sequences(data, seq_length=50):
+    """
+    Prépare les séquences pour l'entraînement du transformer avec un meilleur prétraitement.
+    """
+    # Normalisation robuste avec MinMaxScaler pour chaque colonne
+    data_norm = data.copy()
+    for col in data.columns:
+        min_val = data[col].min()
+        max_val = data[col].max()
+        data_norm[col] = (data[col] - min_val) / (max_val - min_val + 1e-8)
+
+    # Créer les séquences avec chevauchement
+    sequences = []
+    targets = []
+
+    for i in range(len(data_norm) - seq_length):
+        # Séquence d'entrée
+        seq = data_norm.iloc[i : i + seq_length]
+
+        # Cible : variation relative du prix de clôture
+        current_close = data_norm["close"].iloc[i + seq_length - 1]
+        next_close = data_norm["close"].iloc[i + seq_length]
+        target = (next_close - current_close) / (current_close + 1e-8)
+
+        sequences.append(seq.values)
+        targets.append(target)
+
+    # Convertir en tenseurs de manière efficace
+    sequences = torch.FloatTensor(np.array(sequences))
+    targets = torch.FloatTensor(targets).unsqueeze(1)
+
+    return sequences, targets
 
 
 def test_distillation_loss():
