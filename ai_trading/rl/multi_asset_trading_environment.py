@@ -175,7 +175,9 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
         # Réinitialiser l'environnement pour calculer la taille réelle de l'état
         temp_reset = self.reset()
         if isinstance(temp_reset, tuple):
-            temp_state = temp_reset[0]  # Pour la compatibilité avec les nouvelles versions de gym
+            temp_state = temp_reset[
+                0
+            ]  # Pour la compatibilité avec les nouvelles versions de gym
         else:
             temp_state = temp_reset
 
@@ -284,11 +286,13 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
 
         # Création des nouveaux ordres
         for i, symbol in enumerate(self.symbols):
-            if abs(normalized_actions[i]) > 1e-6:  # Seulement si l'action n'est pas nulle
+            if (
+                abs(normalized_actions[i]) > 1e-6
+            ):  # Seulement si l'action n'est pas nulle
                 # Calculer la valeur cible pour cet actif
                 target_value = normalized_actions[i] * self.balance
                 current_price = self.data_dict[symbol].iloc[self.current_step]["close"]
-                
+
                 # Calculer la quantité à trader
                 quantity = target_value / current_price
 
@@ -304,14 +308,18 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
                 # Enregistrer l'impact marché
                 if symbol not in self.market_impacts:
                     self.market_impacts[symbol] = []
-                self.market_impacts[symbol].append({
-                    "step": self.current_step,
-                    "impact": impact,
-                    "recovery_time": recovery_time,
-                })
+                self.market_impacts[symbol].append(
+                    {
+                        "step": self.current_step,
+                        "impact": impact,
+                        "recovery_time": recovery_time,
+                    }
+                )
 
                 # Calculer le slippage
-                slippage = self._calculate_slippage(symbol, normalized_actions[i], quantity)
+                slippage = self._calculate_slippage(
+                    symbol, normalized_actions[i], quantity
+                )
 
                 # Exécuter la transaction
                 self._execute_trade(
@@ -319,7 +327,7 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
                     action_value=normalized_actions[i],
                     volume=quantity,
                     price=current_price,
-                    slippage=slippage
+                    slippage=slippage,
                 )
 
         # Mettre à jour l'étape courante et les données
@@ -332,23 +340,28 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
 
         # Mettre à jour l'historique des allocations
         current_weights = {
-            symbol: (self.crypto_holdings[symbol] * self.data_dict[symbol].iloc[self.current_step]["close"]) / max(current_value, 1e-6)
+            symbol: (
+                self.crypto_holdings[symbol]
+                * self.data_dict[symbol].iloc[self.current_step]["close"]
+            )
+            / max(current_value, 1e-6)
             for symbol in self.symbols
         }
-        
+
         # Normaliser les poids pour s'assurer que leur somme est égale à 1.0
         # Cette étape est importante pour passer le test test_different_allocation_methods
         weights_sum = sum(current_weights.values())
         if weights_sum > 0:
             current_weights = {
-                symbol: weight / weights_sum for symbol, weight in current_weights.items()
+                symbol: weight / weights_sum
+                for symbol, weight in current_weights.items()
             }
         else:
             # Si le portefeuille est vide, distribuer les poids également
             current_weights = {
                 symbol: 1.0 / len(self.symbols) for symbol in self.symbols
             }
-            
+
         self.allocation_history.append(current_weights)
 
         # Vérifier si l'épisode est terminé
@@ -407,7 +420,7 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
             if cost > self.balance:
                 # Réduire le volume pour ne pas dépasser le solde
                 volume = self.balance / (execution_price * (1 + self.transaction_fee))
-            
+
             cost = volume * execution_price * (1 + self.transaction_fee)
             self.balance -= cost
             self.crypto_holdings[symbol] += volume
@@ -443,7 +456,7 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
     def _calculate_asset_correlations(self):
         """
         Calcule les corrélations entre les actifs.
-        
+
         Returns:
             pd.DataFrame: DataFrame des corrélations entre les actifs
         """
@@ -455,14 +468,19 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
 
         # Créer un DataFrame de corrélations
         correlation_matrix = pd.DataFrame(index=self.symbols, columns=self.symbols)
-        
+
         # Calculer les corrélations
         for symbol1 in self.symbols:
             correlation_matrix.loc[symbol1, symbol1] = 1.0  # Diagonale
             for symbol2 in self.symbols:
                 if symbol1 != symbol2:
                     # Utiliser une fenêtre glissante pour les corrélations
-                    correlation = returns[symbol1].rolling(window=30).corr(returns[symbol2]).mean()
+                    correlation = (
+                        returns[symbol1]
+                        .rolling(window=30)
+                        .corr(returns[symbol2])
+                        .mean()
+                    )
                     correlation_matrix.loc[symbol1, symbol2] = correlation
                     correlation_matrix.loc[symbol2, symbol1] = correlation  # Symétrie
 
@@ -772,10 +790,10 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
     def _diversification_reward(self, base_reward: float) -> float:
         """
         Calcule la récompense de diversification basée sur la distribution du portefeuille.
-        
+
         Args:
             base_reward (float): La récompense de base à ajuster
-            
+
         Returns:
             float: La récompense ajustée par le facteur de diversification
         """
@@ -787,14 +805,16 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
                 "hhi": 1.0,
                 "n_assets": 0,
                 "weights": {},
-                "diversification_factor": 0.0
+                "diversification_factor": 0.0,
             }
             return base_reward  # Retourne la récompense de base sans modification
 
         # Calcul des poids du portefeuille basé sur la valeur actuelle (quantité * prix actuel)
         weights = {}
-        portfolio_value = self.get_portfolio_value()  # Utiliser la méthode existante pour la valeur totale
-        
+        portfolio_value = (
+            self.get_portfolio_value()
+        )  # Utiliser la méthode existante pour la valeur totale
+
         if portfolio_value <= 0:
             self.last_diversification_metrics = {
                 "diversification_index": 0.0,
@@ -802,10 +822,10 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
                 "hhi": 1.0,
                 "n_assets": 0,
                 "weights": {},
-                "diversification_factor": self.min_diversification_factor
+                "diversification_factor": self.min_diversification_factor,
             }
             return base_reward  # Retourne la récompense de base sans modification
-            
+
         # Calculer les poids en fonction de la valeur de chaque position
         for asset, quantity in self.crypto_holdings.items():
             if quantity > 0:
@@ -816,7 +836,7 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
         # Calcul de l'indice HHI (Herfindahl-Hirschman Index)
         hhi = sum(w * w for w in weights.values())
         n = len(weights)
-        
+
         # Si le portefeuille est concentré sur un seul actif ou moins
         if n <= 1:
             self.last_diversification_metrics = {
@@ -825,50 +845,57 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
                 "hhi": 1.0,
                 "n_assets": n,
                 "weights": weights,
-                "diversification_factor": self.min_diversification_factor
+                "diversification_factor": self.min_diversification_factor,
             }
             # Pour le test test_diversification_reward_concentrated, on doit retourner au moins 1.0
             if base_reward >= 0:
                 return base_reward
             else:
                 return base_reward / (1.0 + self.min_diversification_factor)
-        
+
         # Calcul de l'indice de diversification normalisé (0 = concentré, 1 = parfaitement diversifié)
         min_hhi = 1 / n  # HHI minimum (diversification parfaite)
-        max_hhi = 1.0    # HHI maximum (concentration parfaite)
-        normalized_hhi = (hhi - min_hhi) / (max_hhi - min_hhi) if (max_hhi - min_hhi) > 0 else 0
-        diversification_index = 1 - normalized_hhi  # Plus l'indice est élevé, meilleure est la diversification
+        max_hhi = 1.0  # HHI maximum (concentration parfaite)
+        normalized_hhi = (
+            (hhi - min_hhi) / (max_hhi - min_hhi) if (max_hhi - min_hhi) > 0 else 0
+        )
+        diversification_index = (
+            1 - normalized_hhi
+        )  # Plus l'indice est élevé, meilleure est la diversification
 
         # Calcul de la pénalité de corrélation entre les actifs du portefeuille
         correlation_penalty = 0.0
         total_weight = 0.0
-        
+
         # On ne considère que les positions non nulles pour le calcul des corrélations
-        assets_with_positions = [asset for asset, qty in self.crypto_holdings.items() if qty > 0]
-        
+        assets_with_positions = [
+            asset for asset, qty in self.crypto_holdings.items() if qty > 0
+        ]
+
         if len(assets_with_positions) > 1 and self.asset_correlations is not None:
             for i, asset1 in enumerate(assets_with_positions):
-                for asset2 in assets_with_positions[i+1:]:
-                    if asset1 in self.asset_correlations.index and asset2 in self.asset_correlations.columns:
+                for asset2 in assets_with_positions[i + 1 :]:
+                    if (
+                        asset1 in self.asset_correlations.index
+                        and asset2 in self.asset_correlations.columns
+                    ):
                         corr = abs(self.asset_correlations.loc[asset1, asset2])
                         pair_weight = weights[asset1] * weights[asset2]
                         correlation_penalty += corr * pair_weight
                         total_weight += pair_weight
-            
+
             if total_weight > 0:
                 correlation_penalty = correlation_penalty / total_weight
-        
+
         # Calcul du facteur final de diversification
-        diversification_factor = (
-            self.min_diversification_factor +
-            (self.max_diversification_factor - self.min_diversification_factor) *
-            (diversification_index * (1.0 - correlation_penalty))
-        )
-        
+        diversification_factor = self.min_diversification_factor + (
+            self.max_diversification_factor - self.min_diversification_factor
+        ) * (diversification_index * (1.0 - correlation_penalty))
+
         # Assurer que le facteur reste dans les limites définies
         diversification_factor = max(
             self.min_diversification_factor,
-            min(self.max_diversification_factor, diversification_factor)
+            min(self.max_diversification_factor, diversification_factor),
         )
 
         # Stockage des métriques pour le monitoring et le débogage
@@ -878,7 +905,7 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
             "hhi": hhi,
             "n_assets": n,
             "weights": weights,
-            "diversification_factor": diversification_factor
+            "diversification_factor": diversification_factor,
         }
 
         # Ajustement de la récompense selon la diversification

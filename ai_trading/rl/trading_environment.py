@@ -603,42 +603,76 @@ class TradingEnvironment(gym.Env):
                 logger.debug("Tentative de vente sans crypto détenue")
 
     def _get_observation(self):
-        """Retourne l'observation actuelle de l'environnement."""
-        if self.current_step < self.window_size:
-            # Si on n'a pas assez de données, on remplit avec des zéros
-            window_data = np.zeros((self.window_size, self.observation_space.shape[1]))
-        else:
-            # Récupérer les données de la fenêtre
-            window_data = self.df.iloc[
-                self.current_step - self.window_size : self.current_step
-            ][self.feature_columns].values
+        """
+        Construit l'observation de l'état actuel.
 
-        # Nettoyer les valeurs NaN
-        window_data = np.nan_to_num(window_data, nan=0.0)
+        Returns:
+            np.array: Un vecteur d'observation normalisé
+        """
+        # Obtenir l'indice actuel
+        current_idx = self.current_step + self.window_size
 
-        # Normaliser les données si nécessaire
-        if self.normalize_observation:
-            # Calculer les statistiques sur la fenêtre
-            mean = np.mean(window_data, axis=0)
-            std = np.std(window_data, axis=0)
-            # Éviter la division par zéro
-            std = np.where(std == 0, 1, std)
-            window_data = (window_data - mean) / std
+        # Extraire les données de prix pour la fenêtre courante
+        price_history = (
+            self.df["close"].iloc[current_idx - self.window_size : current_idx].values
+        )
 
-        # Ajouter la position actuelle si nécessaire
+        # Initialiser la liste des caractéristiques
+        features = []
+
+        # Ajouter l'historique des prix normalisé
+        features.extend(
+            price_history / price_history[-1]
+        )  # Normalisation par le dernier prix
+
+        # Ajouter les indicateurs techniques si activés
+        if self.include_technical_indicators:
+            # RSI
+            rsi_history = (
+                self.df["rsi"].iloc[current_idx - self.window_size : current_idx].values
+            )
+            features.extend(
+                rsi_history / 100.0
+            )  # Normalisation par 100 car RSI est entre 0 et 100
+
+            # MACD
+            macd_history = (
+                self.df["macd"]
+                .iloc[current_idx - self.window_size : current_idx]
+                .values
+            )
+            if len(macd_history) > 0 and not np.all(macd_history == 0):
+                macd_history = macd_history / np.max(np.abs(macd_history))
+            features.extend(macd_history)
+
+            # Bandes de Bollinger
+            bb_history = (
+                self.df["bollinger_middle"]
+                .iloc[current_idx - self.window_size : current_idx]
+                .values
+            )
+            if len(bb_history) > 0 and not np.all(bb_history == 0):
+                bb_history = bb_history / bb_history[-1]
+            features.extend(bb_history)
+
+        # Ajouter la position actuelle si activée
         if self.include_position:
-            position = np.full((self.window_size, 1), self.crypto_held)
-            window_data = np.concatenate([window_data, position], axis=1)
+            features.append(self.crypto_held / self.initial_balance)
 
-        # Ajouter le solde si nécessaire
+        # Ajouter le solde si activé
         if self.include_balance:
-            balance = np.full((self.window_size, 1), self.balance)
-            window_data = np.concatenate([window_data, balance], axis=1)
+            features.append(self.balance / self.initial_balance)
 
-        # S'assurer que les données sont dans le bon format
-        window_data = window_data.astype(np.float32)
+        # Convertir en array numpy et s'assurer que c'est en float32
+        observation = np.array(features, dtype=np.float32)
 
-        return window_data
+        # Appliquer la normalisation adaptative si activée
+        if self.normalize_observation:
+            if not hasattr(self, "normalizer"):
+                self.normalizer = AdaptiveNormalizer(observation.shape[0])
+            observation = self.normalizer.normalize(observation)
+
+        return observation
 
     def render(self, mode="human"):
         """

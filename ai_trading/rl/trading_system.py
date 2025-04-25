@@ -4,12 +4,15 @@ Module pour le système de trading basé sur l'apprentissage par renforcement.
 
 import logging
 import os
+from typing import Dict, List, Tuple
 
 import numpy as np
+import torch
+import torch.nn as nn
 
 from ai_trading.rl.data_integration import RLDataIntegrator
+from ai_trading.rl.models.temporal_transformer import FinancialTemporalTransformer
 from ai_trading.rl.trading_environment import TradingEnvironment
-from ai_trading.rl.train import train_agent
 
 # Configuration du logger
 logger = logging.getLogger("RLTradingSystem")
@@ -27,14 +30,18 @@ class RLTradingSystem:
     """Système de trading basé sur l'apprentissage par renforcement."""
 
     def __init__(self, config=None):
-        """Initialise le système de trading."""
-        self.config = config or {}
-        self.data_integrator = RLDataIntegrator()
-        self.env = None
-        self.agent = None
-        self.history = None
+        """
+        Initialise le système de trading RL.
 
-        logger.info("Système de trading RL initialisé")
+        Args:
+            config (dict): Configuration du système
+        """
+        self.config = config or {}
+        self._env = None
+        self._agent = None
+        self._transformer = None
+        self.logger = logging.getLogger(__name__)
+        self.data_integrator = RLDataIntegrator()
 
     def create_agent(self, agent_type="dqn", state_size=None, action_size=3, **kwargs):
         """
@@ -49,9 +56,9 @@ class RLTradingSystem:
         Returns:
             Agent: Agent d'apprentissage par renforcement
         """
-        if state_size is None and self.env is not None:
+        if state_size is None and self._env is not None:
             # Déterminer la taille de l'état à partir de l'environnement
-            state_size = self.env.observation_space.shape[0]
+            state_size = self._env.observation_space.shape[0]
 
         if agent_type.lower() == "dqn":
             from ai_trading.rl.dqn_agent import DQNAgent
@@ -67,10 +74,10 @@ class RLTradingSystem:
             action_bounds = kwargs.pop("action_bounds", (-1, 1))
 
             # Si l'environnement existe, on peut vérifier si l'espace d'action est continu
-            if self.env is not None:
+            if self._env is not None:
                 if (
-                    hasattr(self.env, "action_type")
-                    and self.env.action_type == "continuous"
+                    hasattr(self._env, "action_type")
+                    and self._env.action_type == "continuous"
                 ):
                     # Pour un espace Box, l'action_size devrait être 1 pour notre environnement
                     action_size = 1
@@ -111,41 +118,62 @@ class RLTradingSystem:
             )
 
         # Créer l'environnement
-        self.env = TradingEnvironment(df=data, **kwargs)
+        self._env = TradingEnvironment(df=data, **kwargs)
 
         logger.info(f"Environnement de trading créé avec {len(data)} points de données")
-        return self.env
+        return self._env
 
-    def train(self, agent=None, env=None, **kwargs):
+    def train(self, agent=None, episodes=50, batch_size=32, save_path=None, data=None):
         """
-        Entraîne l'agent sur l'environnement.
+        Entraîne l'agent sur l'environnement spécifié.
 
         Args:
-            agent: Agent d'apprentissage par renforcement
-            env: Environnement de trading
-            **kwargs: Arguments supplémentaires pour l'entraînement
-
-        Returns:
-            dict: Historique d'entraînement
+            agent: Agent à entraîner (optionnel, utilisera self._agent si non spécifié)
+            episodes (int): Nombre d'épisodes d'entraînement
+            batch_size (int): Taille du batch pour l'entraînement
+            save_path (str): Chemin pour sauvegarder l'agent (optionnel)
+            data (pd.DataFrame): Données d'entraînement (optionnel)
         """
-        if agent is None:
-            if self.agent is None:
-                raise ValueError("Aucun agent spécifié")
-            agent = self.agent
-        else:
-            self.agent = agent
+        # Créer l'environnement si nécessaire
+        if self._env is None and data is not None:
+            self.create_environment(data=data)
+        elif self._env is None:
+            raise ValueError(
+                "Aucun environnement spécifié. Fournissez des données ou appelez create_environment() d'abord."
+            )
 
-        if env is None:
-            if self.env is None:
-                raise ValueError("Aucun environnement spécifié")
-            env = self.env
-        else:
-            self.env = env
+        # Utiliser l'agent fourni ou celui déjà créé
+        if agent:
+            self._agent = agent
+        elif not self._agent:
+            raise ValueError("Aucun agent spécifié. Appelez create_agent() d'abord.")
 
-        # Entraîner l'agent
-        self.history = train_agent(agent=agent, env=env, **kwargs)
+        logger.info(f"Début de l'entraînement pour {episodes} épisodes...")
 
-        return self.history
+        for episode in range(episodes):
+            state = self._env.reset()
+            if isinstance(state, tuple):
+                state = state[0]  # Prendre seulement l'état, pas les infos
+            done = False
+            total_reward = 0
+
+            while not done:
+                action = self._agent.act(state)
+                next_state, reward, terminated, truncated, info = self._env.step(action)
+                done = terminated or truncated
+                self._agent.remember(state, action, reward, next_state, done)
+                self._agent.replay(batch_size)
+                state = next_state
+                total_reward += reward
+
+            if episode % 10 == 0:
+                self.logger.info(
+                    f"Épisode {episode}/{episodes}, Récompense totale: {total_reward}"
+                )
+
+        if save_path:
+            self._agent.save(save_path)
+            self.logger.info(f"Agent sauvegardé dans {save_path}")
 
     def evaluate(
         self,
@@ -171,23 +199,78 @@ class RLTradingSystem:
             dict: Résultats de l'évaluation
         """
         if agent is None:
-            if self.agent is None:
+            if self._agent is None:
                 raise ValueError("Aucun agent spécifié")
-            agent = self.agent
+            agent = self._agent
 
         if env is None:
-            if self.env is None:
+            if self._env is None:
                 raise ValueError("Aucun environnement spécifié")
-            env = self.env
+            env = self._env
 
         # Si des données de test sont fournies, créer un nouvel environnement
         if test_data is not None:
             env = self.create_environment(data=test_data)
 
-        # Évaluer l'agent
-        from ai_trading.rl.evaluation import evaluate_agent
+        # Initialiser les résultats
+        results = {
+            "final_value": 0.0,
+            "returns": [],
+            "sharpe_ratio": 0.0,
+            "max_drawdown": 0.0,
+            "portfolio_history": [],
+            "actions": [],
+            "rewards": [],
+        }
 
-        results = evaluate_agent(agent=agent, env=env, num_episodes=num_episodes)
+        # Évaluer l'agent
+        for episode in range(num_episodes):
+            state = env.reset()
+            if isinstance(state, tuple):
+                state = state[0]  # Prendre seulement l'état, pas les infos
+            done = False
+            episode_reward = 0
+            episode_actions = []
+            episode_portfolio = []
+
+            while not done:
+                # Obtenir l'action de l'agent
+                action = agent.act(state)
+                episode_actions.append(action)
+
+                # Exécuter l'action
+                next_state, reward, terminated, truncated, info = env.step(action)
+                done = terminated or truncated
+                episode_reward += reward
+                episode_portfolio.append(info.get("portfolio_value", 0.0))
+
+                # Mettre à jour l'état
+                state = next_state
+
+            # Mettre à jour les résultats
+            results["rewards"].append(episode_reward)
+            results["actions"].extend(episode_actions)
+            results["portfolio_history"].extend(episode_portfolio)
+
+        # Calculer les métriques finales
+        if results["portfolio_history"]:
+            initial_value = results["portfolio_history"][0]
+            final_value = results["portfolio_history"][-1]
+            results["final_value"] = final_value
+            results["returns"] = [
+                (p - initial_value) / initial_value
+                for p in results["portfolio_history"]
+            ]
+            results["sharpe_ratio"] = np.mean(results["returns"]) / (
+                np.std(results["returns"]) + 1e-8
+            )
+            results["max_drawdown"] = np.min(
+                [
+                    (p - max(results["portfolio_history"][: i + 1]))
+                    / max(results["portfolio_history"][: i + 1])
+                    for i, p in enumerate(results["portfolio_history"])
+                ]
+            )
 
         # Visualiser les résultats si demandé
         if visualize and save_dir:
@@ -202,6 +285,23 @@ class RLTradingSystem:
 
         return results
 
+    def predict_action(self, state):
+        """
+        Prédit l'action à prendre pour un état donné.
+
+        Args:
+            state: L'état actuel de l'environnement
+
+        Returns:
+            action: L'action prédite
+        """
+        if not self._agent:
+            # Créer un agent par défaut si nécessaire
+            self.create_agent()
+            logger.warning("Agent créé automatiquement avec les paramètres par défaut")
+
+        return self._agent.predict(state)
+
     def save(self, path):
         """
         Sauvegarde le système de trading.
@@ -209,14 +309,14 @@ class RLTradingSystem:
         Args:
             path (str): Chemin de sauvegarde
         """
-        if self.agent is None:
+        if self._agent is None:
             raise ValueError("Aucun agent à sauvegarder")
 
         # Créer le répertoire si nécessaire
         os.makedirs(os.path.dirname(path), exist_ok=True)
 
         # Sauvegarder l'agent
-        self.agent.save(path)
+        self._agent.save(path)
 
         logger.info(f"Système de trading sauvegardé dans {path}")
 
@@ -233,12 +333,12 @@ class RLTradingSystem:
         # Créer un agent temporaire pour charger le modèle
         from ai_trading.rl.dqn_agent import DQNAgent
 
-        self.agent = DQNAgent(state_size=1, action_size=3)  # Tailles temporaires
-        self.agent.load(path)
+        self._agent = DQNAgent(state_size=1, action_size=3)  # Tailles temporaires
+        self._agent.load(path)
 
         logger.info(f"Système de trading chargé depuis {path}")
 
-        return self.agent
+        return self._agent
 
     def test_random_strategy(self, num_episodes=10):
         """
@@ -254,13 +354,13 @@ class RLTradingSystem:
         portfolio_values = []
 
         for episode in range(num_episodes):
-            state, _ = self.env.reset()
+            state, _ = self._env.reset()
             done = False
             episode_reward = 0
 
             while not done:
-                action = self.env.action_space.sample()  # Action aléatoire
-                state, reward, terminated, truncated, info = self.env.step(action)
+                action = self._env.action_space.sample()  # Action aléatoire
+                state, reward, terminated, truncated, info = self._env.step(action)
                 done = terminated or truncated
                 episode_reward += reward
 
@@ -276,7 +376,7 @@ class RLTradingSystem:
 
         # Calculer les métriques de trading
         final_portfolio_value = portfolio_values[-1]
-        initial_portfolio_value = self.env.initial_balance
+        initial_portfolio_value = self._env.initial_balance
         total_return = (
             (final_portfolio_value - initial_portfolio_value)
             / initial_portfolio_value
@@ -340,3 +440,204 @@ class RLTradingSystem:
         )
 
         return train_data, test_data
+
+    def create_transformer(
+        self,
+        input_dim: int,
+        d_model: int = 512,
+        nhead: int = 8,
+        num_layers: int = 6,
+        dim_feedforward: int = 2048,
+        dropout: float = 0.1,
+        max_seq_len: int = 1000,
+        output_dim: int = 1,
+    ):
+        """
+        Crée un transformer temporel pour l'analyse des séquences de prix.
+
+        Args:
+            input_dim: Dimension des entrées (OHLCV = 5)
+            d_model: Dimension du modèle
+            nhead: Nombre de têtes d'attention
+            num_layers: Nombre de couches Transformer
+            dim_feedforward: Dimension du réseau feed-forward
+            dropout: Taux de dropout
+            max_seq_len: Longueur maximale de séquence
+            output_dim: Dimension de sortie
+        """
+        self._transformer = FinancialTemporalTransformer(
+            input_dim=input_dim,
+            d_model=d_model,
+            nhead=nhead,
+            num_layers=num_layers,
+            dim_feedforward=dim_feedforward,
+            dropout=dropout,
+            max_seq_len=max_seq_len,
+            output_dim=output_dim,
+        )
+        self.logger.info(
+            f"Transformer temporel créé avec {num_layers} couches et {nhead} têtes d'attention"
+        )
+
+    def train_transformer(
+        self,
+        data: torch.Tensor,
+        targets: torch.Tensor,
+        epochs: int = 100,
+        batch_size: int = 32,
+        learning_rate: float = 0.0001,
+        weight_decay: float = 1e-4,
+        warmup_steps: int = 1000,
+        gradient_clip: float = 1.0,
+        validation_split: float = 0.2,
+    ) -> Dict[str, List[float]]:
+        """
+        Entraîne le modèle Transformer avec des hyperparamètres optimisés.
+
+        Args:
+            data: Données d'entraînement
+            targets: Cibles d'entraînement
+            epochs: Nombre d'époques d'entraînement
+            batch_size: Taille des batchs
+            learning_rate: Taux d'apprentissage initial
+            weight_decay: Coefficient de régularisation L2
+            warmup_steps: Nombre d'étapes de warmup
+            gradient_clip: Valeur maximale pour le gradient clipping
+            validation_split: Proportion des données pour la validation
+
+        Returns:
+            Dictionnaire contenant les historiques des pertes
+        """
+        if self._transformer is None:
+            raise ValueError("Le modèle Transformer n'est pas initialisé")
+
+        optimizer = torch.optim.AdamW(
+            self._transformer.parameters(), lr=learning_rate, weight_decay=weight_decay
+        )
+
+        # Scheduler avec warmup
+        scheduler = torch.optim.lr_scheduler.LambdaLR(
+            optimizer, lambda step: min(step / warmup_steps, 1.0)
+        )
+
+        criterion = nn.MSELoss()
+
+        # Historique des pertes
+        history = {"train_loss": [], "val_loss": []}
+
+        # Préparation des données
+        dataset_size = len(data)
+        indices = list(range(dataset_size))
+        split = int(np.floor(validation_split * dataset_size))
+
+        train_indices, val_indices = indices[split:], indices[:split]
+        train_data = data[train_indices]
+        train_targets = targets[train_indices]
+        val_data = data[val_indices]
+        val_targets = targets[val_indices]
+
+        best_val_loss = float("inf")
+        patience = 10
+        patience_counter = 0
+
+        for epoch in range(epochs):
+            # Mode entraînement
+            self._transformer.train()
+            train_losses = []
+
+            # Entraînement par batch
+            for i in range(0, len(train_data), batch_size):
+                batch_data = train_data[i : i + batch_size]
+                batch_targets = train_targets[i : i + batch_size]
+
+                optimizer.zero_grad()
+                outputs, _ = self._transformer(batch_data)
+                loss = criterion(outputs, batch_targets)
+
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(
+                    self._transformer.parameters(), gradient_clip
+                )
+
+                optimizer.step()
+                scheduler.step()
+
+                train_losses.append(loss.item())
+
+            # Mode évaluation
+            self._transformer.eval()
+            val_losses = []
+
+            with torch.no_grad():
+                for i in range(0, len(val_data), batch_size):
+                    batch_data = val_data[i : i + batch_size]
+                    batch_targets = val_targets[i : i + batch_size]
+
+                    outputs, _ = self._transformer(batch_data)
+                    val_loss = criterion(outputs, batch_targets)
+                    val_losses.append(val_loss.item())
+
+            # Calcul des moyennes
+            avg_train_loss = np.mean(train_losses)
+            avg_val_loss = np.mean(val_losses)
+
+            history["train_loss"].append(avg_train_loss)
+            history["val_loss"].append(avg_val_loss)
+
+            # Early stopping
+            if avg_val_loss < best_val_loss:
+                best_val_loss = avg_val_loss
+                patience_counter = 0
+            else:
+                patience_counter += 1
+
+            if patience_counter >= patience:
+                print(f"Early stopping à l'époque {epoch + 1}")
+                break
+
+            print(
+                f"Époque {epoch + 1}/{epochs} - "
+                f"Loss: {avg_train_loss:.4f} - "
+                f"Val Loss: {avg_val_loss:.4f}"
+            )
+
+        return history
+
+    def predict_with_transformer(
+        self, data: torch.Tensor
+    ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
+        """
+        Fait des prédictions avec le transformer temporel.
+
+        Args:
+            data: Données d'entrée de forme (batch_size, seq_len, input_dim)
+
+        Returns:
+            Tuple contenant:
+            - Prédictions de forme (batch_size, output_dim)
+            - Poids d'attention de chaque couche
+        """
+        if self._transformer is None:
+            raise ValueError(
+                "Le transformer n'est pas initialisé. Appelez create_transformer() d'abord."
+            )
+
+        self._transformer.eval()
+        with torch.no_grad():
+            predictions, attention_weights = self._transformer(data)
+        return predictions, attention_weights
+
+    def load_transformer(self, path: str):
+        """
+        Charge un transformer pré-entraîné.
+
+        Args:
+            path: Chemin vers le fichier du modèle
+        """
+        if self._transformer is None:
+            raise ValueError(
+                "Le transformer n'est pas initialisé. Appelez create_transformer() d'abord."
+            )
+
+        self._transformer.load_state_dict(torch.load(path))
+        self.logger.info(f"Transformer chargé depuis {path}")

@@ -165,7 +165,7 @@ class TestDiversificationReward(unittest.TestCase):
         """Teste la récompense avec une allocation concentrée."""
         # Simuler une allocation concentrée sur un actif
         self.env.crypto_holdings = {"BTC": 0.2, "ETH": 0.0, "XRP": 0.0}
-        
+
         reward = self.env._diversification_reward(1.0)
         metrics = self.env.last_diversification_metrics
 

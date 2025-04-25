@@ -22,43 +22,59 @@ def main():
     """
     logger.info("Démarrage de l'entraînement de l'agent RL")
 
-    # Créer une instance du système de trading RL
-    trading_system = RLTradingSystem()
+    try:
+        # Créer une instance du système de trading RL avec une configuration par défaut
+        trading_system = RLTradingSystem(
+            config={
+                "env_name": "trading",
+                "agent_type": "dqn",
+                "window_size": 20,
+                "initial_balance": 10000,
+            }
+        )
 
-    # Intégrer les données
-    data = trading_system.integrate_data(
-        symbol="BTC/USDT",
-        start_date="2022-01-01",
-        end_date="2023-01-01",
-        timeframe="1d",
-    )
+        # Intégrer les données
+        data = trading_system.integrate_data(
+            symbol="BTC/USDT",
+            start_date="2022-01-01",
+            end_date="2023-01-01",
+            timeframe="1d",
+        )
 
-    # Créer l'environnement
-    env = trading_system.create_environment(
-        data=data, initial_balance=10000, window_size=20
-    )
+        # Créer l'environnement si non existant
+        if not hasattr(trading_system, "_env"):
+            env = trading_system.create_environment(
+                data=data, initial_balance=10000, window_size=20
+            )
+        else:
+            env = trading_system._env
 
-    # Créer l'agent
-    agent = trading_system.create_agent(
-        state_size=env.observation_space.shape[0],
-        action_size=(
-            env.action_space.n
-            if hasattr(env.action_space, "n")
-            else env.action_space.shape[0]
-        ),
-        batch_size=32,
-        learning_rate=0.001,
-    )
+        # Créer l'agent si non existant
+        if not hasattr(trading_system, "_agent"):
+            agent = trading_system.create_agent(
+                state_size=env.observation_space.shape[0],
+                action_size=(
+                    env.action_space.n
+                    if hasattr(env.action_space, "n")
+                    else env.action_space.shape[0]
+                ),
+                batch_size=32,
+                learning_rate=0.001,
+            )
+        else:
+            agent = trading_system._agent
 
-    # Entraîner l'agent
-    trading_system.train(
-        agent=agent, env=env, episodes=50, batch_size=32, save_path="models/dqn_agent"
-    )
+        # Entraîner l'agent
+        trading_system.train(episodes=50, batch_size=32, save_path="models/dqn_agent")
 
-    # Évaluer l'agent
-    results = trading_system.evaluate(agent=agent, env=env, episodes=10)
+        # Évaluer l'agent
+        results = trading_system.evaluate(episodes=10)
 
-    logger.info(f"Résultats de l'évaluation: {results}")
+        logger.info(f"Résultats de l'évaluation: {results}")
+
+    except Exception as e:
+        logger.error(f"Une erreur s'est produite: {str(e)}")
+        raise
 
 
 if __name__ == "__main__":

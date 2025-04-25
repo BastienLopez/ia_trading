@@ -10,10 +10,10 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from ai_trading.config import VISUALIZATION_DIR
 from ai_trading.rl.advanced_rewards import (
+    DiversificationReward,
     DrawdownReward,
     SharpeRatioReward,
     TransactionCostReward,
-    DiversificationReward,
 )
 
 
@@ -190,16 +190,20 @@ def test_diversification_reward():
     scenarios = [
         {
             "allocations": {"BTC": 1.0},  # Portfolio non diversifié
-            "description": "Portfolio concentré sur un seul actif"
+            "description": "Portfolio concentré sur un seul actif",
         },
         {
             "allocations": {"BTC": 0.5, "ETH": 0.5},  # Diversification moyenne
-            "description": "Portfolio réparti sur deux actifs"
+            "description": "Portfolio réparti sur deux actifs",
         },
         {
-            "allocations": {"BTC": 0.3, "ETH": 0.3, "SOL": 0.4},  # Bonne diversification
-            "description": "Portfolio bien diversifié"
-        }
+            "allocations": {
+                "BTC": 0.3,
+                "ETH": 0.3,
+                "SOL": 0.4,
+            },  # Bonne diversification
+            "description": "Portfolio bien diversifié",
+        },
     ]
 
     # Tester chaque scénario
@@ -213,7 +217,7 @@ def test_diversification_reward():
     # Test de l'évolution de la diversification
     print("\nTest de l'évolution de la diversification:")
     reward_calculator.reset()
-    
+
     # Simulation d'une évolution d'allocations
     evolution = [
         {"BTC": 1.0},

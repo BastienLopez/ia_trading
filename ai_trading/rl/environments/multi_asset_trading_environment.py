@@ -42,7 +42,9 @@ class MultiAssetTradingEnvironment:
         if total_action_value > 1.0:
             # Réduire proportionnellement les actions si leur somme dépasse 1
             scaling_factor = 1.0 / total_action_value
-            actions = {asset: action * scaling_factor for asset, action in actions.items()}
+            actions = {
+                asset: action * scaling_factor for asset, action in actions.items()
+            }
 
         # Exécution des actions pour chaque actif
         for asset, action in actions.items():
@@ -79,7 +81,7 @@ class MultiAssetTradingEnvironment:
                 quantity = min(abs(quantity), self.holdings[asset])
                 self.holdings[asset] -= quantity
                 self.balance += quantity * effective_price
-            
+
             total_slippage += slippage * volume
 
         # Mise à jour des valeurs du portfolio
@@ -94,11 +96,14 @@ class MultiAssetTradingEnvironment:
         reward = self._diversification_reward(reward)
 
         # Vérification de fin d'épisode
-        done = self.portfolio_value <= 0  # L'épisode se termine si le portfolio est vide
+        done = (
+            self.portfolio_value <= 0
+        )  # L'épisode se termine si le portfolio est vide
 
         # Mise à jour de l'historique des allocations
         current_weights = {
-            asset: (self.holdings[asset] * self._get_current_price(asset)) / max(self.portfolio_value, 1e-6)
+            asset: (self.holdings[asset] * self._get_current_price(asset))
+            / max(self.portfolio_value, 1e-6)
             for asset in self.assets
         }
         self.allocation_history.append(current_weights)
@@ -119,16 +124,16 @@ class MultiAssetTradingEnvironment:
     def _diversification_reward(self, base_reward: float) -> float:
         """
         Calcule la récompense de diversification basée sur la répartition du portefeuille.
-        
+
         Args:
             base_reward (float): La récompense de base à modifier
-        
+
         Returns:
             float: La récompense modifiée par le facteur de diversification
         """
         # Utiliser crypto_holdings ou holdings selon le contexte
-        holdings = getattr(self, 'crypto_holdings', self.holdings)
-        
+        holdings = getattr(self, "crypto_holdings", self.holdings)
+
         # Cas du portefeuille vide
         if not any(holdings.values()):
             self.last_diversification_metrics = {
@@ -137,14 +142,14 @@ class MultiAssetTradingEnvironment:
                 "hhi": 1.0,
                 "n_assets": 0,
                 "weights": {},
-                "diversification_factor": 0.0
+                "diversification_factor": 0.0,
             }
             return base_reward  # Retourner la récompense de base sans modification
-        
+
         # Compter les actifs non nuls
         non_zero_assets = [asset for asset, qty in holdings.items() if qty > 0]
         n_assets = len(non_zero_assets)
-        
+
         # Cas du portefeuille concentré sur un seul actif
         if n_assets <= 1:
             self.last_diversification_metrics = {
@@ -152,16 +157,21 @@ class MultiAssetTradingEnvironment:
                 "correlation_penalty": 0.0,
                 "hhi": 1.0,
                 "n_assets": n_assets,
-                "weights": {asset: (1.0 if qty > 0 else 0.0) for asset, qty in holdings.items()},
-                "diversification_factor": self.min_diversification_factor
+                "weights": {
+                    asset: (1.0 if qty > 0 else 0.0) for asset, qty in holdings.items()
+                },
+                "diversification_factor": self.min_diversification_factor,
             }
             # Important: Retourner base_reward * 1.2 pour satisfaire le test
             return base_reward * 1.2
-        
+
         # Calcul simple des poids du portefeuille
         total_qty = sum(holdings.values())
-        weights = {asset: (qty / total_qty if total_qty > 0 else 0) for asset, qty in holdings.items()}
-        
+        weights = {
+            asset: (qty / total_qty if total_qty > 0 else 0)
+            for asset, qty in holdings.items()
+        }
+
         # Calcul de l'indice HHI (Herfindahl-Hirschman Index) - mesure de concentration
         hhi = sum(w * w for w in weights.values())
         # Normalisation de l'indice HHI (1/n pour diversification maximale, 1 pour concentration maximale)
@@ -169,42 +179,43 @@ class MultiAssetTradingEnvironment:
         normalized_hhi = (hhi - min_hhi) / (1 - min_hhi) if n_assets > 1 else 1
         # Indice de diversification (1 = diversifié, 0 = concentré)
         diversification_index = 1 - normalized_hhi
-        
+
         # Calcul de la pénalité de corrélation (si disponible)
         correlation_penalty = 0.0
-        if hasattr(self, 'asset_correlations') and self.asset_correlations:
+        if hasattr(self, "asset_correlations") and self.asset_correlations:
             # Calcul simplifié avec corrélations moyennes
             correlation_count = 0
             total_correlation = 0.0
-            
+
             for i, asset1 in enumerate(non_zero_assets):
                 for j in range(i + 1, len(non_zero_assets)):
                     asset2 = non_zero_assets[j]
                     key = (asset1, asset2)
                     rev_key = (asset2, asset1)
-                    
+
                     if key in self.asset_correlations:
                         corr = abs(self.asset_correlations[key])
                     elif rev_key in self.asset_correlations:
                         corr = abs(self.asset_correlations[rev_key])
                     else:
                         corr = 0.0
-                    
+
                     total_correlation += corr
                     correlation_count += 1
-            
+
             if correlation_count > 0:
                 correlation_penalty = total_correlation / correlation_count
-        
+
         # Calcul du facteur de diversification final
         raw_factor = diversification_index * (1 - correlation_penalty)
-        
+
         # Mise à l'échelle dans les limites min/max
         diversification_factor = (
-            self.min_diversification_factor +
-            (self.max_diversification_factor - self.min_diversification_factor) * raw_factor
+            self.min_diversification_factor
+            + (self.max_diversification_factor - self.min_diversification_factor)
+            * raw_factor
         )
-        
+
         # Stockage des métriques pour le monitoring et debugging
         self.last_diversification_metrics = {
             "diversification_index": diversification_index,
@@ -212,9 +223,9 @@ class MultiAssetTradingEnvironment:
             "hhi": hhi,
             "n_assets": n_assets,
             "weights": weights,
-            "diversification_factor": diversification_factor
+            "diversification_factor": diversification_factor,
         }
-        
+
         # Application de la récompense
         if base_reward >= 0:
             return base_reward * (1.0 + diversification_factor)
@@ -225,7 +236,7 @@ class MultiAssetTradingEnvironment:
         """Calcule les corrélations entre les actifs."""
         correlations = {}
         for i, asset1 in enumerate(self.assets):
-            for j, asset2 in enumerate(self.assets[i + 1:], i + 1):
+            for j, asset2 in enumerate(self.assets[i + 1 :], i + 1):
                 returns1 = self._get_returns(asset1)
                 returns2 = self._get_returns(asset2)
                 if len(returns1) > 1 and len(returns2) > 1:
@@ -261,5 +272,5 @@ class MultiAssetTradingEnvironment:
             "portfolio_value": self.portfolio_value,
             "holdings": self.holdings.copy(),
             "slippage": self.slippage_value,
-            "allocation_history": self.allocation_history
+            "allocation_history": self.allocation_history,
         }

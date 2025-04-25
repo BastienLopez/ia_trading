@@ -454,7 +454,7 @@ class DiversificationReward:
         # Ajouter les allocations à l'historique
         self.portfolio_history.append(allocations)
         if len(self.portfolio_history) > self.window_size:
-            self.portfolio_history = self.portfolio_history[-self.window_size:]
+            self.portfolio_history = self.portfolio_history[-self.window_size :]
 
         # Calculer l'indice de diversification (HHI inversé)
         weights = list(allocations.values())

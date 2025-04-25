@@ -118,17 +118,18 @@ Ce module contient l'implémentation d'un système de trading de cryptomonnaies 
   - [x] Impact du carnet d'ordres
 
   ### 5. **Multi-actifs**
-  - [ ] Étendre à 2–3 crypto-actifs + actifs (exemple : XAU/USD) + stocks (exemple : AAPL, NVDA)
-  - [ ] Allocation de portefeuille simple
-  - [ ] Contraintes de corrélation/diversification
+  - [x] Étendre à 2–3 crypto-actifs + actifs (exemple : XAU/USD) + stocks (exemple : AAPL, NVDA)
+  - [x] Allocation de portefeuille simple
+  - [x] Allocation de portefeuille avancé
+  - [x] Contraintes de corrélation/diversification
 
   ### 6. **Architectures de modèle avancées**
   - [x] LSTM/GRU pour dépendances temporelles
-  - [ ] Attention pour séries temporelles
-  - [ ] CNN pour analyse graphique
-  - [ ] Architectures hybrides (CNN + Attention)
-  - [ ] Modèles à base de transformers temporels
-  - [ ] Utilisation de network distillation
+  - [x] Attention pour séries temporelles
+  - [x] CNN pour analyse graphique
+  - [x] Architectures hybrides (CNN + Attention)
+  - [x] Modèles à base de transformers temporels
+  - [x] Utilisation de network distillation
 
   ### 7. **Validation et robustesse**
   - [x] Optimisation des hyperparamètres
