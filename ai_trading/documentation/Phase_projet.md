@@ -133,8 +133,8 @@ Ce module contient l'implémentation d'un système de trading de cryptomonnaies 
 
   ### 7. **Validation et robustesse**
   - [x] Optimisation des hyperparamètres
-  - [ ] Robustesse à conditions de marché changeantes
-  - [ ] Tests statistiques de performance
+  - [x] Robustesse à conditions de marché changeantes
+  - [x] Tests statistiques de performance
 
 
 - ⏳ 3.3 Améliorations à long terme (Phase 3.3+)
