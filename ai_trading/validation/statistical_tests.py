@@ -3,12 +3,18 @@ import pandas as pd
 from scipy import stats
 from typing import List, Dict, Tuple, Optional, Union, Callable
 import statsmodels.api as sm
-from arch.bootstrap import IIDBootstrap
 from statsmodels.stats.diagnostic import het_white
 from statsmodels.tsa.stattools import adfuller
 from statsmodels.stats.diagnostic import acorr_ljungbox
 from statsmodels.tsa.stattools import acf
 from scipy.stats import chi2
+
+# Tentative d'importation optionnelle de arch
+try:
+    from arch.bootstrap import IIDBootstrap
+    HAS_ARCH = True
+except ImportError:
+    HAS_ARCH = False
 
 class StatisticalTestSuite:
     """
@@ -183,16 +189,30 @@ class StatisticalTestSuite:
         perf_diff = strategy - benchmark
         mean_diff = perf_diff.mean()
         
-        # Bootstrap manuel (sans utiliser arch.bootstrap qui a des problèmes d'API)
-        n_samples = len(perf_diff)
-        simulated_diffs = []
-        
-        for _ in range(n_bootstrap):
-            # Échantillonnage avec remplacement
-            bootstrap_indices = np.random.choice(n_samples, size=n_samples, replace=True)
-            bootstrap_sample = perf_diff.iloc[bootstrap_indices]
-            simulated_diff = bootstrap_sample.mean()
-            simulated_diffs.append(simulated_diff)
+        # Bootstrap - Utiliser arch si disponible, sinon l'implémentation manuelle
+        if HAS_ARCH:
+            try:
+                bs = IIDBootstrap(perf_diff.values)
+                
+                def statistic(x):
+                    return x.mean()
+                
+                # Simuler la distribution sous H0 (pas de surperformance)
+                simulated_diffs = []
+                for _ in range(n_bootstrap):
+                    # Utilisation compatible avec différentes versions de arch
+                    sim_res = bs.bootstrap(1, statistic)
+                    if isinstance(sim_res, tuple):
+                        simulated_diff = sim_res[0][0]
+                    else:
+                        simulated_diff = sim_res.mean()
+                    simulated_diffs.append(simulated_diff)
+            except Exception:
+                # En cas d'erreur avec arch, utiliser l'implémentation manuelle
+                simulated_diffs = StatisticalTestSuite._manual_bootstrap(perf_diff, n_bootstrap)
+        else:
+            # Implémentation manuelle du bootstrap
+            simulated_diffs = StatisticalTestSuite._manual_bootstrap(perf_diff, n_bootstrap)
         
         # Calculer la p-value empirique
         p_value = np.mean(np.array(simulated_diffs) > mean_diff)
@@ -202,6 +222,29 @@ class StatisticalTestSuite:
             'p_value': p_value,
             'outperforms_benchmark': p_value < 0.05
         }
+    
+    @staticmethod
+    def _manual_bootstrap(series: pd.Series, n_bootstrap: int = 1000) -> List[float]:
+        """
+        Implémentation manuelle du bootstrap pour les séries temporelles.
+        
+        Args:
+            series (pd.Series): Série temporelle à bootstrapper
+            n_bootstrap (int): Nombre d'échantillons bootstrap
+            
+        Returns:
+            List[float]: Liste des statistiques bootstrappées
+        """
+        n_samples = len(series)
+        results = []
+        
+        for _ in range(n_bootstrap):
+            # Échantillonnage avec remplacement
+            bootstrap_indices = np.random.choice(n_samples, size=n_samples, replace=True)
+            bootstrap_sample = series.iloc[bootstrap_indices]
+            results.append(bootstrap_sample.mean())
+            
+        return results
 
     @staticmethod
     def stability_test(returns: pd.Series, window_size: int = 63) -> Dict[str, float]:
