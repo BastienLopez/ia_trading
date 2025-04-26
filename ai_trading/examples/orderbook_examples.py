@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
 
-from ..utils.orderbook_collector import OrderBookCollector
+from ai_trading.utils.orderbook_collector import OrderBookCollector
 
 # Chargement des variables d'environnement
 load_dotenv()
