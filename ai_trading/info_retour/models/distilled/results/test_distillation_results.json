@@ -1,0 +1,22 @@
+{
+    "2": {
+        "student_mse": 0.18766595423221588,
+        "teacher_mse": 0.19083470106124878,
+        "student_inference_time": 0.003400421142578125,
+        "teacher_inference_time": 0.012200689315795899,
+        "speed_improvement": 3.587993605564281,
+        "student_parameters": 71921.0,
+        "teacher_parameters": 565537.0,
+        "size_reduction": 7.863308352219796
+    },
+    "4": {
+        "student_mse": 0.1893959492444992,
+        "teacher_mse": 0.19083470106124878,
+        "student_inference_time": 0.0018001556396484374,
+        "teacher_inference_time": 0.012200307846069337,
+        "speed_improvement": 6.777362788726426,
+        "student_parameters": 18393.0,
+        "teacher_parameters": 565537.0,
+        "size_reduction": 30.747403903659002
+    }
+}
