@@ -48,8 +48,10 @@ def prepare_data_for_rl(
         logger.info("Calcul des rendements")
         df["returns"] = df["close"].pct_change()
 
-    # Remplir les valeurs NaN
-    df = df.fillna(method="ffill").fillna(method="bfill")
+    # Remplissage des valeurs manquantes
+    df = df.copy()  # Pour éviter les avertissements de SettingWithCopyWarning
+    df = df.fillna(df.shift())  # Forward fill
+    df = df.fillna(df.shift(-1))  # Backward fill
 
     # Normaliser les données
     logger.info("Normalisation des données")

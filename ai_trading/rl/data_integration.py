@@ -229,8 +229,10 @@ class RLDataIntegrator:
             how="outer",
         )
 
-        # Remplir les valeurs manquantes
-        merged = merged.fillna(method="ffill").fillna(method="bfill")
+        # Remplissage des valeurs manquantes
+        merged = merged.copy()  # Pour éviter les avertissements de SettingWithCopyWarning
+        merged = merged.fillna(merged.shift())  # Forward fill
+        merged = merged.fillna(merged.shift(-1))  # Backward fill
 
         # Calculer un score de sentiment combiné
         if (
@@ -525,17 +527,30 @@ class RLDataIntegrator:
         # Fusionner les données
         combined_data = market_data.join(sentiment_resampled, how="left")
 
-        # Remplir les valeurs manquantes
-        sentiment_columns = ["polarity", "subjectivity", "compound_score"]
-        for col in sentiment_columns:
+        # Remplissage des valeurs manquantes avec une stratégie plus robuste
+        combined_data = combined_data.copy()  # Pour éviter les avertissements de SettingWithCopyWarning
+        
+        # Pour les colonnes de sentiment
+        sentiment_cols = ['polarity', 'subjectivity', 'compound_score']
+        for col in sentiment_cols:
             if col in combined_data.columns:
-                # Utiliser une méthode de remplissage avant/arrière pour les valeurs manquantes
-                combined_data[col] = (
-                    combined_data[col].fillna(method="ffill").fillna(method="bfill")
-                )
-
-                # Si toujours des NaN, remplacer par 0 (neutre)
+                # Forward fill
+                combined_data[col] = combined_data[col].ffill()
+                # Backward fill
+                combined_data[col] = combined_data[col].bfill()
+                # Si des valeurs manquantes persistent, remplir avec 0
                 combined_data[col] = combined_data[col].fillna(0)
+
+        # Pour les colonnes de marché
+        market_cols = [col for col in market_data.columns if col not in sentiment_cols]
+        for col in market_cols:
+            if col in combined_data.columns:
+                # Forward fill
+                combined_data[col] = combined_data[col].ffill()
+                # Backward fill
+                combined_data[col] = combined_data[col].bfill()
+                # Si des valeurs manquantes persistent, remplir avec la moyenne
+                combined_data[col] = combined_data[col].fillna(combined_data[col].mean())
 
         logger.info(
             f"Données intégrées avec succès. Colonnes: {combined_data.columns.tolist()}"

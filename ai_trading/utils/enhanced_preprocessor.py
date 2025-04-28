@@ -24,124 +24,98 @@ logger = logging.getLogger("EnhancedPreprocessor")
 class EnhancedMarketDataPreprocessor:
     """Classe améliorée pour prétraiter les données de marché des cryptomonnaies."""
 
-    def __init__(self, scaling_method: str = "minmax"):
-        """
-        Initialise le préprocesseur de données de marché.
+    def __init__(self, scaling="minmax"):
+        self.scaling = scaling
+        self.scaler = None
+        self.logger = logging.getLogger("EnhancedPreprocessor")
+        self.logger.setLevel(logging.INFO)
+        
+        # Configuration du logger
+        if not self.logger.handlers:
+            handler = logging.StreamHandler()
+            formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+            handler.setFormatter(formatter)
+            self.logger.addHandler(handler)
+        
+        self.logger.info(f"Préprocesseur amélioré de données de marché initialisé avec scaling: {scaling}")
 
-        Args:
-            scaling_method: Méthode de normalisation ('minmax' ou 'standard')
-        """
-        self.scaling_method = scaling_method
-        self.scalers = {}  # Stockage des scalers pour chaque colonne
-
-        logger.info(
-            f"Préprocesseur amélioré de données de marché initialisé avec scaling: {scaling_method}"
-        )
-
-    def clean_market_data(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Nettoie les données de marché (valeurs manquantes, outliers, etc.).
-
-        Args:
-            df: DataFrame contenant les données de marché
-
-        Returns:
-            DataFrame nettoyé
-        """
-        logger.info("Nettoyage des données de marché")
-
-        # Copie du DataFrame pour éviter les modifications en place
-        df_clean = df.copy()
-
-        # Vérification des valeurs manquantes
-        missing_values = df_clean.isna().sum()
-        if missing_values.sum() > 0:
-            logger.warning(f"Valeurs manquantes détectées: {missing_values}")
-
-            # Conversion des types pour éviter les warnings
-            for col in df_clean.select_dtypes(include=["object"]).columns:
-                try:
-                    df_clean[col] = pd.to_numeric(df_clean[col], errors="ignore")
-                except:
-                    pass
-
-            # Inférence des types d'objets avant interpolation (pour éviter le FutureWarning)
-            df_clean = df_clean.infer_objects(copy=False)
-
-            # Interpolation des valeurs manquantes
-            df_clean = df_clean.interpolate(method="time")
-
-            # Remplissage des valeurs manquantes restantes (pour éviter le FutureWarning)
-            df_clean = df_clean.ffill().bfill()
-
-        # Détection et traitement des outliers
-        for col in ["open", "high", "low", "close", "price", "volume"]:
-            if col in df_clean.columns:
-                # Calcul des limites pour les outliers (méthode IQR)
-                Q1 = df_clean[col].quantile(0.25)
-                Q3 = df_clean[col].quantile(0.75)
+    def clean_market_data(self, data):
+        """Nettoie les données de marché."""
+        try:
+            # Conversion en float32 pour éviter les problèmes de précision
+            numeric_cols = data.select_dtypes(include=[np.number]).columns
+            data = data.copy()
+            data[numeric_cols] = data[numeric_cols].astype(np.float32)
+            
+            # Traitement des valeurs manquantes
+            data = data.ffill().bfill()
+            
+            # Suppression des doublons
+            data = data.drop_duplicates()
+            
+            # Traitement des valeurs aberrantes avec IQR
+            for col in numeric_cols:
+                Q1 = data[col].astype(np.float32).quantile(0.25)
+                Q3 = data[col].astype(np.float32).quantile(0.75)
                 IQR = Q3 - Q1
-                lower_bound = Q1 - 3 * IQR
-                upper_bound = Q3 + 3 * IQR
+                lower_bound = Q1 - 1.5 * IQR
+                upper_bound = Q3 + 1.5 * IQR
+                data[col] = data[col].clip(lower_bound, upper_bound).astype(np.float32)
+            
+            # S'assurer que toutes les colonnes numériques sont en float32
+            data[numeric_cols] = data[numeric_cols].astype(np.float32)
+            
+            return data
+        except Exception as e:
+            self.logger.error(f"Erreur lors du nettoyage des données: {str(e)}")
+            raise
 
-                # Remplacement des outliers par les limites
-                df_clean.loc[df_clean[col] < lower_bound, col] = lower_bound
-                df_clean.loc[df_clean[col] > upper_bound, col] = upper_bound
+    def normalize_market_data(self, data):
+        """Normalise les données de marché."""
+        try:
+            numeric_cols = data.select_dtypes(include=[np.number]).columns
+            
+            if self.scaling == "minmax":
+                self.scaler = MinMaxScaler()
+            else:
+                self.scaler = StandardScaler()
+            
+            # Normalisation avec clipping pour éviter les valeurs infinies
+            normalized_data = data.copy()
+            normalized_data[numeric_cols] = self.scaler.fit_transform(data[numeric_cols])
+            normalized_data[numeric_cols] = normalized_data[numeric_cols].clip(-1e6, 1e6)
+            
+            return normalized_data
+        except Exception as e:
+            self.logger.error(f"Erreur lors de la normalisation des données: {str(e)}")
+            raise
 
-        logger.info(f"Nettoyage terminé. Dimensions: {df_clean.shape}")
-        return df_clean
-
-    def normalize_market_data(
-        self, df: pd.DataFrame, columns: Optional[List[str]] = None
-    ) -> pd.DataFrame:
-        """
-        Normalise les données de marché.
-
-        Args:
-            df: DataFrame contenant les données de marché
-            columns: Liste des colonnes à normaliser (toutes les colonnes numériques par défaut)
-
-        Returns:
-            DataFrame avec données normalisées
-        """
-        logger.info("Normalisation des données de marché")
-
-        # Copie pour éviter de modifier l'original
-        df_norm = df.copy()
-
-        # Sélection des colonnes à normaliser
-        if columns is None:
-            numeric_cols = df_norm.select_dtypes(include=["number"]).columns.tolist()
-            # Exclure les colonnes catégorielles ou binaires
-            columns = [col for col in numeric_cols if col not in ["target", "source"]]
-
-        # Normalisation des colonnes sélectionnées
-        for col in columns:
-            if col in df_norm.columns:
-                # Création du scaler approprié
-                if self.scaling_method == "minmax":
-                    scaler = MinMaxScaler()
-                elif self.scaling_method == "standard":
-                    scaler = StandardScaler()
-                else:
-                    raise ValueError(
-                        f"Méthode de scaling non supportée: {self.scaling_method}"
-                    )
-
-                # Reshape pour le format attendu par le scaler
-                values = df_norm[col].values.reshape(-1, 1)
-
-                # Fit et transform
-                normalized_values = scaler.fit_transform(values).flatten()
-
-                # Stockage du scaler pour une utilisation ultérieure
-                self.scalers[col] = scaler
-
-                # Remplacement des valeurs
-                df_norm[col] = normalized_values
-
-        logger.info(f"Normalisation terminée pour les colonnes: {columns}")
-        return df_norm
+    def create_target_variable(self, data, horizon=1, method="return"):
+        """Crée la variable cible pour l'apprentissage."""
+        try:
+            self.logger.info(f"Création de la variable cible avec horizon={horizon}, méthode={method}")
+            
+            # Conversion en float32 pour éviter les problèmes de précision
+            data = data.astype(np.float32)
+            
+            if method == "return":
+                target = data["close"].pct_change(horizon).shift(-horizon)
+            elif method == "direction":
+                target = np.sign(data["close"].pct_change(horizon).shift(-horizon))
+            elif method == "threshold":
+                returns = data["close"].pct_change(horizon).shift(-horizon)
+                target = pd.cut(returns, bins=[-np.inf, -0.01, 0.01, np.inf], labels=[-1, 0, 1])
+            else:
+                raise ValueError(f"Méthode {method} non supportée")
+            
+            # Suppression des valeurs manquantes
+            target = target.dropna()
+            
+            self.logger.info(f"Création de la cible terminée. Dimensions finales: {target.shape}")
+            return target
+        except Exception as e:
+            self.logger.error(f"Erreur lors de la création de la variable cible: {str(e)}")
+            raise
 
     def create_technical_features(self, df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -183,8 +157,11 @@ class EnhancedMarketDataPreprocessor:
         df_tech = df.copy()
 
         try:
-            # Calcul des rendements
-            df_tech["returns"] = df_tech["close"].pct_change(fill_method="pad")
+            # Calcul des rendements avec gestion explicite des NaN
+            df_tech = df_tech.copy()  # Pour éviter les avertissements de SettingWithCopyWarning
+            close_prices = df_tech["close"]
+            df_tech["returns"] = (close_prices - close_prices.shift(1)) / close_prices.shift(1)
+            df_tech["returns"] = df_tech["returns"].fillna(0)  # Remplacer les NaN par 0
 
             # Moyennes mobiles
             df_tech["sma_7"] = df_tech["close"].rolling(window=7).mean()
@@ -263,72 +240,6 @@ class EnhancedMarketDataPreprocessor:
             f"Création des lags terminée. Nouvelles dimensions: {df_lagged.shape}"
         )
         return df_lagged
-
-    def create_target_variable(
-        self, df: pd.DataFrame, horizon: int = 1, method: str = "return"
-    ) -> pd.DataFrame:
-        """
-        Crée la variable cible pour l'apprentissage supervisé.
-
-        Args:
-            df: DataFrame contenant les données
-            horizon: Horizon de prédiction (nombre de périodes)
-            method: Méthode de calcul ('return', 'direction', 'threshold')
-
-        Returns:
-            DataFrame avec variable cible
-        """
-        logger.info(
-            f"Création de la variable cible avec horizon={horizon}, méthode={method}"
-        )
-
-        # Copie pour éviter de modifier l'original
-        df_target = df.copy()
-
-        # Vérification des colonnes requises
-        if "close" not in df_target.columns:
-            if "price" in df_target.columns:
-                df_target["close"] = df_target["price"]
-            else:
-                raise ValueError(
-                    "Colonne 'close' ou 'price' manquante pour la création de la cible"
-                )
-
-        # Création de la variable cible selon la méthode
-        if method == "return":
-            # Rendement futur
-            df_target["target"] = (
-                df_target["close"].shift(-horizon) / df_target["close"] - 1
-            )
-
-        elif method == "direction":
-            # Direction du prix (hausse/baisse)
-            future_price = df_target["close"].shift(-horizon)
-            df_target["target"] = (future_price > df_target["close"]).astype(int)
-
-        elif method == "threshold":
-            # Mouvement significatif (seuil de 1%)
-            future_return = df_target["close"].shift(-horizon) / df_target["close"] - 1
-            df_target["target"] = (
-                pd.cut(
-                    future_return,
-                    bins=[-np.inf, -0.01, 0.01, np.inf],
-                    labels=[-1, 0, 1],
-                )
-                .fillna(0)
-                .astype(int)
-            )
-
-        else:
-            raise ValueError(f"Méthode non supportée: {method}")
-
-        # Suppression des lignes avec NaN (fin des séries temporelles)
-        df_target = df_target.dropna()
-
-        logger.info(
-            f"Création de la cible terminée. Dimensions finales: {df_target.shape}"
-        )
-        return df_target
 
     def split_data(
         self, df: pd.DataFrame, train_ratio: float = 0.7, val_ratio: float = 0.15

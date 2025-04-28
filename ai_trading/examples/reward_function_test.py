@@ -171,20 +171,10 @@ def preprocess_data(data):
     # Combler les valeurs manquantes si possible au lieu de supprimer les lignes
     logger.info("Comblement des valeurs manquantes...")
 
-    # D'abord forward fill
-    data_filled = data_with_indicators.fillna(method="ffill")
-    # Puis backward fill pour les valeurs manquantes au début
-    data_filled = data_filled.fillna(method="bfill")
-    # Pour toute valeur encore manquante, utiliser la moyenne (pour les indicateurs)
-    # ou zéro (pour les volumes)
-    for col in data_filled.columns:
-        if data_filled[col].isna().any():
-            if "volume" in col.lower():
-                data_filled[col] = data_filled[col].fillna(0)
-            else:
-                data_filled[col] = data_filled[col].fillna(
-                    data_filled[col].mean() if not data_filled[col].isna().all() else 0
-                )
+    # Remplissage des valeurs manquantes
+    data_filled = data_with_indicators.copy()  # Pour éviter les avertissements de SettingWithCopyWarning
+    data_filled = data_filled.fillna(data_filled.shift())  # Forward fill
+    data_filled = data_filled.fillna(data_filled.shift(-1))  # Backward fill
 
     # Vérifier s'il reste des NaN
     na_count = data_filled.isna().sum().sum()
