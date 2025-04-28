@@ -7,3 +7,5 @@ appliqué au trading de cryptomonnaies.
 
 __version__ = "1.0.0"
 __author__ = "Crypto Trading AI Team"
+
+# Package ai_trading

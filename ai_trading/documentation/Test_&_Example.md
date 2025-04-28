@@ -20,6 +20,7 @@ pytest ai_trading/tests/test_sentiment_integration.py -v
 python -m pytest ai_trading/tests/ -v
 ```
 
+
 # Exécuter tous les tests RL
 ```bash
 python -m unittest discover -s ai_trading/tests
@@ -37,7 +38,7 @@ python -m pytest ai_trading/tests/test_technical_indicators.py -v
 
 # Test optimiseur d'hyperparamètres
 ```bash
-python -m ai_trading.tests.test_hyperparameter_optimizer
+python -m ai_trading.tests.test_hyperparameter_optimizer -v
 ```
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ## Exemples disponibles

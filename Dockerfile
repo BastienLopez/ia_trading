@@ -1,12 +1,18 @@
-# Base image
-FROM python:3.11-slim
+# Utilisation d'une image de base plus récente et plus légère
+FROM python:3.11-slim-bookworm as builder
 
-# Set environment variables
-ENV PYTHONDONTWRITEBYTECODE 1
-ENV PYTHONUNBUFFERED 1
+# Variables d'environnement
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    POETRY_VERSION=1.7.1 \
+    POETRY_HOME="/opt/poetry" \
+    POETRY_VIRTUALENVS_IN_PROJECT=true \
+    POETRY_NO_INTERACTION=1
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
+# Installation des dépendances système
+RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     wget \
     gcc \
@@ -15,49 +21,71 @@ RUN apt-get update && apt-get install -y \
     python3-dev \
     libffi-dev \
     libssl-dev \
+    git \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install TA-Lib dependencies
-RUN wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz && \
-    tar -xvzf ta-lib-0.4.0-src.tar.gz && \
-    cd ta-lib/ && \
-    ./configure --prefix=/usr && \
-    make && \
-    make install && \
-    cd .. && \
-    rm -rf ta-lib-0.4.0-src.tar.gz ta-lib/
+# Installation de TA-Lib
+RUN wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz \
+    && tar -xvzf ta-lib-0.4.0-src.tar.gz \
+    && cd ta-lib/ \
+    && ./configure --prefix=/usr \
+    && make \
+    && make install \
+    && cd .. \
+    && rm -rf ta-lib-0.4.0-src.tar.gz ta-lib/
 
-# Set work directory
+# Installation de Poetry
+RUN curl -sSL https://install.python-poetry.org | python3 -
+ENV PATH="${POETRY_HOME}/bin:$PATH"
+
+# Configuration du répertoire de travail
 WORKDIR /app
 
-# Install Python dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Copie des fichiers de dépendances
+COPY pyproject.toml poetry.lock ./
 
-# Install the project as a package
-COPY setup.py .
-RUN pip install -e .
+# Installation des dépendances avec Poetry
+RUN poetry install --no-root --no-dev
 
-# Copy project files, keeping only the essential directories
-COPY ai_trading /app/ai_trading
-COPY web_app /app/web_app
-COPY tradingview /app/tradingview
-COPY data /app/data
-COPY tests /app/tests
+# Image finale
+FROM python:3.11-slim-bookworm as runtime
 
-# Create necessary directories
-RUN mkdir -p data
+# Copie de TA-Lib depuis l'image builder
+COPY --from=builder /usr/lib/libta_lib* /usr/lib/
+COPY --from=builder /usr/include/ta-lib/ /usr/include/ta-lib/
 
-# Expose port for web app
+# Variables d'environnement pour la production
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PATH="/app/.venv/bin:$PATH"
+
+WORKDIR /app
+
+# Copie de l'environnement virtuel et des fichiers du projet
+COPY --from=builder /app/.venv /app/.venv
+COPY . .
+
+# Création des répertoires nécessaires
+RUN mkdir -p data logs
+
+# Exposition du port
 EXPOSE 8000
 
-# Choose one of the following commands based on your needs:
+# Utilisateur non-root pour la sécurité
+RUN useradd -m -u 1000 appuser
+RUN chown -R appuser:appuser /app
+USER appuser
+
+# Healthcheck
+HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# Commande par défaut
+CMD ["python", "-m", "web_app.app"]
 
 # Run tests
 CMD ["python", "-m", "pytest", "tests/", "-v"]
-
-# Run the web application
-# CMD ["python", "-m", "web_app.app"]
 
 # Run a training session
 # CMD ["python", "-m", "ai_trading.train", "--download", "--symbol", "BTC/USDT", "--timeframe", "1h", "--days", "60", "--backtest"] 

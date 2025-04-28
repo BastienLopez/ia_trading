@@ -1,11 +1,15 @@
 import json
 import os
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict
 
 import matplotlib.pyplot as plt
 import pandas as pd
 import requests
+
+INFO_RETOUR_DIR = Path(__file__).parent / "info_retour"
+INFO_RETOUR_DIR.mkdir(exist_ok=True)
 
 
 class TradeLogger:
@@ -13,10 +17,12 @@ class TradeLogger:
     Classe pour enregistrer et analyser les trades
     """
 
-    def __init__(self, log_dir="logs"):
+    def __init__(
+        self,
+        log_dir=INFO_RETOUR_DIR,
+    ):
         self.log_dir = log_dir
-        os.makedirs(log_dir, exist_ok=True)
-        self.trades_file = f"{log_dir}/trades.csv"
+        self.trades_file = self.log_dir / "trades_history.csv"
 
         # Créer le fichier s'il n'existe pas
         if not os.path.exists(self.trades_file):

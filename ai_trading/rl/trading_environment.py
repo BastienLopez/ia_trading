@@ -1,13 +1,12 @@
+import datetime
 import logging
-import os
+
+import gymnasium as gym
+import matplotlib.dates as mdates
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
-import gymnasium as gym
 from gymnasium import spaces
-from typing import Dict, List, Tuple, Optional, Union, Any
-import datetime
 
 # Configuration du logger
 logger = logging.getLogger("TradingEnvironment")
@@ -20,26 +19,28 @@ if not logger.handlers:
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
-# Ajouter l'import de la classe TechnicalIndicators
-from .technical_indicators import TechnicalIndicators
-
-# Ajouter l'import
-from ai_trading.rl.risk_manager import RiskManager
+# Utiliser directement VISUALIZATION_DIR de config.py
+from ai_trading.config import VISUALIZATION_DIR
 
 # Ajouter l'import
 from ai_trading.rl.adaptive_normalization import AdaptiveNormalizer
 
-# Définir le chemin pour les visualisations
-VISUALIZATION_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'visualizations', 'trading_env')
-# Créer le répertoire s'il n'existe pas
-os.makedirs(VISUALIZATION_DIR, exist_ok=True)
+# Ajouter l'import
+from ai_trading.rl.risk_manager import RiskManager
+
+# Ajouter l'import de la classe TechnicalIndicators
+
+
+VISUALIZATION_DIR = VISUALIZATION_DIR / "trading_env"
+VISUALIZATION_DIR.mkdir(parents=True, exist_ok=True)
+
 
 class TradingEnvironment(gym.Env):
     """
     Environnement de trading pour l'apprentissage par renforcement.
-    
+
     Cet environnement simule un marché de trading avec des données réelles,
-    où un agent peut acheter, vendre ou conserver des actifs. 
+    où un agent peut acheter, vendre ou conserver des actifs.
     L'objectif est de maximiser la valeur du portefeuille.
     """
 
@@ -55,12 +56,16 @@ class TradingEnvironment(gym.Env):
         risk_management=True,
         normalize_observation=True,
         reward_function="simple",  # Options: "simple", "sharpe", "transaction_penalty", "drawdown"
-        risk_aversion=0.1,         # Paramètre pour le coefficient de risque dans la fonction de récompense
-        transaction_penalty=0.001, # Pénalité fixe pour chaque transaction
-        lookback_window=20,        # Fenêtre pour calculer le ratio de Sharpe
-        action_type="discrete",    # Type d'action: "discrete" ou "continuous"
-        n_discrete_actions=5,      # Nombre d'actions discrètes par catégorie (achat/vente)
-        **kwargs
+        risk_aversion=0.1,  # Paramètre pour le coefficient de risque dans la fonction de récompense
+        transaction_penalty=0.001,  # Pénalité fixe pour chaque transaction
+        lookback_window=20,  # Fenêtre pour calculer le ratio de Sharpe
+        action_type="discrete",  # Type d'action: "discrete" ou "continuous"
+        n_discrete_actions=5,  # Nombre d'actions discrètes par catégorie (achat/vente)
+        slippage_model="constant",  # Options: "constant", "proportional", "dynamic"
+        slippage_value=0.001,  # Valeur de slippage pour le modèle constant
+        execution_delay=0,  # Délai d'exécution en pas de temps
+        allocation_strategy="equal",  # Stratégie d'allocation: "equal", "proportional", "risk_parity"
+        **kwargs,
     ):
         """
         Initialise l'environnement de trading.
@@ -81,16 +86,37 @@ class TradingEnvironment(gym.Env):
             lookback_window (int): Fenêtre pour calculer le ratio de Sharpe
             action_type (str): Type d'action ("discrete" ou "continuous")
             n_discrete_actions (int): Nombre d'actions discrètes par catégorie
+            slippage_model (str): Modèle de slippage
+            slippage_value (float): Valeur de slippage
+            execution_delay (int): Délai d'exécution en pas de temps
+            allocation_strategy (str): Stratégie d'allocation des actifs
         """
         super(TradingEnvironment, self).__init__()
 
         # Valider les paramètres
-        assert len(df) > window_size, f"Le DataFrame doit contenir plus de {window_size} points de données"
+        assert (
+            len(df) > window_size
+        ), f"Le DataFrame doit contenir plus de {window_size} points de données"
         assert initial_balance > 0, "Le solde initial doit être positif"
-        assert 0 <= transaction_fee < 1, "Les frais de transaction doivent être entre 0 et 1"
-        assert reward_function in ["simple", "sharpe", "transaction_penalty", "drawdown"], "Fonction de récompense invalide"
-        assert action_type in ["discrete", "continuous"], "Type d'action invalide, doit être 'discrete' ou 'continuous'"
-        
+        assert (
+            0 <= transaction_fee < 1
+        ), "Les frais de transaction doivent être entre 0 et 1"
+        assert reward_function in [
+            "simple",
+            "sharpe",
+            "transaction_penalty",
+            "drawdown",
+        ], "Fonction de récompense invalide"
+        assert action_type in [
+            "discrete",
+            "continuous",
+        ], "Type d'action invalide, doit être 'discrete' ou 'continuous'"
+        assert allocation_strategy in [
+            "equal",
+            "proportional",
+            "risk_parity",
+        ], "Stratégie d'allocation invalide, doit être 'equal', 'proportional' ou 'risk_parity'"
+
         # Stocker les paramètres
         self.df = df.copy()
         self.initial_balance = initial_balance
@@ -102,14 +128,64 @@ class TradingEnvironment(gym.Env):
         self.risk_management = risk_management
         self.use_risk_manager = risk_management  # Alias pour compatibilité
         self.normalize_observation = normalize_observation
-        self.use_adaptive_normalization = normalize_observation  # Alias pour compatibilité
+        self.use_adaptive_normalization = (
+            normalize_observation  # Alias pour compatibilité
+        )
         self.reward_function = reward_function
         self.risk_aversion = risk_aversion
         self.transaction_penalty = transaction_penalty
         self.lookback_window = lookback_window
         self.action_type = action_type  # Stocker le type d'action
-        self.n_discrete_actions = n_discrete_actions  # Stocker le nombre d'actions discrètes
-        
+        self.n_discrete_actions = (
+            n_discrete_actions  # Stocker le nombre d'actions discrètes
+        )
+
+        # Calculer les indicateurs techniques si nécessaire
+        if self.include_technical_indicators:
+            # RSI
+            delta = self.df["close"].diff()
+            gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+            loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+            rs = gain / loss
+            self.df["rsi"] = 100 - (100 / (1 + rs))
+
+            # MACD
+            exp1 = self.df["close"].ewm(span=12, adjust=False).mean()
+            exp2 = self.df["close"].ewm(span=26, adjust=False).mean()
+            self.df["macd"] = exp1 - exp2
+
+            # Bandes de Bollinger
+            sma = self.df["close"].rolling(window=20).mean()
+            std = self.df["close"].rolling(window=20).std()
+            self.df["bollinger_middle"] = sma
+
+            # Remplacer les NaN par des 0
+            self.df.fillna(0, inplace=True)
+
+        # Définir les colonnes de caractéristiques
+        self.feature_columns = ["close"]
+        if self.include_technical_indicators:
+            self.feature_columns.extend(["rsi", "macd", "bollinger_middle"])
+
+        # Ajouter les paramètres de marché réalistes
+        self.slippage_model = slippage_model
+        self.slippage_value = slippage_value
+        self.execution_delay = execution_delay
+        self.pending_orders = []  # Liste des ordres en attente d'exécution
+        self.allocation_strategy = (
+            allocation_strategy  # Stocker la stratégie d'allocation
+        )
+        self.n_assets = 1  # Par défaut, nous avons un seul actif
+        self.allocation_history = []  # Historique des allocations
+
+        # Initialiser les attributs manquants
+        self._discrete_to_continuous = (
+            self._discrete_to_continuous
+        )  # Référence à la méthode
+        self.allocation_strategy = (
+            allocation_strategy  # Réinitialiser pour s'assurer qu'il est défini
+        )
+
         # Variables supplémentaires pour le calcul des récompenses
         self.portfolio_value_history = []
         self.returns_history = []
@@ -117,6 +193,10 @@ class TradingEnvironment(gym.Env):
         self.transaction_count = 0
         self.last_transaction_step = -1
         self.max_portfolio_value = 0
+        self.max_drawdown = 0.05  # Drawdown maximum autorisé (5% par défaut)
+        self.drawdown_penalty = 1.0  # Pénalité pour le dépassement du drawdown maximum
+        self.max_turnover = 0.1  # Turnover maximum autorisé (10% par défaut)
+        self.turnover_penalty = 0.5  # Pénalité pour le turnover excessif
 
         # Définir l'espace d'action selon le type
         if action_type == "discrete":
@@ -129,17 +209,21 @@ class TradingEnvironment(gym.Env):
         elif action_type == "continuous":
             # Action continue entre -1 et 1
             # -1: vendre 100%, -0.5: vendre 50%, 0: ne rien faire, 0.5: acheter 50%, 1: acheter 100%
-            self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(1,), dtype=np.float32)
+            self.action_space = spaces.Box(
+                low=-1.0, high=1.0, shape=(1,), dtype=np.float32
+            )
         else:
             raise ValueError(f"Type d'action non supporté: {action_type}")
 
         # Réinitialiser l'environnement pour calculer la taille réelle de l'état
         temp_reset = self.reset()
         if isinstance(temp_reset, tuple):
-            temp_state = temp_reset[0]  # Pour la compatibilité avec les nouvelles versions de gym
+            temp_state = temp_reset[
+                0
+            ]  # Pour la compatibilité avec les nouvelles versions de gym
         else:
             temp_state = temp_reset
-        
+
         # Définir l'espace d'observation avec la taille réelle de l'état
         real_state_size = temp_state.shape[0]
         self.observation_space = spaces.Box(
@@ -166,7 +250,7 @@ class TradingEnvironment(gym.Env):
     def reset(self, seed=None, options=None):
         """
         Réinitialise l'environnement à l'état initial.
-        
+
         Args:
             seed: Graine aléatoire pour la reproductibilité
             options: Options supplémentaires pour la réinitialisation
@@ -176,7 +260,7 @@ class TradingEnvironment(gym.Env):
             info: Informations supplémentaires
         """
         super().reset(seed=seed)
-            
+
         self.current_step = self.window_size
         self.balance = self.initial_balance
         self.crypto_held = 0
@@ -186,346 +270,430 @@ class TradingEnvironment(gym.Env):
         self.actions_history = []
         self.transaction_count = 0
         self.last_transaction_step = -1
-        
+
         if self.risk_management:
             self.risk_manager = RiskManager()
-        
+
         if self.normalize_observation and self.include_technical_indicators:
             self.normalizer = AdaptiveNormalizer()
-        
+
         observation = self._get_observation()
         info = {}
 
         return observation, info
 
     def step(self, action):
-        """
-        Exécute une action dans l'environnement.
-        
-        Args:
-            action: Action à exécuter (discrète ou continue selon action_type)
-            
-        Returns:
-            tuple: (observation, reward, terminated, truncated, info)
-        """
-        # Vérifier que l'action est valide
-        if self.action_type == "continuous":
-            if isinstance(action, np.ndarray):
-                # Convertir l'action en float pour l'espace continu
-                action_value = float(action[0])
-            else:
-                action_value = float(action)
-            
-            # Créer un tableau numpy pour la vérification de l'espace d'action
-            action_for_check = np.array([action_value], dtype=np.float32)
-            
-            if not self.action_space.contains(action_for_check):
-                raise ValueError(f"Action invalide: {action_value}, doit être entre -1 et 1")
-        else:
-            if not self.action_space.contains(action):
-                raise ValueError(f"Action invalide: {action}")
-        
-        # Initialiser le dictionnaire d'informations dès le début
-        info = {
-            "action_adjusted": False  # Par défaut, l'action n'est pas ajustée
-        }
-        
-        # Sauvegarder l'état précédent pour calculer la récompense
-        previous_portfolio_value = self.get_portfolio_value()
-        
-        # Appliquer le gestionnaire de risque si activé
-        if self.use_risk_manager:
-            adjusted_action = self.risk_manager.adjust_action(
-                action,
-                self.portfolio_value_history[-1],
-                self.crypto_held,
-                current_price=self.df.iloc[self.current_step]["close"] if not self.df.empty else 0
-            )
-            if adjusted_action != action:
-                action = adjusted_action
-                info["action_adjusted"] = True
-        
-        # Appliquer l'action
+        """Exécute une étape de trading."""
+        # Initialiser le dictionnaire d'informations
+        info = {}
+
+        # Stocker l'action dans l'historique
+        self.actions_history.append(action)
+
+        # Vérifier si le risk manager devrait ajuster l'action
+        original_action = action
+        adjustment_applied = False
+
+        if self.risk_management and self.risk_manager.should_limit_position(
+            self.portfolio_value_history, self.crypto_held
+        ):
+            # Stocker l'information que l'action a été ajustée
+            adjustment_applied = True
+            info["action_adjusted"] = True
+            info["risk_info"] = {
+                "original_action": original_action,
+                "position_size": self.crypto_held,
+                "portfolio_value": (
+                    self.portfolio_value_history[-1]
+                    if self.portfolio_value_history
+                    else 0
+                ),
+            }
+
+        # Appliquer l'action selon le type
         if self.action_type == "discrete":
             self._apply_discrete_action(action)
-        else:  # continuous
-            if isinstance(action, np.ndarray):
-                self._apply_continuous_action(float(action[0]))
-            else:
-                self._apply_continuous_action(float(action))
+        else:
+            self._apply_continuous_action(action)
+
+        # Obtenir le prix actuel
+        current_price = self.df.iloc[self.current_step]["close"]
+
+        # Calculer la valeur du portefeuille
+        portfolio_value = self.get_portfolio_value()
+
+        # Mettre à jour l'historique
+        self.portfolio_value_history.append(portfolio_value)
+
+        # Calculer le rendement du portefeuille
+        portfolio_return = 0.0
+        if len(self.portfolio_value_history) > 1:
+            prev_value = self.portfolio_value_history[-2]
+            if prev_value > 0:
+                portfolio_return = (portfolio_value - prev_value) / prev_value
+
+        self.returns_history.append(portfolio_return)
 
         # Passer à l'étape suivante
         self.current_step += 1
 
+        # Traiter les ordres en attente
+        self._process_pending_orders()
+
         # Vérifier si l'épisode est terminé
         done = self.current_step >= len(self.df) - 1
 
+        # Obtenir l'état suivant
+        next_state = self._get_observation()
+
         # Calculer la récompense
-        current_portfolio_value = self.get_portfolio_value()
-        reward = self._calculate_reward(action)
+        reward = self._calculate_reward(portfolio_return)
 
-        # Enregistrer la valeur du portefeuille
-        self.portfolio_value_history.append(current_portfolio_value)
+        # Ajouter la valeur du portefeuille aux informations
+        info["portfolio_value"] = portfolio_value
+        info["balance"] = self.balance
+        info["crypto_held"] = self.crypto_held
+        info["current_price"] = current_price
+        info["portfolio_return"] = portfolio_return
 
-        # Construire l'observation
-        observation = self._get_observation()
+        return next_state, reward, done, False, info
 
-        # Mettre à jour les informations à la fin
+    def _apply_slippage(self, price, action_value):
+        """Applique le slippage au prix."""
+        if self.slippage_model == "dynamic":
+            # Calculer le slippage en fonction du volume et de la volatilité
+            current_volume = self.df.iloc[self.current_step]["volume"]
+            avg_volume = self.df.iloc[
+                max(0, self.current_step - 20) : self.current_step
+            ]["volume"].mean()
+            volatility = self.df.iloc[self.current_step]["volatility"]
+
+            # Calculer le facteur de slippage
+            slippage_factor = (
+                self.slippage_value * (1 + volatility) * (current_volume / avg_volume)
+            )
+
+            # Appliquer le slippage
+            if action_value > 0:  # Achat
+                return price * (1 + slippage_factor)
+            else:  # Vente
+                return price * (1 - slippage_factor)
+        elif self.slippage_model == "proportional":
+            # Slippage proportionnel à la taille de l'action
+            action_abs = abs(action_value)
+            if action_value > 0:  # Achat
+                return price * (1 + self.slippage_value * action_abs)
+            else:  # Vente
+                return price * (1 - self.slippage_value * action_abs)
+        else:
+            # Slippage constant (par défaut)
+            if action_value > 0:  # Achat
+                return price * (1 + self.slippage_value)
+            else:  # Vente
+                return price * (1 - self.slippage_value)
+
+    def _process_pending_orders(self):
+        """
+        Traite les ordres en attente d'exécution.
+        """
         current_price = self.df.iloc[self.current_step]["close"]
-        info.update({
-            "portfolio_value": self.get_portfolio_value(),
-            "balance": self.balance,
-            "crypto_held": self.crypto_held,
-            "current_price": current_price
-        })
-        
-        # Vérifier les conditions de stop-loss pour les positions ouvertes
-        if self.use_risk_manager and self.crypto_held > 0:
-            position_id = f"position_{self.current_step}"
-            
-            # Mettre à jour le trailing stop si nécessaire
-            if self.crypto_held > 0:
-                self.risk_manager.update_trailing_stop(
-                    position_id, current_price, self.df.iloc[self.current_step]["close"], 'long')
-            else:
-                self.risk_manager.update_trailing_stop(
-                    position_id, current_price, self.df.iloc[self.current_step]["close"], 'short')
-            
-            # Vérifier si un stop est déclenché
-            stop_result = self.risk_manager.check_stop_conditions(
-                position_id, current_price, 'long')
-            
-            if stop_result['stop_triggered']:
-                # Fermer la position au prix du stop
-                stop_price = stop_result['stop_price']
-                self._close_position(stop_price)
-                logger.info(f"{stop_result['stop_type']} déclenché à {stop_price}")
-        
-        return observation, reward, done, False, info
+        executed_orders = []
+
+        for order in self.pending_orders:
+            order["delay"] -= 1
+            if order["delay"] <= 0:
+                # Exécuter l'ordre
+                price_with_slippage = self._apply_slippage(
+                    current_price, order["action_value"]
+                )
+
+                if order["action_value"] > 0:  # Achat
+                    self.balance -= (
+                        order["amount"]
+                        * price_with_slippage
+                        * (1 + self.transaction_fee)
+                    )
+                    self.crypto_held += order["amount"]
+                else:  # Vente
+                    self.balance += (
+                        order["amount"]
+                        * price_with_slippage
+                        * (1 - self.transaction_fee)
+                    )
+                    self.crypto_held -= order["amount"]
+
+                executed_orders.append(order)
+
+        # Retirer les ordres exécutés
+        self.pending_orders = [
+            order for order in self.pending_orders if order not in executed_orders
+        ]
 
     def _apply_discrete_action(self, action):
         """
         Applique une action discrète.
-        
+
         Args:
             action (int): Indice de l'action à appliquer
         """
         # Obtenir le prix actuel
         current_price = self.df.iloc[self.current_step]["close"]
-        
+
         if action == 0:  # Ne rien faire
             logger.debug("Action: HOLD")
             return
-            
+
         # Calculer le pourcentage d'achat/vente
         if 1 <= action <= self.n_discrete_actions:  # Achat
             # Calculer le pourcentage d'achat (1/n, 2/n, ..., n/n)
             buy_percentage = action / self.n_discrete_actions
-            
+
             # Limiter l'achat à 30% du portefeuille total
             portfolio_value = self.get_portfolio_value()
             max_buy_value = portfolio_value * 0.3
-            
+
             # Calculer la valeur d'achat basée sur le pourcentage
             buy_value = self.balance * buy_percentage
-            
+
             # Appliquer la limite de 30%
             buy_value = min(buy_value, max_buy_value)
-            
+
             # Calculer la quantité de crypto à acheter
             max_crypto_to_buy = buy_value / (current_price * (1 + self.transaction_fee))
-            
-            # Acheter la quantité calculée
-            self.crypto_held += max_crypto_to_buy
-            self.balance -= (max_crypto_to_buy * current_price * (1 + self.transaction_fee))
-            
-            logger.debug(
-                f"Achat: {max_crypto_to_buy:.6f} unités à ${current_price:.2f} (limité à 30% du portefeuille)"
-            )
-            
+
+            # Si délai d'exécution > 0, ajouter à la liste des ordres en attente
+            if self.execution_delay > 0:
+                self.pending_orders.append(
+                    {
+                        "action_value": buy_percentage,
+                        "amount": max_crypto_to_buy,
+                        "delay": self.execution_delay,
+                    }
+                )
+                logger.debug(
+                    f"Ordre d'achat en attente: {max_crypto_to_buy:.6f} unités à ${current_price:.2f}, délai: {self.execution_delay}"
+                )
+            else:
+                # Acheter la quantité calculée immédiatement
+                self.crypto_held += max_crypto_to_buy
+                self.balance -= (
+                    max_crypto_to_buy * current_price * (1 + self.transaction_fee)
+                )
+                logger.debug(
+                    f"Achat: {max_crypto_to_buy:.6f} unités à ${current_price:.2f} (limité à 30% du portefeuille)"
+                )
+
         elif self.n_discrete_actions < action <= 2 * self.n_discrete_actions:  # Vente
             if self.crypto_held > 0:
                 # Calculer le pourcentage de vente (1/n, 2/n, ..., n/n)
-                sell_percentage = (action - self.n_discrete_actions) / self.n_discrete_actions
+                sell_percentage = (
+                    action - self.n_discrete_actions
+                ) / self.n_discrete_actions
                 crypto_to_sell = self.crypto_held * sell_percentage
-                
-                # Vendre la quantité calculée
-                self.balance += (
-                    crypto_to_sell * current_price * (1 - self.transaction_fee)
-                )
-                
-                logger.debug(
-                    f"Vente: {crypto_to_sell:.6f} unités ({sell_percentage*100:.0f}%) à ${current_price:.2f}"
-                )
-                
-                self.crypto_held -= crypto_to_sell
+
+                # Si délai d'exécution > 0, ajouter à la liste des ordres en attente
+                if self.execution_delay > 0:
+                    self.pending_orders.append(
+                        {
+                            "action_value": -sell_percentage,  # Négatif pour indiquer une vente
+                            "amount": crypto_to_sell,
+                            "delay": self.execution_delay,
+                        }
+                    )
+                    logger.debug(
+                        f"Ordre de vente en attente: {crypto_to_sell:.6f} unités à ${current_price:.2f}, délai: {self.execution_delay}"
+                    )
+                else:
+                    # Vendre la quantité calculée immédiatement
+                    self.balance += (
+                        crypto_to_sell * current_price * (1 - self.transaction_fee)
+                    )
+                    self.crypto_held -= crypto_to_sell
+                    logger.debug(
+                        f"Vente: {crypto_to_sell:.6f} unités ({sell_percentage*100:.0f}%) à ${current_price:.2f}"
+                    )
             else:
                 logger.debug("Tentative de vente sans crypto détenue")
 
     def _apply_continuous_action(self, action):
         """
         Applique une action continue.
-        
+
         Args:
             action (float): Valeur de l'action entre -1 et 1
         """
         # Obtenir le prix actuel
         current_price = self.df.iloc[self.current_step]["close"]
-        
+
+        # Extraire la valeur scalaire de l'action numpy
+        action_value = (
+            float(action[0]) if isinstance(action, np.ndarray) else float(action)
+        )
+
         # Zone neutre autour de 0 pour éviter des micro-transactions
-        if -0.05 <= action <= 0.05:
+        if -0.05 <= action_value <= 0.05:
             logger.debug("Action: HOLD (zone neutre)")
             return
-            
-        if action > 0:  # Achat
-            buy_percentage = action
-            
+
+        if action_value > 0:  # Achat
+            buy_percentage = action_value
+
             # Limiter l'achat à 30% du portefeuille total
             portfolio_value = self.get_portfolio_value()
             max_buy_value = portfolio_value * 0.3
-            
+
             # Calculer la valeur d'achat basée sur le pourcentage
             buy_value = self.balance * buy_percentage
-            
+
             # Appliquer la limite de 30%
             buy_value = min(buy_value, max_buy_value)
-            
+
             # Calculer la quantité de crypto à acheter
             max_crypto_to_buy = buy_value / (current_price * (1 + self.transaction_fee))
-            
-            # Acheter la quantité calculée
-            self.crypto_held += max_crypto_to_buy
-            self.balance -= (max_crypto_to_buy * current_price * (1 + self.transaction_fee))
 
-            logger.debug(
-                f"Achat: {max_crypto_to_buy:.6f} unités ({buy_percentage*100:.0f}%) à ${current_price:.2f} (limité à 30% du portefeuille)"
-            )
-            
+            # Si délai d'exécution > 0, ajouter à la liste des ordres en attente
+            if self.execution_delay > 0:
+                self.pending_orders.append(
+                    {
+                        "action_value": action_value,
+                        "amount": max_crypto_to_buy,
+                        "delay": self.execution_delay,
+                    }
+                )
+                logger.debug(
+                    f"Ordre d'achat en attente: {max_crypto_to_buy:.6f} unités ({buy_percentage*100:.0f}%) à ${current_price:.2f}, délai: {self.execution_delay}"
+                )
+            else:
+                # Acheter la quantité calculée immédiatement
+                self.crypto_held += max_crypto_to_buy
+                self.balance -= (
+                    max_crypto_to_buy * current_price * (1 + self.transaction_fee)
+                )
+                logger.debug(
+                    f"Achat: {max_crypto_to_buy:.6f} unités ({buy_percentage*100:.0f}%) à ${current_price:.2f} (limité à 30% du portefeuille)"
+                )
+
         else:  # Vente (action_value < 0)
             if self.crypto_held > 0:
-                sell_percentage = -action
+                sell_percentage = -action_value
                 crypto_to_sell = self.crypto_held * sell_percentage
-                
-                # Vendre la quantité calculée
-                self.balance += (
-                    crypto_to_sell * current_price * (1 - self.transaction_fee)
-                )
 
-                logger.debug(
-                    f"Vente: {crypto_to_sell:.6f} unités ({sell_percentage*100:.0f}%) à ${current_price:.2f}"
-                )
-
-                self.crypto_held -= crypto_to_sell
+                # Si délai d'exécution > 0, ajouter à la liste des ordres en attente
+                if self.execution_delay > 0:
+                    self.pending_orders.append(
+                        {
+                            "action_value": action_value,
+                            "amount": crypto_to_sell,
+                            "delay": self.execution_delay,
+                        }
+                    )
+                    logger.debug(
+                        f"Ordre de vente en attente: {crypto_to_sell:.6f} unités ({sell_percentage*100:.0f}%) à ${current_price:.2f}, délai: {self.execution_delay}"
+                    )
+                else:
+                    # Vendre la quantité calculée immédiatement
+                    self.balance += (
+                        crypto_to_sell * current_price * (1 - self.transaction_fee)
+                    )
+                    self.crypto_held -= crypto_to_sell
+                    logger.debug(
+                        f"Vente: {crypto_to_sell:.6f} unités ({sell_percentage*100:.0f}%) à ${current_price:.2f}"
+                    )
             else:
                 logger.debug("Tentative de vente sans crypto détenue")
 
     def _get_observation(self):
         """
-        Récupère l'observation actuelle (état) pour l'agent RL.
-        Inclut tous les indicateurs techniques et les données de sentiment pour une décision plus précise.
+        Construit l'observation de l'état actuel.
+
+        Returns:
+            np.array: Un vecteur d'observation normalisé
         """
-        # Fenêtre de prix et volumes
-        price_window = self.df.iloc[self.current_step-self.window_size:self.current_step]
-        
-        # Calculer tous les indicateurs techniques sur les données complètes
-        indicators = TechnicalIndicators(self.df.iloc[:self.current_step])
-        all_indicators = indicators.get_all_indicators(normalize=True)
-        
-        # Récupérer uniquement les indicateurs pour le pas de temps actuel
-        current_indicators = all_indicators.iloc[-1].values if not all_indicators.empty else np.zeros(22)
-        
-        # Extraire les données de sentiment si disponibles
-        sentiment_features = []
-        sentiment_columns = ['compound_score', 'positive_score', 'negative_score', 'neutral_score', 
-                             'sentiment_volume', 'sentiment_change']
-        
-        for col in sentiment_columns:
-            if col in self.df.columns:
-                # Normaliser la valeur de sentiment
-                value = self.df.iloc[self.current_step][col]
-                # Pour les scores déjà entre -1 et 1, normaliser entre 0 et 1
-                if col in ['compound_score', 'positive_score', 'negative_score', 'neutral_score']:
-                    value = (value + 1) / 2
-                sentiment_features.append(value)
-        
-        # Si aucune donnée de sentiment n'est disponible, utiliser des zéros
-        if not sentiment_features:
-            sentiment_features = np.zeros(len(sentiment_columns))
-        
-        # Informations sur le portefeuille
-        portfolio_info = np.array([
-            self.balance / self.initial_balance,  # Solde normalisé
-            self.crypto_held * self.df.iloc[self.current_step]["close"] / self.initial_balance,  # Valeur des cryptos détenues
-            self.get_portfolio_value() / self.initial_balance,  # Valeur totale du portefeuille
-        ])
-        
-        # Concaténer toutes les informations
-        observation = np.concatenate([
-            price_window.values.flatten(),  # Historique des prix
-            current_indicators,             # Tous les indicateurs techniques
-            sentiment_features,             # Données de sentiment
-            portfolio_info                  # État du portefeuille
-        ])
-        
+        # Obtenir l'indice actuel
+        current_idx = self.current_step + self.window_size
+
+        # Extraire les données de prix pour la fenêtre courante
+        price_history = (
+            self.df["close"].iloc[current_idx - self.window_size : current_idx].values
+        )
+
+        # Initialiser la liste des caractéristiques
+        features = []
+
+        # Ajouter l'historique des prix normalisé
+        features.extend(
+            price_history / price_history[-1]
+        )  # Normalisation par le dernier prix
+
+        # Ajouter les indicateurs techniques si activés
+        if self.include_technical_indicators:
+            # RSI
+            rsi_history = (
+                self.df["rsi"].iloc[current_idx - self.window_size : current_idx].values
+            )
+            features.extend(
+                rsi_history / 100.0
+            )  # Normalisation par 100 car RSI est entre 0 et 100
+
+            # MACD
+            macd_history = (
+                self.df["macd"]
+                .iloc[current_idx - self.window_size : current_idx]
+                .values
+            )
+            if len(macd_history) > 0 and not np.all(macd_history == 0):
+                macd_history = macd_history / np.max(np.abs(macd_history))
+            features.extend(macd_history)
+
+            # Bandes de Bollinger
+            bb_history = (
+                self.df["bollinger_middle"]
+                .iloc[current_idx - self.window_size : current_idx]
+                .values
+            )
+            if len(bb_history) > 0 and not np.all(bb_history == 0):
+                bb_history = bb_history / bb_history[-1]
+            features.extend(bb_history)
+
+        # Ajouter la position actuelle si activée
+        if self.include_position:
+            features.append(self.crypto_held / self.initial_balance)
+
+        # Ajouter le solde si activé
+        if self.include_balance:
+            features.append(self.balance / self.initial_balance)
+
+        # Convertir en array numpy et s'assurer que c'est en float32
+        observation = np.array(features, dtype=np.float32)
+
         # Appliquer la normalisation adaptative si activée
-        if self.use_adaptive_normalization:
-            # Créer un dictionnaire de features pour la mise à jour du normalisateur
-            feature_dict = {}
-            
-            # Ajouter les prix et volumes actuels
-            feature_dict['price'] = self.df.iloc[self.current_step]['close']
-            if 'volume' in self.df.columns:
-                feature_dict['volume'] = self.df.iloc[self.current_step]['volume']
-            
-            # Ajouter les indicateurs techniques
-            if not all_indicators.empty:
-                for col in all_indicators.columns:
-                    feature_dict[col] = all_indicators.iloc[-1][col]
-            
-            # Ajouter les données de sentiment
-            for i, col in enumerate(sentiment_columns):
-                if col in self.df.columns:
-                    feature_dict[col] = self.df.iloc[self.current_step][col]
-            
-            # Ajouter les informations de portefeuille
-            feature_dict['balance'] = self.balance / self.initial_balance
-            feature_dict['crypto_value'] = self.crypto_held * self.df.iloc[self.current_step]["close"] / self.initial_balance
-            feature_dict['portfolio_value'] = self.get_portfolio_value() / self.initial_balance
-            
-            # Mettre à jour le normalisateur
-            self.normalizer.update(feature_dict)
-            
-            # Normaliser l'observation
-            # Nous ne pouvons pas utiliser directement normalize_array car l'observation
-            # contient des séquences (price_window). Nous normalisons donc chaque composant séparément.
-            
-            # Normaliser la fenêtre de prix
-            price_window_flat = price_window.values.flatten()
-            for i in range(len(price_window_flat)):
-                price_window_flat[i] = self.normalizer.normalize({'price': price_window_flat[i]})['price']
-            
-            # Normaliser les indicateurs techniques
-            for i in range(len(current_indicators)):
-                indicator_name = all_indicators.columns[i % len(all_indicators.columns)]
-                current_indicators[i] = self.normalizer.normalize({indicator_name: current_indicators[i]})[indicator_name]
-            
-            # Normaliser les features de sentiment
-            for i in range(len(sentiment_features)):
-                col = sentiment_columns[i]
-                if col in feature_dict:
-                    sentiment_features[i] = self.normalizer.normalize({col: sentiment_features[i]})[col]
-            
-            # Reconstruire l'observation normalisée
-            observation = np.concatenate([
-                price_window_flat,
-                current_indicators,
-                sentiment_features,
-                portfolio_info  # Déjà normalisé
-            ])
-        
+        if self.normalize_observation:
+            # Créer des noms de features génériques pour l'observation actuelle
+            feature_names = [f"feature_{i}" for i in range(observation.shape[0])]
+
+            if not hasattr(self, "normalizer"):
+                # Initialiser le normalizer avec les noms de features
+                self.normalizer = AdaptiveNormalizer(
+                    window_size=1000,
+                    method="minmax",
+                    clip_values=True,
+                    feature_names=feature_names,
+                )
+            elif len(self.normalizer.feature_names) != len(feature_names):
+                # Mettre à jour le normalizer si la taille de l'observation a changé
+                self.normalizer = AdaptiveNormalizer(
+                    window_size=1000,
+                    method="minmax",
+                    clip_values=True,
+                    feature_names=feature_names,
+                )
+
+            # Utiliser normalize_array avec les noms de features générés
+            observation = self.normalizer.normalize_array(observation, feature_names)
+
         return observation
 
-    def render(self, mode='human'):
+    def render(self, mode="human"):
         """
         Affiche l'état actuel de l'environnement pour visualisation.
         """
@@ -533,63 +701,81 @@ class TradingEnvironment(gym.Env):
             return
 
         fig = plt.figure(figsize=(16, 8))
-        
+
         # Sous-graphique pour le prix et les actions
         price_ax = plt.subplot2grid((4, 1), (0, 0), rowspan=2)
         action_ax = plt.subplot2grid((4, 1), (2, 0), rowspan=1, sharex=price_ax)
         portfolio_ax = plt.subplot2grid((4, 1), (3, 0), rowspan=1, sharex=price_ax)
-        
+
         # Tracer le prix
-        price_subset = self.df.iloc[max(0, self.current_step - 30):self.current_step + 1]
-        price_ax.plot(price_subset.index, price_subset['close'], 'b-')
-        price_ax.set_title(f'Prix {self.df.columns[0]} - Étape {self.current_step}')
-        
+        price_subset = self.df.iloc[
+            max(0, self.current_step - 30) : self.current_step + 1
+        ]
+        price_ax.plot(price_subset.index, price_subset["close"], "b-")
+        price_ax.set_title(f"Prix {self.df.columns[0]} - Étape {self.current_step}")
+
         # Tracer les indicateurs techniques si activés
-        if self.include_technical_indicators and hasattr(self, 'technical_indicators'):
+        if self.include_technical_indicators and hasattr(self, "technical_indicators"):
             for indicator in self.technical_indicators:
                 if indicator in self.df.columns:
-                    price_ax.plot(price_subset.index, price_subset[indicator], alpha=0.7, 
-                             label=indicator)
-            price_ax.legend(loc='upper left')
-        
+                    price_ax.plot(
+                        price_subset.index,
+                        price_subset[indicator],
+                        alpha=0.7,
+                        label=indicator,
+                    )
+            price_ax.legend(loc="upper left")
+
         # Tracer les actions
-        action_colors = {0: 'gray', 1: 'green', 2: 'red'}  # Hold, Buy, Sell
+        action_colors = {0: "gray", 1: "green", 2: "red"}  # Hold, Buy, Sell
         actions = self.actions_history[-30:] if len(self.actions_history) > 0 else []
         if actions:
-            action_indices = price_subset.index[-len(actions):]
+            action_indices = price_subset.index[-len(actions) :]
             for i, action in enumerate(actions):
-                if i < len(action_indices):  # Assurer que nous avons un indice correspondant
-                    action_ax.bar(action_indices[i], 1, color=action_colors.get(action, 'gray'))
-        action_ax.set_title('Actions (Gris=Hold, Vert=Achat, Rouge=Vente)')
+                if i < len(
+                    action_indices
+                ):  # Assurer que nous avons un indice correspondant
+                    action_ax.bar(
+                        action_indices[i], 1, color=action_colors.get(action, "gray")
+                    )
+        action_ax.set_title("Actions (Gris=Hold, Vert=Achat, Rouge=Vente)")
         action_ax.set_yticks([])
-        
+
         # Tracer la valeur du portefeuille
-        portfolio_values = self.portfolio_value_history[-30:] if len(self.portfolio_value_history) > 0 else []
+        portfolio_values = (
+            self.portfolio_value_history[-30:]
+            if len(self.portfolio_value_history) > 0
+            else []
+        )
         if portfolio_values:
-            portfolio_indices = price_subset.index[-len(portfolio_values):]
-            portfolio_ax.plot(portfolio_indices, portfolio_values, 'g-')
-        portfolio_ax.set_title(f'Valeur du portefeuille: ${self.get_portfolio_value():.2f}')
-        
+            portfolio_indices = price_subset.index[-len(portfolio_values) :]
+            portfolio_ax.plot(portfolio_indices, portfolio_values, "g-")
+        portfolio_ax.set_title(
+            f"Valeur du portefeuille: ${self.get_portfolio_value():.2f}"
+        )
+
         # Formater les dates si l'index est un DatetimeIndex
         if isinstance(self.df.index, pd.DatetimeIndex):
             for ax in [price_ax, action_ax, portfolio_ax]:
-                ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
-                ax.xaxis.set_major_locator(mdates.WeekdayLocator(interval=max(1, len(price_subset) // 5)))
-        
+                ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d"))
+                ax.xaxis.set_major_locator(
+                    mdates.WeekdayLocator(interval=max(1, len(price_subset) // 5))
+                )
+
         plt.tight_layout()
-        
+
         # Sauvegarder le graphique
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         step_str = f"step_{self.current_step:04d}"
         filename = f"trading_env_{step_str}_{timestamp}.png"
-        output_path = os.path.join(VISUALIZATION_DIR, filename)
+        output_path = VISUALIZATION_DIR / filename
         plt.savefig(output_path)
-        
-        if mode == 'human':
+
+        if mode == "human":
             plt.pause(0.01)
         else:
             plt.close()
-        
+
         return output_path
 
     def get_portfolio_value(self):
@@ -621,207 +807,100 @@ class TradingEnvironment(gym.Env):
         """
         return self.portfolio_value_history
 
-    def _calculate_reward(self, action=None):
-        """
-        Calcule la récompense basée sur la valeur actuelle du portefeuille et la politique de récompense.
-        
-        Args:
-            action: L'action qui a été prise (pour les pénalités liées aux actions)
-            
-        Returns:
-            float: La récompense calculée
-        """
-        # Calculer la valeur actuelle du portefeuille
-        current_price = self.df.iloc[self.current_step]["close"]
-        current_value = self.balance + self.crypto_held * current_price
-        
-        # Enregistrer la valeur du portefeuille
-        self.portfolio_value_history.append(current_value)
-        
-        # Mettre à jour la valeur maximale du portefeuille pour le calcul du drawdown
-        if current_value > self.max_portfolio_value:
-            self.max_portfolio_value = current_value
-        
-        # Si c'est le premier pas ou si nous n'avons pas d'historique suffisant, retourner une récompense nulle
-        if len(self.portfolio_value_history) < 2:
-            return 0.0
-        
-        # Calculer le retour en pourcentage
-        previous_value = self.portfolio_value_history[-2]
-        pct_change = (current_value - previous_value) / previous_value if previous_value > 0 else 0
-        self.returns_history.append(pct_change)
-        
-        # Choisir la fonction de récompense appropriée
-        if self.reward_function == "simple":
-            reward = self._simple_reward(pct_change)
-        elif self.reward_function == "sharpe":
-            reward = self._sharpe_reward()
-        elif self.reward_function == "transaction_penalty":
-            reward = self._transaction_penalty_reward(pct_change, action)
-        elif self.reward_function == "drawdown":
-            reward = self._drawdown_reward(pct_change)
-        else:
-            reward = self._simple_reward(pct_change)
-        
-        return reward
+    def _calculate_reward(self, portfolio_return):
+        """Calcule la récompense basée sur le rendement du portefeuille."""
+        # Récompense basée sur le rendement
+        reward = portfolio_return
 
-    def _simple_reward(self, pct_change):
-        """
-        Fonction de récompense simple basée sur le changement de valeur du portefeuille.
-        
-        Args:
-            pct_change: Changement en pourcentage de la valeur du portefeuille
-            
-        Returns:
-            float: La récompense calculée
-        """
-        # Récompense de base: changement en pourcentage de la valeur du portefeuille
-        reward = pct_change
-        
-        # Ajout de bonus/malus basés sur la tendance récente
-        if len(self.returns_history) >= 3:
-            # Bonus pour une tendance positive constante
-            if all(r > 0 for r in self.returns_history[-3:]):
-                reward *= 1.1  # Bonus de 10%
-            
-            # Malus pour une tendance négative constante
-            elif all(r < 0 for r in self.returns_history[-3:]):
-                reward *= 0.9  # Malus de 10%
-        
-        return reward
+        # Pénalité pour le turnover excessif
+        if len(self.returns_history) > 1:
+            turnover = np.abs(portfolio_return - self.returns_history[-1])
+            if turnover > self.max_turnover:
+                reward -= self.turnover_penalty * (turnover - self.max_turnover)
 
-    def _sharpe_reward(self):
-        """
-        Fonction de récompense basée sur le ratio de Sharpe.
-        
-        Returns:
-            float: La récompense calculée basée sur le ratio de Sharpe
-        """
-        # Vérifier que nous avons suffisamment d'historique pour calculer le ratio de Sharpe
-        if len(self.returns_history) < self.lookback_window:
-            return 0.0
-        
-        # Calculer le ratio de Sharpe sur la fenêtre de lookback
-        returns = np.array(self.returns_history[-self.lookback_window:])
-        
-        # Éviter les divisions par zéro
-        if np.std(returns) == 0:
-            if np.mean(returns) > 0:
-                return 1.0  # Récompense positive si les rendements sont positifs mais constants
-            elif np.mean(returns) < 0:
-                return -1.0  # Récompense négative si les rendements sont négatifs mais constants
-            else:
-                return 0.0  # Pas de récompense si les rendements sont tous nuls
-        
-        # Calculer le ratio de Sharpe (version simplifiée sans taux sans risque)
-        sharpe_ratio = np.mean(returns) / np.std(returns) * np.sqrt(252)  # Annualisé (252 jours de trading)
-        
-        # Normaliser la récompense pour éviter les valeurs extrêmes
-        reward = np.clip(sharpe_ratio, -10, 10)
-        
-        return reward
+        # Pénalité pour le drawdown
+        if len(self.portfolio_value_history) > 1:
+            current_drawdown = (
+                max(self.portfolio_value_history) - self.portfolio_value_history[-1]
+            ) / max(self.portfolio_value_history)
+            if current_drawdown > self.max_drawdown:
+                reward -= self.drawdown_penalty * (current_drawdown - self.max_drawdown)
 
-    def _transaction_penalty_reward(self, pct_change, action):
-        """
-        Fonction de récompense avec pénalité pour les transactions fréquentes.
-        
-        Args:
-            pct_change: Changement en pourcentage de la valeur du portefeuille
-            action: L'action qui a été prise
-            
-        Returns:
-            float: La récompense calculée avec pénalité pour les transactions
-        """
-        # Récompense de base
-        reward = pct_change
-        
-        # Appliquer une pénalité si une transaction a été effectuée (action 1=achat ou 2=vente)
-        if action in [1, 2]:
-            # Incrémenter le compteur de transactions
-            self.transaction_count += 1
-            
-            # Calculer la pénalité basée sur la fréquence des transactions
-            steps_since_last_transaction = self.current_step - self.last_transaction_step if self.last_transaction_step > 0 else self.window_size
-            
-            # Plus la transaction est proche de la précédente, plus la pénalité est élevée
-            frequency_penalty = self.transaction_penalty * (1.0 / max(1, steps_since_last_transaction))
-            
-            # Appliquer la pénalité
-            reward -= frequency_penalty
-            
-            # Mettre à jour le pas de la dernière transaction
-            self.last_transaction_step = self.current_step
-        
-        return reward
-
-    def _drawdown_reward(self, pct_change):
-        """
-        Fonction de récompense qui pénalise les drawdowns importants.
-        
-        Args:
-            pct_change: Changement en pourcentage de la valeur du portefeuille
-            
-        Returns:
-            float: La récompense calculée avec pénalité pour les drawdowns
-        """
-        # Récompense de base
-        reward = pct_change
-        
-        # Calculer le drawdown actuel
-        current_value = self.portfolio_value_history[-1]
-        drawdown = (self.max_portfolio_value - current_value) / self.max_portfolio_value if self.max_portfolio_value > 0 else 0
-        
-        # Pénaliser les drawdowns importants
-        drawdown_penalty = self.risk_aversion * drawdown * drawdown  # Pénalité quadratique
-        
-        # Appliquer la pénalité
-        reward -= drawdown_penalty
-        
         return reward
 
     def visualize_technical_indicators(self, window_size=100):
         """
         Visualise les indicateurs techniques utilisés dans l'environnement.
-        
+
         Args:
             window_size: Nombre de périodes à afficher
         """
         if not self.include_technical_indicators:
-            logger.warning("Les indicateurs techniques ne sont pas activés dans cet environnement.")
+            logger.warning(
+                "Les indicateurs techniques ne sont pas activés dans cet environnement."
+            )
             return
-        
+
         start_idx = max(0, self.current_step - window_size)
         end_idx = min(self.current_step + 1, len(self.df))
         subset = self.df.iloc[start_idx:end_idx]
-        
+
         # Organiser les indicateurs par type
-        trend_indicators = ['sma', 'ema', 'wma', 'macd', 'macd_signal', 'macd_hist']
-        oscillator_indicators = ['rsi', 'stoch_k', 'stoch_d', 'cci', 'williams_r']
-        volatility_indicators = ['atr', 'bollinger_upper', 'bollinger_middle', 'bollinger_lower']
-        volume_indicators = ['obv', 'volume']
-        
+        trend_indicators = ["sma", "ema", "wma", "macd", "macd_signal", "macd_hist"]
+        oscillator_indicators = ["rsi", "stoch_k", "stoch_d", "cci", "williams_r"]
+        volatility_indicators = [
+            "atr",
+            "bollinger_upper",
+            "bollinger_middle",
+            "bollinger_lower",
+        ]
+        volume_indicators = ["obv", "volume"]
+
         # Créer un graphique avec sous-graphiques pour chaque type d'indicateur
         fig, axs = plt.subplots(5, 1, figsize=(15, 20), sharex=True)
-        
+
         # Prix (avec quelques indicateurs de tendance superposés)
-        axs[0].plot(subset.index, subset['close'], 'k-', label='Prix')
+        axs[0].plot(subset.index, subset["close"], "k-", label="Prix")
         for ind in trend_indicators:
             if ind in subset.columns:
                 axs[0].plot(subset.index, subset[ind], alpha=0.7, label=ind)
-        axs[0].set_title('Prix et indicateurs de tendance')
-        axs[0].legend(loc='upper left')
-        
+        axs[0].set_title("Prix et indicateurs de tendance")
+        axs[0].legend(loc="upper left")
+
         # Bandes de Bollinger (si disponibles)
-        if 'bollinger_upper' in subset.columns and 'bollinger_lower' in subset.columns:
-            axs[1].plot(subset.index, subset['close'], 'k-', label='Prix')
-            axs[1].plot(subset.index, subset['bollinger_upper'], 'r-', alpha=0.5, label='BB Upper')
-            axs[1].plot(subset.index, subset['bollinger_middle'], 'g--', alpha=0.5, label='BB Middle')
-            axs[1].plot(subset.index, subset['bollinger_lower'], 'b-', alpha=0.5, label='BB Lower')
-            axs[1].fill_between(subset.index, subset['bollinger_upper'], subset['bollinger_lower'], 
-                            color='gray', alpha=0.2)
-            axs[1].set_title('Bandes de Bollinger')
-            axs[1].legend(loc='upper left')
-        
+        if "bollinger_upper" in subset.columns and "bollinger_lower" in subset.columns:
+            axs[1].plot(subset.index, subset["close"], "k-", label="Prix")
+            axs[1].plot(
+                subset.index,
+                subset["bollinger_upper"],
+                "r-",
+                alpha=0.5,
+                label="BB Upper",
+            )
+            axs[1].plot(
+                subset.index,
+                subset["bollinger_middle"],
+                "g--",
+                alpha=0.5,
+                label="BB Middle",
+            )
+            axs[1].plot(
+                subset.index,
+                subset["bollinger_lower"],
+                "b-",
+                alpha=0.5,
+                label="BB Lower",
+            )
+            axs[1].fill_between(
+                subset.index,
+                subset["bollinger_upper"],
+                subset["bollinger_lower"],
+                color="gray",
+                alpha=0.2,
+            )
+            axs[1].set_title("Bandes de Bollinger")
+            axs[1].legend(loc="upper left")
+
         # Oscillateurs
         osc_plotted = False
         for ind in oscillator_indicators:
@@ -829,55 +908,99 @@ class TradingEnvironment(gym.Env):
                 axs[2].plot(subset.index, subset[ind], label=ind)
                 osc_plotted = True
         if osc_plotted:
-            axs[2].set_title('Oscillateurs')
+            axs[2].set_title("Oscillateurs")
             # Ajouter des lignes horizontales pour les niveaux courants
-            if 'rsi' in subset.columns:
-                axs[2].axhline(y=70, color='r', linestyle='-', alpha=0.3)
-                axs[2].axhline(y=30, color='g', linestyle='-', alpha=0.3)
-            if 'stoch_k' in subset.columns:
-                axs[2].axhline(y=80, color='r', linestyle='--', alpha=0.3)
-                axs[2].axhline(y=20, color='g', linestyle='--', alpha=0.3)
-            axs[2].legend(loc='upper left')
+            if "rsi" in subset.columns:
+                axs[2].axhline(y=70, color="r", linestyle="-", alpha=0.3)
+                axs[2].axhline(y=30, color="g", linestyle="-", alpha=0.3)
+            if "stoch_k" in subset.columns:
+                axs[2].axhline(y=80, color="r", linestyle="--", alpha=0.3)
+                axs[2].axhline(y=20, color="g", linestyle="--", alpha=0.3)
+            axs[2].legend(loc="upper left")
         else:
             axs[2].set_visible(False)
-        
+
         # Indicateurs de volatilité
         vol_plotted = False
         for ind in volatility_indicators:
-            if ind == 'atr' and ind in subset.columns:
+            if ind == "atr" and ind in subset.columns:
                 axs[3].plot(subset.index, subset[ind], label=ind)
                 vol_plotted = True
         if vol_plotted:
-            axs[3].set_title('Indicateurs de volatilité (ATR)')
-            axs[3].legend(loc='upper left')
+            axs[3].set_title("Indicateurs de volatilité (ATR)")
+            axs[3].legend(loc="upper left")
         else:
             axs[3].set_visible(False)
-        
+
         # Volume
-        if 'volume' in subset.columns:
-            axs[4].bar(subset.index, subset['volume'], color='b', alpha=0.5, label='Volume')
-            axs[4].set_title('Volume')
+        if "volume" in subset.columns:
+            axs[4].bar(
+                subset.index, subset["volume"], color="b", alpha=0.5, label="Volume"
+            )
+            axs[4].set_title("Volume")
         else:
             axs[4].set_visible(False)
-        
+
         plt.tight_layout()
-        
+
         # Sauvegarder le graphique
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"technical_indicators_{timestamp}.png"
-        output_path = os.path.join(VISUALIZATION_DIR, filename)
+        output_path = VISUALIZATION_DIR / filename
         plt.savefig(output_path)
         plt.close()
-        
+
         return output_path
 
     def _close_position(self, price):
         # ...
-        
+
         # Supprimer les stop-loss et take-profit
         if self.use_risk_manager:
             position_id = f"position_{self.current_step}"
             self.risk_manager.clear_position(position_id)
-        
+
         # ...
 
+    def _discrete_to_continuous(self, action):
+        """
+        Convertit une action discrète en valeur continue.
+
+        Args:
+            action (int): Action discrète (0: hold, 1-n: buy x%, n+1-2n: sell x%)
+
+        Returns:
+            float: Valeur continue entre -1 et 1
+        """
+        if action == 0:  # Hold
+            return 0.0
+        elif 1 <= action <= self.n_discrete_actions:  # Buy
+            return action / self.n_discrete_actions
+        else:  # Sell
+            sell_action = action - self.n_discrete_actions
+            return -sell_action / self.n_discrete_actions
+
+    def _allocate_assets(self, action):
+        """Alloue les actifs selon la stratégie spécifiée."""
+        if self.allocation_strategy == "equal":
+            # Allocation égale entre tous les actifs
+            allocation = np.ones(self.n_assets) / self.n_assets
+        elif self.allocation_strategy == "proportional":
+            # Allocation proportionnelle aux poids d'action
+            allocation = np.abs(action) / np.sum(np.abs(action))
+        elif self.allocation_strategy == "risk_parity":
+            # Allocation basée sur la volatilité inverse
+            volatilities = self.df.iloc[self.current_step][
+                [f"volatility_{i}" for i in range(self.n_assets)]
+            ].values
+            allocation = 1 / (volatilities + 1e-6)
+            allocation = allocation / np.sum(allocation)
+        else:
+            raise ValueError(
+                f"Stratégie d'allocation inconnue: {self.allocation_strategy}"
+            )
+
+        # Mettre à jour l'historique d'allocation
+        self.allocation_history.append(allocation)
+
+        return allocation

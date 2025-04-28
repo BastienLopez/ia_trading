@@ -2,10 +2,10 @@ import os
 import sys
 import tempfile
 import unittest
-import pytest
 
 import numpy as np
 import pandas as pd
+import pytest
 
 # Ajouter le répertoire parent au chemin pour pouvoir importer les modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -124,25 +124,25 @@ class TestEvaluation(unittest.TestCase):
         """Teste l'évaluation d'un agent."""
         # Créer un environnement et un agent
         env = self.create_test_environment()
-        
+
         # Obtenir la taille de l'état à partir de l'environnement
         state_size = env.reset()[0].shape[0]
-        
+
         agent = DQNAgent(
             state_size=state_size,
             action_size=env.action_space.n,
             batch_size=32,
-            memory_size=1000
+            memory_size=1000,
         )
-        
+
         # Évaluer l'agent
         results = evaluate_agent(agent, env, num_episodes=2)
-        
+
         # Vérifier que les résultats contiennent les métriques attendues
-        self.assertIn('total_reward', results)
-        self.assertIn('average_reward', results)
-        self.assertIn('win_rate', results)
-        self.assertIn('max_drawdown', results)
+        self.assertIn("total_reward", results)
+        self.assertIn("average_reward", results)
+        self.assertIn("win_rate", results)
+        self.assertIn("max_drawdown", results)
 
     @unittest.skip("Incompatibilité de taille d'état")
     @pytest.mark.skip(reason="Incompatibilité de taille d'état")
@@ -213,10 +213,10 @@ class TestEvaluation(unittest.TestCase):
         """Crée un environnement de test."""
         # Créer des données synthétiques
         dates = pd.date_range(start="2023-01-01", periods=100, freq="D")
-        
+
         # Créer une tendance haussière simple
         prices = np.linspace(100, 200, 100) + np.random.normal(0, 5, 100)
-        
+
         # Créer un DataFrame avec les données
         test_data = pd.DataFrame(
             {
@@ -228,7 +228,7 @@ class TestEvaluation(unittest.TestCase):
             },
             index=dates,
         )
-        
+
         # Créer l'environnement
         env = TradingEnvironment(
             df=test_data,
@@ -236,7 +236,7 @@ class TestEvaluation(unittest.TestCase):
             transaction_fee=0.001,
             window_size=10,
         )
-        
+
         return env
 
 
