@@ -5,6 +5,7 @@ Collecteur de données amélioré qui utilise plusieurs sources gratuites pour l
 import logging
 import os
 import time
+from pathlib import Path
 from typing import Dict, List
 
 import numpy as np
@@ -19,6 +20,9 @@ load_dotenv()
 # Configuration du logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("EnhancedDataCollector")
+
+INFO_RETOUR_DIR = Path(__file__).parent.parent / "info_retour"
+INFO_RETOUR_DIR.mkdir(exist_ok=True)
 
 
 class EnhancedDataCollector:
@@ -43,7 +47,8 @@ class EnhancedDataCollector:
         # Délai entre les requêtes pour respecter les limites de rate
         self.request_delay = 1.0  # secondes
 
-        logger.info("Collecteur de données amélioré initialisé")
+        self.logger = logging.getLogger("EnhancedDataCollector")
+        self.logger.info("Collecteur de données amélioré initialisé")
 
     def get_crypto_prices_coingecko(
         self, coin_id: str = "bitcoin", vs_currency: str = "usd", days: int = 30
@@ -60,7 +65,7 @@ class EnhancedDataCollector:
             DataFrame avec les données de prix
         """
         try:
-            logger.info(
+            self.logger.info(
                 f"Récupération des prix pour {coin_id} sur {days} jours via CoinGecko"
             )
             data = self.coingecko.get_coin_market_chart_by_id(
@@ -85,11 +90,13 @@ class EnhancedDataCollector:
             df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
             df.set_index("timestamp", inplace=True)
 
-            logger.info(f"Données récupérées via CoinGecko: {len(df)} entrées")
+            self.logger.info(f"Données récupérées via CoinGecko: {len(df)} entrées")
             return df
 
         except Exception as e:
-            logger.error(f"Erreur lors de la récupération des prix via CoinGecko: {e}")
+            self.logger.error(
+                f"Erreur lors de la récupération des prix via CoinGecko: {e}"
+            )
             return pd.DataFrame()
 
     def get_crypto_prices_coincap(
@@ -107,7 +114,7 @@ class EnhancedDataCollector:
             DataFrame avec les données de prix
         """
         try:
-            logger.info(
+            self.logger.info(
                 f"Récupération des prix pour {coin_id} sur {days} jours via CoinCap"
             )
 
@@ -139,11 +146,13 @@ class EnhancedDataCollector:
 
             df.set_index("timestamp", inplace=True)
 
-            logger.info(f"Données récupérées via CoinCap: {len(df)} entrées")
+            self.logger.info(f"Données récupérées via CoinCap: {len(df)} entrées")
             return df
 
         except Exception as e:
-            logger.error(f"Erreur lors de la récupération des prix via CoinCap: {e}")
+            self.logger.error(
+                f"Erreur lors de la récupération des prix via CoinCap: {e}"
+            )
             return pd.DataFrame()
 
     def get_crypto_prices_cryptocompare(
@@ -161,7 +170,7 @@ class EnhancedDataCollector:
             DataFrame avec les données de prix
         """
         try:
-            logger.info(
+            self.logger.info(
                 f"Récupération des prix pour {coin_symbol} sur {days} jours via CryptoCompare"
             )
 
@@ -192,11 +201,11 @@ class EnhancedDataCollector:
 
             df.set_index("timestamp", inplace=True)
 
-            logger.info(f"Données récupérées via CryptoCompare: {len(df)} entrées")
+            self.logger.info(f"Données récupérées via CryptoCompare: {len(df)} entrées")
             return df
 
         except Exception as e:
-            logger.error(
+            self.logger.error(
                 f"Erreur lors de la récupération des prix via CryptoCompare: {e}"
             )
             return pd.DataFrame()
@@ -212,7 +221,7 @@ class EnhancedDataCollector:
             DataFrame avec l'indice Fear & Greed
         """
         try:
-            logger.info(f"Récupération de l'indice Fear & Greed sur {days} jours")
+            self.logger.info(f"Récupération de l'indice Fear & Greed sur {days} jours")
 
             # Requête à l'API
             url = "https://api.alternative.me/fng/"
@@ -237,11 +246,11 @@ class EnhancedDataCollector:
             # Définition de l'index
             df = df.set_index("timestamp")
 
-            logger.info(f"Données Fear & Greed récupérées: {len(df)} entrées")
+            self.logger.info(f"Données Fear & Greed récupérées: {len(df)} entrées")
             return df
 
         except Exception as e:
-            logger.error(
+            self.logger.error(
                 f"Erreur lors de la récupération de l'indice Fear & Greed: {e}"
             )
             return pd.DataFrame()
@@ -254,11 +263,11 @@ class EnhancedDataCollector:
             Liste des cryptos tendance
         """
         try:
-            logger.info("Récupération des cryptos tendance via CoinGecko")
+            self.logger.info("Récupération des cryptos tendance via CoinGecko")
             trending = self.coingecko.get_search_trending()
             return trending["coins"]
         except Exception as e:
-            logger.error(f"Erreur lors de la récupération des tendances: {e}")
+            self.logger.error(f"Erreur lors de la récupération des tendances: {e}")
             return []
 
     def get_global_crypto_data(self) -> Dict:
@@ -269,13 +278,15 @@ class EnhancedDataCollector:
             Dictionnaire avec les données globales
         """
         try:
-            logger.info(
+            self.logger.info(
                 "Récupération des données globales du marché crypto via CoinGecko"
             )
             global_data = self.coingecko.get_global()
             return global_data
         except Exception as e:
-            logger.error(f"Erreur lors de la récupération des données globales: {e}")
+            self.logger.error(
+                f"Erreur lors de la récupération des données globales: {e}"
+            )
             return {}
 
     def get_crypto_news(self, limit: int = 10) -> List[Dict]:
@@ -289,12 +300,16 @@ class EnhancedDataCollector:
             Liste des actualités
         """
         try:
-            logger.info(f"Récupération de {limit} actualités crypto via Crypto Panic")
+            self.logger.info(
+                f"Récupération de {limit} actualités crypto via Crypto Panic"
+            )
 
             # Requête à l'API
             url = "https://cryptopanic.com/api/v1/posts/"
             params = {
-                "auth_token": os.environ.get("CRYPTOPANIC_API_KEY", ""),  # Utilisation de la variable d'environnement
+                "auth_token": os.environ.get(
+                    "CRYPTOPANIC_API_KEY", ""
+                ),  # Utilisation de la variable d'environnement
                 "currencies": "BTC,ETH",
                 "public": "true",
                 "limit": limit,
@@ -304,11 +319,11 @@ class EnhancedDataCollector:
             response.raise_for_status()
             data = response.json()
 
-            logger.info(f"Actualités récupérées: {len(data['results'])} entrées")
+            self.logger.info(f"Actualités récupérées: {len(data['results'])} entrées")
             return data["results"]
 
         except Exception as e:
-            logger.error(f"Erreur lors de la récupération des actualités: {e}")
+            self.logger.error(f"Erreur lors de la récupération des actualités: {e}")
             return []
 
     def get_merged_price_data(
@@ -332,11 +347,11 @@ class EnhancedDataCollector:
         Returns:
             DataFrame fusionné avec les données de prix
         """
-        logger.info(f"Récupération et fusion des données de prix pour {coin_id}")
+        self.logger.info(f"Récupération et fusion des données de prix pour {coin_id}")
 
         # Si mock_data est True, retourner des données fictives pour les tests
         if mock_data:
-            logger.info("Utilisation de données fictives pour les tests")
+            self.logger.info("Utilisation de données fictives pour les tests")
             # Création d'un DataFrame de test
             dates = pd.date_range(end=pd.Timestamp.now(), periods=days)
             mock_df = pd.DataFrame(
@@ -355,13 +370,17 @@ class EnhancedDataCollector:
         try:
             df_coingecko = self.get_crypto_prices_coingecko(coin_id, days, vs_currency)
         except Exception as e:
-            logger.warning(f"Erreur lors de la récupération des données CoinGecko: {e}")
+            self.logger.warning(
+                f"Erreur lors de la récupération des données CoinGecko: {e}"
+            )
             df_coingecko = pd.DataFrame()
 
         try:
             df_coincap = self.get_crypto_prices_coincap(coin_id, days)
         except Exception as e:
-            logger.warning(f"Erreur lors de la récupération des données CoinCap: {e}")
+            self.logger.warning(
+                f"Erreur lors de la récupération des données CoinCap: {e}"
+            )
             df_coincap = pd.DataFrame()
 
         # Conversion de l'ID CoinGecko vers le symbole pour CryptoCompare
@@ -372,18 +391,18 @@ class EnhancedDataCollector:
                 coin_symbol, days, vs_currency
             )
         except Exception as e:
-            logger.warning(
+            self.logger.warning(
                 f"Erreur lors de la récupération des données CryptoCompare: {e}"
             )
             df_cryptocompare = pd.DataFrame()
 
         # Vérification qu'au moins une source a des données
         if df_coingecko.empty and df_coincap.empty and df_cryptocompare.empty:
-            logger.error("Aucune donnée disponible pour aucune source")
+            self.logger.error("Aucune donnée disponible pour aucune source")
             # Si toutes les sources sont vides et que nous ne sommes pas en mode test,
             # essayer avec des données fictives
             if not mock_data:
-                logger.warning("Utilisation de données fictives comme fallback")
+                self.logger.warning("Utilisation de données fictives comme fallback")
                 return self.get_merged_price_data(
                     coin_id, days, vs_currency, include_fear_greed, mock_data=True
                 )
@@ -399,7 +418,7 @@ class EnhancedDataCollector:
         }
 
         primary_source = max(sources, key=sources.get)
-        logger.info(
+        self.logger.info(
             f"Source primaire: {primary_source} avec {sources[primary_source]} entrées"
         )
 
@@ -412,9 +431,9 @@ class EnhancedDataCollector:
             df_merged = df_cryptocompare.copy()
         else:
             # Fallback si toutes les sources sont vides
-            logger.error("Aucune source primaire valide")
+            self.logger.error("Aucune source primaire valide")
             if not mock_data:
-                logger.warning("Utilisation de données fictives comme fallback")
+                self.logger.warning("Utilisation de données fictives comme fallback")
                 return self.get_merged_price_data(
                     coin_id, days, vs_currency, include_fear_greed, mock_data=True
                 )
@@ -454,7 +473,9 @@ class EnhancedDataCollector:
                         direction="nearest",
                     )
             except Exception as e:
-                logger.warning(f"Erreur lors de l'ajout de l'indice Fear & Greed: {e}")
+                self.logger.warning(
+                    f"Erreur lors de l'ajout de l'indice Fear & Greed: {e}"
+                )
 
         return df_merged
 
@@ -466,16 +487,10 @@ class EnhancedDataCollector:
             data: DataFrame à sauvegarder
             filename: Nom du fichier
         """
-        try:
-            # Créer le dossier data s'il n'existe pas
-            os.makedirs("data", exist_ok=True)
-
-            filepath = f"data/{filename}"
-            data.to_csv(filepath)
-
-            logger.info(f"Données sauvegardées dans {filepath}")
-        except Exception as e:
-            logger.error(f"Erreur lors de la sauvegarde des données: {e}")
+        filepath = INFO_RETOUR_DIR / "data" / filename
+        filepath.parent.mkdir(exist_ok=True)
+        data.to_csv(filepath)
+        self.logger.info(f"Données sauvegardées dans {filepath}")
 
     def get_symbol_from_id(self, coin_id: str) -> str:
         """
