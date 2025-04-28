@@ -497,7 +497,7 @@ class TestMultiPeriodTrainer(unittest.TestCase):
         # Tester la sauvegarde
         path = self.trainer.save_current_agent(custom_name="test_agent")
         self.mock_agent_instance.save_weights.assert_called_once()
-        self.assertTrue("test_agent" in path)
+        self.assertTrue("test_agent" in str(path))
 
         # Tester le chargement
         self.trainer.load_agent(path)

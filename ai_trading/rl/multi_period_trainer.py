@@ -101,6 +101,7 @@ class MultiPeriodTrainer:
         buffer_size: int = 100000,
         reward_scaling: float = 1.0,
         action_type: str = "continuous",
+        save_dir: Union[str, Path] = None,
     ):
         """
         Initialise le MultiPeriodTrainer.
@@ -126,6 +127,7 @@ class MultiPeriodTrainer:
             buffer_size: Taille du buffer de replay
             reward_scaling: Facteur d'échelle pour les récompenses
             action_type: Type d'espace d'action ("continuous" ou "discrete")
+            save_dir: Répertoire de sauvegarde pour les modèles et les métriques
         """
         self.symbol = symbol
         self.days = days
@@ -149,8 +151,8 @@ class MultiPeriodTrainer:
         self.action_type = action_type
 
         # Créer le répertoire de sauvegarde s'il n'existe pas
-        self.save_dir = INFO_RETOUR_DIR / "models" / "multi_period"
-        self.save_dir.mkdir(exist_ok=True)
+        self.save_dir = Path(save_dir) if save_dir else INFO_RETOUR_DIR / "models" / "multi_period"
+        self.save_dir.mkdir(exist_ok=True, parents=True)
 
         # Créer des sous-répertoires pour chaque période
         for period in self.periods:
