@@ -7,4 +7,4 @@ Ce module réexporte la classe TechnicalIndicators du module rl.
 from ai_trading.rl.technical_indicators import TechnicalIndicators
 
 # Réexporter la classe
-__all__ = ["TechnicalIndicators"]
+__all__ = ['TechnicalIndicators'] 

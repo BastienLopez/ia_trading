@@ -42,4 +42,4 @@ jobs:
         
     - name: Run all tests
       run: |
-        pytest ai_trading/tests/ web_app/tests/ -v 
+        pytest ai_trading/tests/ tests/web_app/ -v 

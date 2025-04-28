@@ -1,18 +1,12 @@
-# Utilisation d'une image de base plus récente et plus légère
-FROM python:3.11-slim-bookworm as builder
+# Base image
+FROM python:3.11-slim
 
-# Variables d'environnement
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    POETRY_VERSION=1.7.1 \
-    POETRY_HOME="/opt/poetry" \
-    POETRY_VIRTUALENVS_IN_PROJECT=true \
-    POETRY_NO_INTERACTION=1
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE 1
+ENV PYTHONUNBUFFERED 1
 
-# Installation des dépendances système
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
     build-essential \
     wget \
     gcc \
@@ -21,71 +15,49 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-dev \
     libffi-dev \
     libssl-dev \
-    git \
-    curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Installation de TA-Lib
-RUN wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz \
-    && tar -xvzf ta-lib-0.4.0-src.tar.gz \
-    && cd ta-lib/ \
-    && ./configure --prefix=/usr \
-    && make \
-    && make install \
-    && cd .. \
-    && rm -rf ta-lib-0.4.0-src.tar.gz ta-lib/
+# Install TA-Lib dependencies
+RUN wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz && \
+    tar -xvzf ta-lib-0.4.0-src.tar.gz && \
+    cd ta-lib/ && \
+    ./configure --prefix=/usr && \
+    make && \
+    make install && \
+    cd .. && \
+    rm -rf ta-lib-0.4.0-src.tar.gz ta-lib/
 
-# Installation de Poetry
-RUN curl -sSL https://install.python-poetry.org | python3 -
-ENV PATH="${POETRY_HOME}/bin:$PATH"
-
-# Configuration du répertoire de travail
+# Set work directory
 WORKDIR /app
 
-# Copie des fichiers de dépendances
-COPY pyproject.toml poetry.lock ./
+# Install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Installation des dépendances avec Poetry
-RUN poetry install --no-root --no-dev
+# Install the project as a package
+COPY setup.py .
+RUN pip install -e .
 
-# Image finale
-FROM python:3.11-slim-bookworm as runtime
+# Copy project files, keeping only the essential directories
+COPY ai_trading /app/ai_trading
+COPY web_app /app/web_app
+COPY tradingview /app/tradingview
+COPY data /app/data
+COPY tests /app/tests
 
-# Copie de TA-Lib depuis l'image builder
-COPY --from=builder /usr/lib/libta_lib* /usr/lib/
-COPY --from=builder /usr/include/ta-lib/ /usr/include/ta-lib/
+# Create necessary directories
+RUN mkdir -p data
 
-# Variables d'environnement pour la production
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PATH="/app/.venv/bin:$PATH"
-
-WORKDIR /app
-
-# Copie de l'environnement virtuel et des fichiers du projet
-COPY --from=builder /app/.venv /app/.venv
-COPY . .
-
-# Création des répertoires nécessaires
-RUN mkdir -p data logs
-
-# Exposition du port
+# Expose port for web app
 EXPOSE 8000
 
-# Utilisateur non-root pour la sécurité
-RUN useradd -m -u 1000 appuser
-RUN chown -R appuser:appuser /app
-USER appuser
-
-# Healthcheck
-HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
-
-# Commande par défaut
-CMD ["python", "-m", "web_app.app"]
+# Choose one of the following commands based on your needs:
 
 # Run tests
 CMD ["python", "-m", "pytest", "tests/", "-v"]
+
+# Run the web application
+# CMD ["python", "-m", "web_app.app"]
 
 # Run a training session
 # CMD ["python", "-m", "ai_trading.train", "--download", "--symbol", "BTC/USDT", "--timeframe", "1h", "--days", "60", "--backtest"] 

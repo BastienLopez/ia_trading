@@ -1,4 +1,3 @@
-import datetime
 import logging
 import os
 
@@ -8,8 +7,8 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 from tqdm import tqdm
-
-from ai_trading.config import VISUALIZATION_DIR
+import datetime
+from sklearn.metrics import mean_squared_error, mean_absolute_error
 
 # Configuration du logger
 logger = logging.getLogger("EvaluationRL")
@@ -23,17 +22,9 @@ if not logger.handlers:
     logger.addHandler(handler)
 
 # Définir le chemin pour les visualisations
-# VISUALIZATION_DIR = os.path.join(
-#     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-#     "visualizations",
-#     "evaluation",
-# )
+VISUALIZATION_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'visualizations', 'evaluation')
 # Créer le répertoire s'il n'existe pas
-save_dir = os.path.join(
-    os.path.dirname(os.path.dirname(__file__)), "info_retour/evaluation"
-)
-os.makedirs(save_dir, exist_ok=True)
-
+os.makedirs(VISUALIZATION_DIR, exist_ok=True)
 
 class PerformanceMetrics:
     """
@@ -879,275 +870,219 @@ def evaluate_agent(agent, env, num_episodes=1, render=False):
 
     return results
 
-
-def plot_portfolio_performance(
-    df_portfolio, title="Portfolio Performance", show_trades=True
-):
+def plot_portfolio_performance(df_portfolio, title="Portfolio Performance", show_trades=True):
     """
     Trace la performance du portefeuille au fil du temps.
-
+    
     Args:
         df_portfolio: DataFrame contenant la valeur du portefeuille, les prix et les actions
         title: Titre du graphique
         show_trades: Si True, affiche les points d'achat et de vente
     """
     fig, ax1 = plt.subplots(figsize=(14, 7))
-
-    color = "tab:blue"
-    ax1.set_xlabel("Date")
-    ax1.set_ylabel("Portefeuille ($)", color=color)
-    ax1.plot(df_portfolio.index, df_portfolio["portfolio_value"], color=color, lw=2)
-    ax1.tick_params(axis="y", labelcolor=color)
-
+    
+    color = 'tab:blue'
+    ax1.set_xlabel('Date')
+    ax1.set_ylabel('Portefeuille ($)', color=color)
+    ax1.plot(df_portfolio.index, df_portfolio['portfolio_value'], color=color, lw=2)
+    ax1.tick_params(axis='y', labelcolor=color)
+    
     # Formater l'axe des dates pour une meilleure lisibilité
     if isinstance(df_portfolio.index, pd.DatetimeIndex) and len(df_portfolio) > 20:
-        ax1.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d"))
-        ax1.xaxis.set_major_locator(
-            mdates.WeekdayLocator(interval=max(1, len(df_portfolio) // 10))
-        )
+        ax1.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+        ax1.xaxis.set_major_locator(mdates.WeekdayLocator(interval=max(1, len(df_portfolio) // 10)))
         plt.xticks(rotation=45)
-
+    
     # Ajouter le prix sur un second axe Y
     ax2 = ax1.twinx()
-    color = "tab:red"
-    ax2.set_ylabel("Prix ($)", color=color)
-    ax2.plot(df_portfolio.index, df_portfolio["close"], color=color, alpha=0.6)
-    ax2.tick_params(axis="y", labelcolor=color)
-
+    color = 'tab:red'
+    ax2.set_ylabel('Prix ($)', color=color)
+    ax2.plot(df_portfolio.index, df_portfolio['close'], color=color, alpha=0.6)
+    ax2.tick_params(axis='y', labelcolor=color)
+    
     # Afficher les points d'achat et de vente si demandé
-    if show_trades and "action" in df_portfolio.columns:
-        buy_signals = df_portfolio[df_portfolio["action"] == 1]
-        sell_signals = df_portfolio[df_portfolio["action"] == 2]
-
+    if show_trades and 'action' in df_portfolio.columns:
+        buy_signals = df_portfolio[df_portfolio['action'] == 1]
+        sell_signals = df_portfolio[df_portfolio['action'] == 2]
+        
         if not buy_signals.empty:
-            ax1.scatter(
-                buy_signals.index,
-                buy_signals["portfolio_value"],
-                color="green",
-                s=100,
-                marker="^",
-                alpha=0.7,
-                label="Achat",
-            )
+            ax1.scatter(buy_signals.index, buy_signals['portfolio_value'], 
+                      color='green', s=100, marker='^', alpha=0.7, label='Achat')
         if not sell_signals.empty:
-            ax1.scatter(
-                sell_signals.index,
-                sell_signals["portfolio_value"],
-                color="red",
-                s=100,
-                marker="v",
-                alpha=0.7,
-                label="Vente",
-            )
+            ax1.scatter(sell_signals.index, sell_signals['portfolio_value'], 
+                      color='red', s=100, marker='v', alpha=0.7, label='Vente')
         ax1.legend()
-
+    
     plt.title(title)
     plt.grid(True, alpha=0.3)
-
+    
     # Sauvegarder le graphique
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"portfolio_performance_{timestamp}.png"
     output_path = os.path.join(VISUALIZATION_DIR, filename)
     plt.savefig(output_path)
     plt.close()
-
+    
     return output_path
-
 
 def plot_performance_metrics(results, benchmark_results=None):
     """
     Trace les métriques de performance clés.
-
+    
     Args:
         results (dict): Résultats de l'évaluation
         benchmark_results (dict): Résultats de la stratégie de référence
     """
-    metrics = results.get("metrics", {})
+    metrics = results.get('metrics', {})
     if not metrics:
         print("Aucune métrique disponible pour le tracé")
         return
-
+    
     fig, ax = plt.subplots(2, 2, figsize=(12, 10))
     fig.suptitle("Métriques de performance", fontsize=16)
-
+    
     # Rendement total
-    ax[0, 0].bar(["Stratégie"], [metrics.get("total_return", 0) * 100], color="blue")
-    if benchmark_results and "metrics" in benchmark_results:
-        ax[0, 0].bar(
-            ["Référence"],
-            [benchmark_results["metrics"].get("total_return", 0) * 100],
-            color="gray",
-        )
-    ax[0, 0].set_ylabel("Rendement total (%)")
-    ax[0, 0].grid(axis="y", alpha=0.3)
-
+    ax[0, 0].bar(['Stratégie'], [metrics.get('total_return', 0) * 100], color='blue')
+    if benchmark_results and 'metrics' in benchmark_results:
+        ax[0, 0].bar(['Référence'], [benchmark_results['metrics'].get('total_return', 0) * 100], color='gray')
+    ax[0, 0].set_ylabel('Rendement total (%)')
+    ax[0, 0].grid(axis='y', alpha=0.3)
+    
     # Ratio de Sharpe
-    ax[0, 1].bar(["Stratégie"], [metrics.get("sharpe_ratio", 0)], color="green")
-    if benchmark_results and "metrics" in benchmark_results:
-        ax[0, 1].bar(
-            ["Référence"],
-            [benchmark_results["metrics"].get("sharpe_ratio", 0)],
-            color="gray",
-        )
-    ax[0, 1].set_ylabel("Ratio de Sharpe")
-    ax[0, 1].grid(axis="y", alpha=0.3)
-
+    ax[0, 1].bar(['Stratégie'], [metrics.get('sharpe_ratio', 0)], color='green')
+    if benchmark_results and 'metrics' in benchmark_results:
+        ax[0, 1].bar(['Référence'], [benchmark_results['metrics'].get('sharpe_ratio', 0)], color='gray')
+    ax[0, 1].set_ylabel('Ratio de Sharpe')
+    ax[0, 1].grid(axis='y', alpha=0.3)
+    
     # Drawdown maximum
-    ax[1, 0].bar(["Stratégie"], [metrics.get("max_drawdown", 0) * 100], color="red")
-    if benchmark_results and "metrics" in benchmark_results:
-        ax[1, 0].bar(
-            ["Référence"],
-            [benchmark_results["metrics"].get("max_drawdown", 0) * 100],
-            color="gray",
-        )
-    ax[1, 0].set_ylabel("Drawdown maximum (%)")
-    ax[1, 0].grid(axis="y", alpha=0.3)
-
+    ax[1, 0].bar(['Stratégie'], [metrics.get('max_drawdown', 0) * 100], color='red')
+    if benchmark_results and 'metrics' in benchmark_results:
+        ax[1, 0].bar(['Référence'], [benchmark_results['metrics'].get('max_drawdown', 0) * 100], color='gray')
+    ax[1, 0].set_ylabel('Drawdown maximum (%)')
+    ax[1, 0].grid(axis='y', alpha=0.3)
+    
     # Volatilité
-    ax[1, 1].bar(["Stratégie"], [metrics.get("volatility", 0) * 100], color="orange")
-    if benchmark_results and "metrics" in benchmark_results:
-        ax[1, 1].bar(
-            ["Référence"],
-            [benchmark_results["metrics"].get("volatility", 0) * 100],
-            color="gray",
-        )
-    ax[1, 1].set_ylabel("Volatilité (%)")
-    ax[1, 1].grid(axis="y", alpha=0.3)
-
+    ax[1, 1].bar(['Stratégie'], [metrics.get('volatility', 0) * 100], color='orange')
+    if benchmark_results and 'metrics' in benchmark_results:
+        ax[1, 1].bar(['Référence'], [benchmark_results['metrics'].get('volatility', 0) * 100], color='gray')
+    ax[1, 1].set_ylabel('Volatilité (%)')
+    ax[1, 1].grid(axis='y', alpha=0.3)
+    
     plt.tight_layout()
     plt.subplots_adjust(top=0.9)
-
+    
     # Sauvegarder le graphique
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"performance_metrics_{timestamp}.png"
     output_path = os.path.join(VISUALIZATION_DIR, filename)
     plt.savefig(output_path)
     plt.close()
-
+    
     return output_path
-
 
 def visualize_trading_signals(df_portfolio):
     """
     Visualise les signaux de trading sur un graphique des prix.
-
+    
     Args:
         df_portfolio: DataFrame avec les prix, actions et valeurs de portefeuille
     """
-    if "close" not in df_portfolio.columns or "action" not in df_portfolio.columns:
+    if 'close' not in df_portfolio.columns or 'action' not in df_portfolio.columns:
         print("Données manquantes pour visualiser les signaux de trading")
         return
-
+    
     plt.figure(figsize=(14, 7))
-
+    
     # Tracer le prix
-    plt.plot(
-        df_portfolio.index, df_portfolio["close"], color="blue", lw=2, label="Prix"
-    )
-
+    plt.plot(df_portfolio.index, df_portfolio['close'], color='blue', lw=2, label='Prix')
+    
     # Identifier les signaux d'achat et de vente
-    buy_signals = df_portfolio[df_portfolio["action"] == 1]
-    sell_signals = df_portfolio[df_portfolio["action"] == 2]
-
+    buy_signals = df_portfolio[df_portfolio['action'] == 1]
+    sell_signals = df_portfolio[df_portfolio['action'] == 2]
+    
     # Ajouter les points d'achat et de vente
     if not buy_signals.empty:
-        plt.scatter(
-            buy_signals.index,
-            buy_signals["close"],
-            color="green",
-            s=100,
-            marker="^",
-            alpha=0.7,
-            label="Achat",
-        )
+        plt.scatter(buy_signals.index, buy_signals['close'], 
+                  color='green', s=100, marker='^', alpha=0.7, label='Achat')
     if not sell_signals.empty:
-        plt.scatter(
-            sell_signals.index,
-            sell_signals["close"],
-            color="red",
-            s=100,
-            marker="v",
-            alpha=0.7,
-            label="Vente",
-        )
-
+        plt.scatter(sell_signals.index, sell_signals['close'], 
+                  color='red', s=100, marker='v', alpha=0.7, label='Vente')
+    
     # Formater l'axe des dates
     if isinstance(df_portfolio.index, pd.DatetimeIndex) and len(df_portfolio) > 20:
-        plt.gca().xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d"))
-        plt.gca().xaxis.set_major_locator(
-            mdates.WeekdayLocator(interval=max(1, len(df_portfolio) // 10))
-        )
+        plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+        plt.gca().xaxis.set_major_locator(mdates.WeekdayLocator(interval=max(1, len(df_portfolio) // 10)))
         plt.xticks(rotation=45)
-
-    plt.title("Signaux de trading")
-    plt.xlabel("Date")
-    plt.ylabel("Prix ($)")
+    
+    plt.title('Signaux de trading')
+    plt.xlabel('Date')
+    plt.ylabel('Prix ($)')
     plt.legend()
     plt.grid(True, alpha=0.3)
-
+    
     # Sauvegarder le graphique
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"trading_signals_{timestamp}.png"
     output_path = os.path.join(VISUALIZATION_DIR, filename)
     plt.savefig(output_path)
     plt.close()
-
+    
     return output_path
-
 
 def plot_training_history(history):
     """
     Trace l'historique d'entraînement d'un modèle.
-
+    
     Args:
         history: L'historique d'entraînement
     """
     plt.figure(figsize=(12, 8))
-
+    
     # Récompenses par épisode
-    if "episode_rewards" in history:
+    if 'episode_rewards' in history:
         plt.subplot(2, 2, 1)
-        plt.plot(history["episode_rewards"])
-        plt.title("Récompenses par épisode")
-        plt.xlabel("Épisode")
-        plt.ylabel("Récompense totale")
+        plt.plot(history['episode_rewards'])
+        plt.title('Récompenses par épisode')
+        plt.xlabel('Épisode')
+        plt.ylabel('Récompense totale')
         plt.grid(True, alpha=0.3)
-
+    
     # Perte
-    if "losses" in history:
+    if 'losses' in history:
         plt.subplot(2, 2, 2)
-        plt.plot(history["losses"])
-        plt.title("Perte par épisode")
-        plt.xlabel("Épisode")
-        plt.ylabel("Perte")
-        plt.yscale("log")
+        plt.plot(history['losses'])
+        plt.title('Perte par épisode')
+        plt.xlabel('Épisode')
+        plt.ylabel('Perte')
+        plt.yscale('log')
         plt.grid(True, alpha=0.3)
-
+    
     # Valeurs du portefeuille
-    if "portfolio_values" in history:
+    if 'portfolio_values' in history:
         plt.subplot(2, 2, 3)
-        plt.plot(history["portfolio_values"])
-        plt.title("Valeur finale du portefeuille")
-        plt.xlabel("Épisode")
-        plt.ylabel("Valeur ($)")
+        plt.plot(history['portfolio_values'])
+        plt.title('Valeur finale du portefeuille')
+        plt.xlabel('Épisode')
+        plt.ylabel('Valeur ($)')
         plt.grid(True, alpha=0.3)
-
+    
     # Durée des épisodes
-    if "episode_lengths" in history:
+    if 'episode_lengths' in history:
         plt.subplot(2, 2, 4)
-        plt.plot(history["episode_lengths"])
-        plt.title("Durée des épisodes")
-        plt.xlabel("Épisode")
-        plt.ylabel("Étapes")
+        plt.plot(history['episode_lengths'])
+        plt.title('Durée des épisodes')
+        plt.xlabel('Épisode')
+        plt.ylabel('Étapes')
         plt.grid(True, alpha=0.3)
-
+    
     plt.tight_layout()
-
+    
     # Sauvegarder le graphique
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"training_history_{timestamp}.png"
     output_path = os.path.join(VISUALIZATION_DIR, filename)
     plt.savefig(output_path)
     plt.close()
-
+    
     return output_path

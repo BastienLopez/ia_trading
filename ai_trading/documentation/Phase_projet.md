@@ -103,38 +103,38 @@ Ce module contient l'implémentation d'un système de trading de cryptomonnaies 
   - [x] Adapter l'environnement pour `gym` / `gymnasium`
 
   ### 2. **Intégration de données avancées**
-  - [x] Sélection automatique de caractéristiques
-  - [x] Ajouter données de flux d'ordres, profondeur du carnet
-  - [x] Intégrer des données alternatives (on-chain, réseaux sociaux)
+  - [ ] Sélection automatique de caractéristiques
+  - [ ] Ajouter données de flux d'ordres, profondeur du carnet
+  - [ ] Intégrer des données alternatives (on-chain, réseaux sociaux)
 
   ### 3. **Récompenses avancées**
   - [x] Ratio de Sortino
-  - [x] Récompense pour diversification
+  - [ ] Récompense pour diversification
   - [x] Récompense adaptative selon conditions de marché
 
   ### 4. **Contraintes de marché réalistes**
-  - [x] Délais d'exécution
-  - [x] Slippage
-  - [x] Impact du carnet d'ordres
+  - [ ] Délais d'exécution
+  - [ ] Slippage
+  - [ ] Impact du carnet d'ordres
 
   ### 5. **Multi-actifs**
-  - [x] Étendre à 2–3 crypto-actifs + actifs (exemple : XAU/USD) + stocks (exemple : AAPL, NVDA)
-  - [x] Allocation de portefeuille simple
-  - [x] Allocation de portefeuille avancé
-  - [x] Contraintes de corrélation/diversification
+  - [ ] Étendre à 2–3 crypto-actifs
+  - [ ] Allocation de portefeuille simple
+  - [ ] Contraintes de corrélation/diversification
 
   ### 6. **Architectures de modèle avancées**
   - [x] LSTM/GRU pour dépendances temporelles
-  - [x] Attention pour séries temporelles
-  - [x] CNN pour analyse graphique
-  - [x] Architectures hybrides (CNN + Attention)
-  - [x] Modèles à base de transformers temporels
-  - [x] Utilisation de network distillation
+  - [ ] Attention pour séries temporelles
+  - [ ] CNN pour analyse graphique
+  - [ ] Architectures hybrides (CNN + Attention)
+  - [ ] Modèles à base de transformers temporels
+  - [ ] Utilisation de network distillation
 
   ### 7. **Validation et robustesse**
   - [x] Optimisation des hyperparamètres
-  - [x] Robustesse à conditions de marché changeantes
-  - [x] Tests statistiques de performance
+  - [ ] Validation croisée temporelle
+  - [ ] Robustesse à conditions de marché changeantes
+  - [ ] Tests statistiques de performance
 
 
 - ⏳ 3.3 Améliorations à long terme (Phase 3.3+)
@@ -152,7 +152,7 @@ Ce module contient l'implémentation d'un système de trading de cryptomonnaies 
   - [ ] Gestion multi-niveaux des risques
 
   ### 2. **Ordres avancés**
-  - [ ] Ordres limites, stop-loss dynamiques (SL), Take Profit (TP),Taille du lot (Lot size), Pips
+  - [ ] Ordres limites, stop-loss dynamiques
   - [ ] Gestion dynamique de taille des positions
   - [ ] Simulation complète d'un carnet d'ordres
 

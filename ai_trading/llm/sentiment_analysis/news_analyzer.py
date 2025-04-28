@@ -8,12 +8,9 @@ import logging
 import os
 import re
 from collections import Counter
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
-
-from ai_trading.config import VISUALIZATION_DIR
 
 # Configuration du logging
 logging.basicConfig(
@@ -31,9 +28,6 @@ except ImportError:
         "La bibliothèque 'transformers' n'est pas disponible. Certaines fonctionnalités seront limitées."
     )
     TRANSFORMERS_AVAILABLE = False
-
-INFO_RETOUR_DIR = Path(__file__).parent.parent.parent / "info_retour"
-INFO_RETOUR_DIR.mkdir(exist_ok=True)
 
 
 class NewsAnalyzer:
@@ -101,9 +95,6 @@ class NewsAnalyzer:
                 "AVAX": ["avalanche", "avax"],
                 "MATIC": ["polygon", "matic"],
             }
-
-            self.cache_dir = INFO_RETOUR_DIR / "sentiment_cache"
-            self.cache_dir.mkdir(exist_ok=True)
         except ImportError as e:
             logger.error(f"Erreur critique de dépendance : {e}")
             raise RuntimeError(
@@ -654,19 +645,15 @@ class NewsAnalyzer:
             import matplotlib
 
             matplotlib.use("Agg")  # Backend qui ne nécessite pas Tkinter
+            import matplotlib.pyplot as plt
             import os
 
-            import matplotlib.pyplot as plt
-
-            # Assurer que le répertoire existe
-            sentiment_dir = os.path.join(VISUALIZATION_DIR, "sentiment")
-            os.makedirs(sentiment_dir, exist_ok=True)
-
-            # Utiliser le nom de fichier fourni dans le répertoire sentiment
-            visualization_path = os.path.join(sentiment_dir, filename)
-
-            # Aussi sauvegarder dans le chemin principal pour la rétrocompatibilité
-            main_path = os.path.join(VISUALIZATION_DIR, "sentiment_analysis.png")
+            # Créer le dossier visualizations s'il n'existe pas
+            visualization_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), 'ai_trading', 'visualizations', 'sentiment')
+            os.makedirs(visualization_dir, exist_ok=True)
+            
+            # Chemin complet du fichier
+            output_path = os.path.join(visualization_dir, filename)
 
             plt.figure(figsize=(12, 6))
 
@@ -676,13 +663,8 @@ class NewsAnalyzer:
                     lambda x: x["score"] if isinstance(x, dict) else 0.5
                 ).plot(title="Évolution du sentiment global")
                 plt.tight_layout()
-
-                # Sauvegarder aux deux emplacements
-                plt.savefig(main_path)
-                plt.savefig(visualization_path)
-
-                logger.info(f"Graphique sauvegardé dans {main_path}")
-                logger.info(f"Graphique sauvegardé dans {visualization_path}")
+                plt.savefig(output_path)
+                logger.info(f"Graphique sauvegardé dans {output_path}")
                 plt.close()
             else:
                 logger.warning("Données insuffisantes pour générer le graphique")

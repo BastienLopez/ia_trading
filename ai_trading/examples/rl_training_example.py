@@ -1,17 +1,17 @@
-import logging
-import os
 import sys
+import os
 from datetime import datetime, timedelta
+import logging
 
 # Ajouter le répertoire parent au chemin pour pouvoir importer les modules
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
-from ai_trading.rl import DQNAgent
 from ai_trading.rl.data_integration import RLDataIntegrator
 from ai_trading.rl_agent import TradingEnvironment
+from ai_trading.rl import DQNAgent
+from ai_trading.utils.enhanced_data_collector import EnhancedDataCollector
 
 logger = logging.getLogger(__name__)
-
 
 def run_training_example():
     """
@@ -45,9 +45,7 @@ def run_training_example():
     )
     if sentiment_data is None:
         logger.warning("Génération de données de sentiment synthétiques")
-        sentiment_data = integrator.generate_synthetic_sentiment_data(
-            start_date, end_date
-        )
+        sentiment_data = integrator.generate_synthetic_sentiment_data(start_date, end_date)
 
     # Intégrer les données pour l'apprentissage par renforcement
     print("Intégration des données pour l'apprentissage par renforcement...")
@@ -62,7 +60,9 @@ def run_training_example():
 
     # Créer l'environnement de trading
     env = TradingEnvironment(
-        data_source=train_data, initial_balance=10000, lookback_window=10
+        data_source=train_data,
+        initial_balance=10000,
+        lookback_window=10
     )
 
     # Créer l'agent DQN
@@ -73,14 +73,16 @@ def run_training_example():
 
     # Évaluer l'agent sur les données de test
     test_env = TradingEnvironment(
-        data_source=test_data, initial_balance=10000, lookback_window=10
+        data_source=test_data,
+        initial_balance=10000,
+        lookback_window=10
     )
 
     # Évaluation
     total_reward = 0
     state = test_env.reset()
     done = False
-
+    
     while not done:
         action = agent.act(state)
         next_state, reward, done, _ = test_env.step(action)

@@ -3,9 +3,9 @@ import sys
 import tempfile
 import time
 import unittest
+import pytest
 
 import matplotlib
-import pytest
 
 # Ajouter le répertoire parent au chemin pour pouvoir importer les modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -109,33 +109,14 @@ class TestTrain(unittest.TestCase):
 
             monitor.save_plots()
 
-            # Vérifier que les fichiers ont été générés (avec timestamp)
-            files_in_dir = os.listdir(temp_dir)
+            # Vérifier les fichiers principaux
+            expected_files = ["rewards.png", "portfolio.png", "returns.png"]
 
-            # Vérifier que chaque type de graphique a été généré
-            self.assertTrue(
-                any(
-                    f.startswith("rewards_") and f.endswith(".png")
-                    for f in files_in_dir
-                ),
-                f"Fichier rewards_*.png non trouvé. Fichiers présents: {files_in_dir}",
-            )
-
-            self.assertTrue(
-                any(
-                    f.startswith("portfolio_") and f.endswith(".png")
-                    for f in files_in_dir
-                ),
-                f"Fichier portfolio_*.png non trouvé. Fichiers présents: {files_in_dir}",
-            )
-
-            self.assertTrue(
-                any(
-                    f.startswith("returns_") and f.endswith(".png")
-                    for f in files_in_dir
-                ),
-                f"Fichier returns_*.png non trouvé. Fichiers présents: {files_in_dir}",
-            )
+            for file in expected_files:
+                self.assertTrue(
+                    os.path.exists(os.path.join(temp_dir, file)),
+                    f"Fichier {file} non généré. Fichiers présents: {os.listdir(temp_dir)}",
+                )
 
     @unittest.skip("Incompatibilité de taille d'état")
     @pytest.mark.skip(reason="Incompatibilité de taille d'état")

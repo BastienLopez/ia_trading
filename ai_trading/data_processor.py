@@ -13,12 +13,7 @@ class DataProcessor:
     Classe pour le traitement des données de trading
     """
 
-    def __init__(
-        self,
-        data_dir=os.path.join(
-            os.path.dirname(os.path.dirname(__file__)), "ai_trading/info_retour/data"
-        ),
-    ):
+    def __init__(self, data_dir="data"):
         self.data_dir = data_dir
         os.makedirs(data_dir, exist_ok=True)
 

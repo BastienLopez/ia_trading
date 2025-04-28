@@ -1,6 +1,5 @@
 import os
 from datetime import datetime
-from pathlib import Path
 
 # Configuration de base
 class Config:
@@ -57,10 +56,4 @@ class Config:
         "USDT": "tether",
         "USDC": "usd-coin",
         "DAI": "dai"
-    }
-
-BASE_DIR = Path(__file__).parent.parent
-LOG_DIR = BASE_DIR / "web_app/logs"
-
-# Création des dossiers nécessaires
-os.makedirs(LOG_DIR, exist_ok=True) 
+    } 

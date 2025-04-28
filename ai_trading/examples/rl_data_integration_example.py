@@ -6,96 +6,90 @@ from datetime import datetime, timedelta
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from ai_trading.rl.data_integration import RLDataIntegrator
-from ai_trading.rl_agent import TradingEnvironment
+from ai_trading.rl_agent import TradingEnvironment, RiskManager
 
 
 class SimpleTradingSystem:
     """Une classe simple pour remplacer RLTradingSystem qui n'existe pas."""
-
+    
     def __init__(self):
         self.env = None
         self.results = []
-
+        
     def create_environment(self, data, initial_balance, transaction_fee, window_size):
         """Crée un environnement de trading avec les données fournies."""
         # Créer un objet data_source simple pour fournir à TradingEnvironment
-        data_source = type(
-            "DataSource",
-            (),
-            {"historical_data": [{"close": price} for price in data["close"].values]},
-        )()
-
+        data_source = type('DataSource', (), {
+            'historical_data': [{'close': price} for price in data['close'].values]
+        })()
+        
         # Créer un portfolio mocké qui a une méthode current_exposure qui peut prendre un argument
-        mock_portfolio = type(
-            "Portfolio", (), {"current_exposure": lambda self=None: 0.0}
-        )()
-
+        mock_portfolio = type('Portfolio', (), {
+            'current_exposure': lambda self=None: 0.0
+        })()
+        
         self.env = TradingEnvironment(
             initial_balance=initial_balance,
             data_source=data_source,
-            risk_params={"max_exposure": 0.2, "max_leverage": 1.5},
+            risk_params={'max_exposure': 0.2, 'max_leverage': 1.5}
         )
-
+        
         # Remplacer le portfolio par défaut par notre version mockée
         self.env.portfolio = mock_portfolio
-
+        
         return self.env
-
+    
     def test_random_strategy(self, num_episodes=3):
         """Teste une stratégie aléatoire dans l'environnement."""
         import random
-
+        
         if not self.env:
-            raise ValueError(
-                "L'environnement doit être créé avant de tester une stratégie"
-            )
-
+            raise ValueError("L'environnement doit être créé avant de tester une stratégie")
+        
         self.results = []
-
+        
         for episode in range(num_episodes):
             # Réinitialisation de l'environnement pour un nouvel épisode
             self.env.current_step = 0
             initial_balance = 10000
             current_balance = initial_balance
-
+            
             # Simulation de trading avec des actions aléatoires
-            action_types = ["buy", "sell", "hold"]
+            action_types = ['buy', 'sell', 'hold']
             total_reward = 0
             num_steps = min(100, len(self.env.prices))  # Limiter le nombre d'étapes
-
+            
             for step in range(num_steps):
                 # Générer une action aléatoire
                 action_type = random.choice(action_types)
-                amount = random.uniform(0.1, 1.0) if action_type != "hold" else 0
-
+                amount = random.uniform(0.1, 1.0) if action_type != 'hold' else 0
+                
                 # Exécuter l'action
                 action = (action_type, amount)
                 _, reward, done, _ = self.env.step(action)
-
+                
                 total_reward += reward
-
+                
                 # Simuler un changement de solde basé sur l'action
-                if action_type == "buy":
+                if action_type == 'buy':
                     current_balance -= amount * 100  # Simuler un achat
-                elif action_type == "sell":
+                elif action_type == 'sell':
                     current_balance += amount * 100  # Simuler une vente
-
+                
                 if done:
                     break
-
+            
             # Calculer les résultats de l'épisode
             final_value = current_balance
             returns = (final_value - initial_balance) / initial_balance
             avg_reward = total_reward / num_steps
-
-            self.results.append(
-                {
-                    "final_value": final_value,
-                    "returns": returns,
-                    "avg_reward": avg_reward,
-                }
-            )
-
+            
+            self.results.append({
+                'final_value': final_value,
+                'returns': returns,
+                'avg_reward': avg_reward
+            })
+            
         return self.results
 
 
@@ -148,7 +142,9 @@ def run_data_integration_example():
         try:
             # Essayer sans paramètres nommés
             integrator.visualize_integrated_data(
-                preprocessed_market_data, sentiment_data, "data_integration_example"
+                preprocessed_market_data,
+                sentiment_data,
+                "data_integration_example"
             )
         except Exception as e:
             print(f"Échec de la visualisation: {e}")
