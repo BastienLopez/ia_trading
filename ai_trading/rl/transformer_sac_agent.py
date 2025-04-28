@@ -2,12 +2,13 @@ import datetime
 import logging
 import os
 from collections import deque
+from pathlib import Path
 
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras.optimizers import Adam
 
-from ai_trading.config import CHECKPOINTS_DIR, MODELS_DIR
+from ai_trading.config import MODELS_DIR
 from ai_trading.rl.prioritized_replay import PrioritizedReplayBuffer
 from ai_trading.rl.replay_buffer import ReplayBuffer
 from ai_trading.rl.transformer_models import create_transformer_hybrid_model
@@ -22,6 +23,9 @@ if not logger.handlers:
     )
     handler.setFormatter(formatter)
     logger.addHandler(handler)
+
+INFO_RETOUR_DIR = Path(__file__).parent.parent / "info_retour"
+INFO_RETOUR_DIR.mkdir(exist_ok=True)
 
 
 class TransformerSACAgent:
@@ -103,7 +107,7 @@ class TransformerSACAgent:
 
         # Utiliser CHECKPOINTS_DIR de config.py si checkpoints_dir n'est pas spécifié
         if checkpoints_dir is None:
-            self.checkpoints_dir = CHECKPOINTS_DIR / "transformer_sac"
+            self.checkpoints_dir = INFO_RETOUR_DIR / "checkpoints"
         else:
             self.checkpoints_dir = checkpoints_dir
 

@@ -6,6 +6,7 @@ Démontre les fonctionnalités avancées de l'EnhancedNewsAnalyzer.
 import argparse
 import os
 import sys
+from pathlib import Path
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
@@ -25,6 +26,19 @@ logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+INFO_RETOUR_DIR = Path(__file__).parent.parent / "info_retour"
+INFO_RETOUR_DIR.mkdir(exist_ok=True)
+
+# Chemins de sauvegarde
+DATA_DIR = INFO_RETOUR_DIR / "data"
+VISUALIZATION_DIR = INFO_RETOUR_DIR / "visualization"
+MODELS_DIR = INFO_RETOUR_DIR / "models"
+
+# Créer les dossiers
+DATA_DIR.mkdir(exist_ok=True)
+VISUALIZATION_DIR.mkdir(exist_ok=True)
+MODELS_DIR.mkdir(exist_ok=True)
 
 
 def collect_news(coins: list, days: int = 7, limit_per_coin: int = 10) -> pd.DataFrame:

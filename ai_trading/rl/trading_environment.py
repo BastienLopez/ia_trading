@@ -670,24 +670,24 @@ class TradingEnvironment(gym.Env):
         if self.normalize_observation:
             # Créer des noms de features génériques pour l'observation actuelle
             feature_names = [f"feature_{i}" for i in range(observation.shape[0])]
-            
+
             if not hasattr(self, "normalizer"):
                 # Initialiser le normalizer avec les noms de features
                 self.normalizer = AdaptiveNormalizer(
-                    window_size=1000, 
-                    method="minmax", 
+                    window_size=1000,
+                    method="minmax",
                     clip_values=True,
-                    feature_names=feature_names
+                    feature_names=feature_names,
                 )
             elif len(self.normalizer.feature_names) != len(feature_names):
                 # Mettre à jour le normalizer si la taille de l'observation a changé
                 self.normalizer = AdaptiveNormalizer(
-                    window_size=1000, 
-                    method="minmax", 
+                    window_size=1000,
+                    method="minmax",
                     clip_values=True,
-                    feature_names=feature_names
+                    feature_names=feature_names,
                 )
-            
+
             # Utiliser normalize_array avec les noms de features générés
             observation = self.normalizer.normalize_array(observation, feature_names)
 

@@ -7,6 +7,7 @@ import json
 import logging
 import os
 from datetime import datetime
+from pathlib import Path
 from typing import List, Tuple, Union
 
 import numpy as np
@@ -68,6 +69,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+INFO_RETOUR_DIR = Path(__file__).parent.parent / "info_retour"
+INFO_RETOUR_DIR.mkdir(exist_ok=True)
+
 
 class MultiPeriodTrainer:
     """
@@ -83,7 +87,6 @@ class MultiPeriodTrainer:
         agent_type: str = "sac",
         use_gru: bool = False,
         initial_balance: float = 10000.0,
-        save_dir: str = "models",
         use_curriculum: bool = True,
         epochs_per_period: int = 5,
         episodes_per_epoch: int = 10,
@@ -109,7 +112,6 @@ class MultiPeriodTrainer:
             agent_type: Type d'agent à utiliser ("sac" ou "n_step_sac")
             use_gru: Utiliser une architecture GRU pour l'agent
             initial_balance: Solde initial pour l'environnement de trading
-            save_dir: Répertoire pour sauvegarder les modèles
             use_curriculum: Utiliser un curriculum d'apprentissage
             epochs_per_period: Nombre d'époques d'entraînement par période
             episodes_per_epoch: Nombre d'épisodes par époque
@@ -131,7 +133,6 @@ class MultiPeriodTrainer:
         self.agent_type = agent_type
         self.use_gru = use_gru
         self.initial_balance = initial_balance
-        self.save_dir = save_dir
         self.use_curriculum = use_curriculum
         self.epochs_per_period = epochs_per_period
         self.episodes_per_epoch = episodes_per_epoch
@@ -148,12 +149,13 @@ class MultiPeriodTrainer:
         self.action_type = action_type
 
         # Créer le répertoire de sauvegarde s'il n'existe pas
-        os.makedirs(save_dir, exist_ok=True)
+        self.save_dir = INFO_RETOUR_DIR / "models" / "multi_period"
+        self.save_dir.mkdir(exist_ok=True)
 
         # Créer des sous-répertoires pour chaque période
         for period in self.periods:
-            period_dir = os.path.join(self.save_dir, f"{self.symbol}_{period}min")
-            os.makedirs(period_dir, exist_ok=True)
+            period_dir = self.save_dir / f"{self.symbol}_{period}min"
+            period_dir.mkdir(exist_ok=True)
 
         # Initialiser les collecteurs de données
         self.market_collector = EnhancedMarketDataCollector()
@@ -163,12 +165,8 @@ class MultiPeriodTrainer:
 
         # Créer un writer TensorBoard pour le suivi
         current_time = datetime.now().strftime("%Y%m%d-%H%M%S")
-        log_dir = os.path.join(
-            os.path.dirname(os.path.dirname(__file__)),
-            "ai_trading/info_retour/logs",
-            f"{self.symbol}_multi_period_{current_time}",
-        )
-        self.summary_writer = tf.summary.create_file_writer(log_dir)
+        log_dir = self.save_dir / f"{self.symbol}_multi_period_{current_time}"
+        self.summary_writer = tf.summary.create_file_writer(str(log_dir))
 
         # Dictionnaire pour stocker les données par période
         self.data = {}
@@ -487,14 +485,14 @@ class MultiPeriodTrainer:
         model_name = f"{self.agent_type}_{self.symbol}_{'gru_' if self.use_gru else ''}epoch{epoch}_{timestamp}"
 
         # Chemin de sauvegarde
-        save_path = os.path.join(self.save_dir, model_name)
+        save_path = self.save_dir / model_name
         os.makedirs(save_path, exist_ok=True)
 
         # Sauvegarder l'agent
         agent.save(save_path)
 
         # Sauvegarder les métriques
-        with open(os.path.join(save_path, "metrics.json"), "w") as f:
+        with open(save_path / "metrics.json", "w") as f:
             json.dump(metrics, f)
 
         logger.info(f"Agent et métriques sauvegardés dans {save_path}")
@@ -524,7 +522,7 @@ class MultiPeriodTrainer:
         )
 
         # Chemin de sauvegarde
-        save_path = os.path.join(self.save_dir, model_name)
+        save_path = self.save_dir / model_name
         os.makedirs(save_path, exist_ok=True)
 
         # Sauvegarder l'agent
@@ -600,7 +598,7 @@ class MultiPeriodTrainer:
         agent = self.create_agent(train_env)
 
         # Vérifier s'il existe des poids pré-entraînés pour cette période
-        weights_path = os.path.join(self.save_dir, f"{self.symbol}_{period}")
+        weights_path = self.save_dir / f"{self.symbol}_{period}"
         if os.path.exists(weights_path):
             logger.info(f"Chargement des poids pré-entraînés pour la période {period}")
             agent.load_weights(weights_path)

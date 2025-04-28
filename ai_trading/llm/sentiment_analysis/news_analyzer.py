@@ -8,6 +8,7 @@ import logging
 import os
 import re
 from collections import Counter
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
@@ -30,6 +31,9 @@ except ImportError:
         "La bibliothèque 'transformers' n'est pas disponible. Certaines fonctionnalités seront limitées."
     )
     TRANSFORMERS_AVAILABLE = False
+
+INFO_RETOUR_DIR = Path(__file__).parent.parent.parent / "info_retour"
+INFO_RETOUR_DIR.mkdir(exist_ok=True)
 
 
 class NewsAnalyzer:
@@ -97,6 +101,9 @@ class NewsAnalyzer:
                 "AVAX": ["avalanche", "avax"],
                 "MATIC": ["polygon", "matic"],
             }
+
+            self.cache_dir = INFO_RETOUR_DIR / "sentiment_cache"
+            self.cache_dir.mkdir(exist_ok=True)
         except ImportError as e:
             logger.error(f"Erreur critique de dépendance : {e}")
             raise RuntimeError(

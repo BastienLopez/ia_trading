@@ -178,7 +178,7 @@ class DQNAgent:
                     f"Impossible de convertir next_state en array numpy dans remember, type: {type(next_state)}"
                 )
                 return
-                
+
         # Vérifier si la taille de l'état correspond à celle attendue par le modèle
         if len(state.shape) == 1 and state.shape[0] != self.state_size:
             # Mettre à jour la taille de l'état et reconstruire le modèle
@@ -190,13 +190,19 @@ class DQNAgent:
             self.model = self.build_model()
             self.target_model = self.build_model()
             self.update_target_model()
-            
+
             # Vider la mémoire pour éviter les incohérences de tailles d'état
             self.memory.clear()
-            logger.warning("Mémoire d'expérience vidée pour éviter les incohérences de tailles d'état.")
-            
+            logger.warning(
+                "Mémoire d'expérience vidée pour éviter les incohérences de tailles d'état."
+            )
+
         # Vérifier que state et next_state ont la même taille
-        if len(state.shape) == 1 and len(next_state.shape) == 1 and state.shape[0] != next_state.shape[0]:
+        if (
+            len(state.shape) == 1
+            and len(next_state.shape) == 1
+            and state.shape[0] != next_state.shape[0]
+        ):
             logger.warning(
                 f"Les tailles de state ({state.shape[0]}) et next_state ({next_state.shape[0]}) diffèrent. Cette expérience sera ignorée."
             )
@@ -239,7 +245,7 @@ class DQNAgent:
         # S'assurer que l'état a la bonne forme pour le modèle
         if len(state.shape) == 1:
             state = np.reshape(state, [1, len(state)])
-            
+
         # Vérifier si la taille de l'état correspond à ce que le modèle attend
         if state.shape[1] != self.state_size:
             logger.warning(
@@ -295,7 +301,7 @@ class DQNAgent:
         first_state = minibatch[0][0]
         if len(first_state.shape) > 1:
             first_state = first_state[0]
-        
+
         # Si la taille d'état a changé, reconstruire les modèles
         if len(first_state) != self.state_size:
             logger.warning(
@@ -320,7 +326,7 @@ class DQNAgent:
             if len(next_state.shape) > 1:
                 next_state = next_state[0]
             next_state = next_state.astype(np.float32)
-            
+
             # Vérifier si la taille de next_state correspond à celle attendue par le modèle
             if len(next_state) != self.state_size:
                 logger.warning(

@@ -1,5 +1,6 @@
 import os
 import sys
+from pathlib import Path
 
 # Ajouter le répertoire parent au chemin Python
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -14,6 +15,9 @@ logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger("ai_trading")
+
+INFO_RETOUR_DIR = Path(__file__).parent / "info_retour"
+INFO_RETOUR_DIR.mkdir(exist_ok=True)
 
 
 def main():
@@ -65,7 +69,11 @@ def main():
             agent = trading_system._agent
 
         # Entraîner l'agent
-        trading_system.train(episodes=50, batch_size=32, save_path="models/dqn_agent")
+        trading_system.train(
+            episodes=50,
+            batch_size=32,
+            save_path=str(INFO_RETOUR_DIR / "models" / "dqn_agent"),
+        )
 
         # Évaluer l'agent
         results = trading_system.evaluate(episodes=10)

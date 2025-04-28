@@ -3,6 +3,7 @@ import os
 import sys
 import time
 from datetime import datetime
+from pathlib import Path
 
 import matplotlib
 
@@ -26,6 +27,9 @@ if not logger.handlers:
     )
     handler.setFormatter(formatter)
     logger.addHandler(handler)
+
+INFO_RETOUR_DIR = Path(__file__).parent.parent / "info_retour"
+INFO_RETOUR_DIR.mkdir(exist_ok=True)
 
 
 class TrainingMonitor:

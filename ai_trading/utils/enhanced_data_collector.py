@@ -5,6 +5,7 @@ Collecteur de données amélioré qui utilise plusieurs sources gratuites pour l
 import logging
 import os
 import time
+from pathlib import Path
 from typing import Dict, List
 
 import numpy as np
@@ -19,6 +20,9 @@ load_dotenv()
 # Configuration du logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("EnhancedDataCollector")
+
+INFO_RETOUR_DIR = Path(__file__).parent.parent / "info_retour"
+INFO_RETOUR_DIR.mkdir(exist_ok=True)
 
 
 class EnhancedDataCollector:
@@ -483,11 +487,8 @@ class EnhancedDataCollector:
             data: DataFrame à sauvegarder
             filename: Nom du fichier
         """
-        # Utilisation du chemin relatif vers ai_trading/info_retour/data/
-        filepath = os.path.join(
-            os.path.dirname(os.path.dirname(__file__)), "info_retour", "data", filename
-        )
-        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        filepath = INFO_RETOUR_DIR / "data" / filename
+        filepath.parent.mkdir(exist_ok=True)
         data.to_csv(filepath)
         self.logger.info(f"Données sauvegardées dans {filepath}")
 
