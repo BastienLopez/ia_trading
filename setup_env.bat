@@ -1,7 +1,82 @@
 @echo off
 setlocal enabledelayedexpansion
 
-echo Configuration de l'environnement pour le trading crypto...
+echo Configuration de l'environnement pour PyTorch avec optimisations RTX 3070...
+
+:: Configuration des variables d'environnement PyTorch
+set PYTORCH_CUDA_USE_TENSOR_CORES=1
+set PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:128
+set PYTORCH_CUDA_MEMORY_FRACTION=0.8
+set PYTORCH_CUDA_CACHE_PATH=%USERPROFILE%\.cache\torch\cuda
+set PYTORCH_CUDA_CACHE_MAXSIZE=1073741824
+
+:: Configuration des optimisations CUDA
+set CUDA_VISIBLE_DEVICES=0
+set CUDA_LAUNCH_BLOCKING=0
+set CUDA_CACHE_PATH=%USERPROFILE%\.nv\ComputeCache
+set CUDA_CACHE_MAXSIZE=1073741824
+
+:: Configuration des optimisations système
+set OMP_NUM_THREADS=12
+set MKL_NUM_THREADS=12
+set NUMEXPR_NUM_THREADS=12
+set OPENBLAS_NUM_THREADS=12
+
+:: Configuration des optimisations PyTorch
+set TORCH_CUDA_ARCH_LIST=8.6
+set TORCH_EXTENSIONS_DIR=%USERPROFILE%\.cache\torch\extensions
+set TORCH_HOME=%USERPROFILE%\.cache\torch
+set TORCH_SHOW_CPP_STACKTRACES=1
+
+:: Configuration des optimisations mémoire
+set PYTORCH_NO_CUDA_MEMORY_CACHING=1
+set PYTORCH_CUDA_MEMORY_FRACTION=0.8
+set PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:128
+
+:: Configuration des optimisations de performance
+set PYTORCH_JIT=1
+set PYTORCH_JIT_OPTIONS=1
+set PYTORCH_JIT_USE_CUDA=1
+set PYTORCH_JIT_USE_NNC=1
+set PYTORCH_JIT_USE_TENSOR_CORES=1
+
+:: Configuration des optimisations de compilation
+set PYTORCH_COMPILE_MODE=reduce-overhead
+set PYTORCH_COMPILE_FULLGRAPH=1
+set PYTORCH_COMPILE_DYNAMIC=0
+
+:: Configuration des optimisations de batch
+set PYTORCH_BATCH_SIZE=256
+set PYTORCH_SEQUENCE_LENGTH=20
+set PYTORCH_NUM_WORKERS=4
+set PYTORCH_PREFETCH_FACTOR=2
+
+:: Configuration des optimisations de précision
+set PYTORCH_DTYPE=float16
+set PYTORCH_MIXED_PRECISION=1
+set PYTORCH_AMP=1
+set PYTORCH_AMP_SCALER=1
+
+:: Configuration des optimisations de débogage
+set PYTORCH_DEBUG=0
+set PYTORCH_WARNINGS=0
+set PYTORCH_SHOW_CPP_STACKTRACES=0
+
+:: Configuration des optimisations de logging
+set PYTORCH_LOG_LEVEL=INFO
+set PYTORCH_LOG_FORMAT=%(asctime)s - %(name)s - %(levelname)s - %(message)s
+
+echo Environnement configuré avec succès !
+echo.
+echo Variables d'environnement PyTorch :
+echo PYTORCH_CUDA_USE_TENSOR_CORES=%PYTORCH_CUDA_USE_TENSOR_CORES%
+echo PYTORCH_CUDA_ALLOC_CONF=%PYTORCH_CUDA_ALLOC_CONF%
+echo PYTORCH_CUDA_MEMORY_FRACTION=%PYTORCH_CUDA_MEMORY_FRACTION%
+echo PYTORCH_DTYPE=%PYTORCH_DTYPE%
+echo PYTORCH_MIXED_PRECISION=%PYTORCH_MIXED_PRECISION%
+echo PYTORCH_BATCH_SIZE=%PYTORCH_BATCH_SIZE%
+echo PYTORCH_NUM_WORKERS=%PYTORCH_NUM_WORKERS%
+echo.
 
 :: Détection automatique de CUDA
 where cuda >nul 2>&1
