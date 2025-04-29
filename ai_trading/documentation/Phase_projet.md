@@ -79,6 +79,7 @@ Ce module contient l'implémentation d'un système de trading de cryptomonnaies 
   - [x] Double DQN, Dueling DQN
   - [x] Ajouter SAC pour les actions continues
   - [x] Intégrer Noisy Networks pour l'exploration
+  - [x] Intégrer Noisy Linear Pytorch (ai_trading\rl\agents\layers\noisy_linear.py)
   - [x] Utiliser des retours multi-étapes (n-step returns)
   - [x] Appliquer le gradient clipping et l'entropy regularization
   - [x] Implémenter un curriculum learning progressif
@@ -89,7 +90,7 @@ Ce module contient l'implémentation d'un système de trading de cryptomonnaies 
   - [x] Créer la classe `HyperparameterOptimizer`
   - [x] Ajouter des métriques de qualité
 
-- ⏳ 3.2 Améliorations à moyen terme (Phase 3.2)
+- ✅ 3.2 Améliorations à moyen terme (Phase 3.2)
   - Entraînement sur données multi-périodes
   - Intégration de flux d'ordres et données alternatives
   - Contraintes de marché réalistes (slippage, délais)

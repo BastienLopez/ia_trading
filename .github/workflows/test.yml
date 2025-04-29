@@ -4,11 +4,11 @@ on: [push, pull_request]
 
 jobs:
   test:
-    runs-on: ubuntu-latest
-    
+    runs-on: [self-hosted, ubuntu-latest]
+
     steps:
     - uses: actions/checkout@v4
-    
+
     - name: Cache pip
       uses: actions/cache@v3
       with:
@@ -42,4 +42,4 @@ jobs:
         
     - name: Run all tests
       run: |
-        pytest ai_trading/tests/ web_app/tests/ -v 
+        pytest ai_trading/tests/ web_app/tests/ -v
