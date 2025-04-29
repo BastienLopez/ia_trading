@@ -74,11 +74,11 @@ class ReplayBuffer:
         batch = random.sample(self.buffer, min(batch_size, len(self.buffer)))
         
         # Convertir les états et actions en tenseurs PyTorch avec gestion des dimensions
-        states = torch.FloatTensor([exp[0].flatten() for exp in batch])
-        actions = torch.FloatTensor([exp[1] for exp in batch])
-        rewards = torch.FloatTensor([exp[2] for exp in batch])
-        next_states = torch.FloatTensor([exp[3].flatten() for exp in batch])
-        dones = torch.FloatTensor([exp[4] for exp in batch])
+        states = torch.tensor(np.array([exp[0].flatten() for exp in batch]), dtype=torch.float32)
+        actions = torch.tensor(np.array([exp[1] for exp in batch]), dtype=torch.float32)
+        rewards = torch.tensor(np.array([exp[2] for exp in batch]), dtype=torch.float32)
+        next_states = torch.tensor(np.array([exp[3].flatten() for exp in batch]), dtype=torch.float32)
+        dones = torch.tensor(np.array([exp[4] for exp in batch]), dtype=torch.float32)
         
         # Redimensionner les tenseurs si nécessaire
         if len(states.shape) == 1:

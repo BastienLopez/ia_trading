@@ -1,13 +1,11 @@
 import logging
-
 import numpy as np
-import tensorflow as tf
-import tensorflow_probability as tfp
-from tensorflow.keras.layers import Concatenate, Input, Lambda
-from tensorflow.keras.models import Model
-from tensorflow.keras.optimizers import Adam
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+from torch.distributions import Normal
 
-from ai_trading.rl.agents.layers.noisy_dense import NoisyDense
 from ai_trading.rl.agents.sac_agent import SACAgent
 
 # Configuration du logger
@@ -22,10 +20,82 @@ if not logger.handlers:
     logger.addHandler(handler)
 
 
+class NoisyLinear(nn.Module):
+    """
+    Implémentation PyTorch d'une couche linéaire bruitée pour l'exploration.
+    Basée sur le papier 'Noisy Networks for Exploration'.
+    """
+    def __init__(self, in_features, out_features, sigma_init=0.5):
+        super(NoisyLinear, self).__init__()
+        
+        self.in_features = in_features
+        self.out_features = out_features
+        self.sigma_init = sigma_init
+        
+        # Paramètres de la couche linéaire standard
+        self.weight_mu = nn.Parameter(torch.FloatTensor(out_features, in_features))
+        self.weight_sigma = nn.Parameter(torch.FloatTensor(out_features, in_features))
+        self.register_buffer('weight_epsilon', torch.FloatTensor(out_features, in_features))
+        
+        self.bias_mu = nn.Parameter(torch.FloatTensor(out_features))
+        self.bias_sigma = nn.Parameter(torch.FloatTensor(out_features))
+        self.register_buffer('bias_epsilon', torch.FloatTensor(out_features))
+        
+        self.reset_parameters()
+        self.reset_noise()
+    
+    def reset_parameters(self):
+        """
+        Initialisation des paramètres de la couche
+        """
+        mu_range = 1.0 / np.sqrt(self.in_features)
+        self.weight_mu.data.uniform_(-mu_range, mu_range)
+        self.weight_sigma.data.fill_(self.sigma_init / np.sqrt(self.in_features))
+        
+        self.bias_mu.data.uniform_(-mu_range, mu_range)
+        self.bias_sigma.data.fill_(self.sigma_init / np.sqrt(self.out_features))
+    
+    def reset_noise(self):
+        """
+        Génère un nouveau bruit pour la couche
+        """
+        epsilon_in = self._scale_noise(self.in_features)
+        epsilon_out = self._scale_noise(self.out_features)
+        
+        # Produit externe pour générer le bruit des poids
+        self.weight_epsilon.copy_(epsilon_out.ger(epsilon_in))
+        self.bias_epsilon.copy_(epsilon_out)
+    
+    def _scale_noise(self, size):
+        """
+        Génère un bruit factoriel
+        """
+        x = torch.randn(size)
+        return x.sign().mul(x.abs().sqrt())
+    
+    def forward(self, x, training=True):
+        """
+        Forward pass avec ou sans bruit selon le mode d'entraînement
+        """
+        if training:
+            # Reset du bruit à chaque forward
+            self.reset_noise()
+            
+            # Calcul avec bruit
+            weight = self.weight_mu + self.weight_sigma * self.weight_epsilon
+            bias = self.bias_mu + self.bias_sigma * self.bias_epsilon
+        else:
+            # Mode déterministe (évaluation)
+            weight = self.weight_mu
+            bias = self.bias_mu
+            
+        return F.linear(x, weight, bias)
+
+
 class NoisySACAgent(SACAgent):
     """
     Agent Soft Actor-Critic (SAC) avec exploration paramétrique via Noisy Networks.
-    Cette implémentation remplace les couches Dense standard par des couches NoisyDense
+    Cette implémentation remplace les couches Linear standard par des couches NoisyLinear
     qui incorporent l'exploration directement dans les poids et biais du réseau.
     """
 
@@ -45,6 +115,7 @@ class NoisySACAgent(SACAgent):
         train_alpha=True,
         target_entropy=None,
         sigma_init=0.5,  # Valeur initiale pour le paramètre sigma des couches bruitées
+        device="cuda" if torch.cuda.is_available() else "cpu",
     ):
         """
         Initialise l'agent SAC avec des réseaux bruités.
@@ -64,20 +135,13 @@ class NoisySACAgent(SACAgent):
             train_alpha (bool): Si True, adapte automatiquement le coefficient d'entropie
             target_entropy (float): Entropie cible pour l'adaptation automatique d'alpha
             sigma_init (float): Valeur initiale pour le paramètre sigma des couches bruitées
+            device (str): Périphérique de calcul ('cuda' ou 'cpu')
         """
         # Initialisation des attributs spécifiques avant l'appel à super()
         self.sigma_init = sigma_init
-        # Stocker le discount_factor comme attribut de cette classe
-        self.discount_factor = discount_factor
-        # Autres attributs spécifiques à cette implémentation
-        self.train_alpha = train_alpha
-        self.target_entropy = target_entropy if target_entropy is not None else -action_size
+        self.device = device
         
-        # Définir le log_alpha en tant que variable TensorFlow
-        self.log_alpha = tf.Variable(0.0, dtype=tf.float32, trainable=True)
-        self.alpha = tf.exp(self.log_alpha)
-
-        # Appel au constructeur parent (on ne construit pas encore les réseaux)
+        # Appel au constructeur parent avec les paramètres appropriés
         super(NoisySACAgent, self).__init__(
             state_size=state_size,
             action_size=action_size,
@@ -90,310 +154,290 @@ class NoisySACAgent(SACAgent):
             hidden_size=hidden_size,
             train_alpha=train_alpha,
             target_entropy=target_entropy,
+            device=device,
         )
 
         # Reconstruire les réseaux spécifiques de NoisySAC
-        # (cela remplace les réseaux construits dans le constructeur parent)
-        self.actor = self._build_actor(state_size, action_size, hidden_size)
-        self.critic_1 = self._build_critic(state_size, action_size, hidden_size)
-        self.critic_2 = self._build_critic(state_size, action_size, hidden_size)
-        self.critic_1_target = self._build_critic(state_size, action_size, hidden_size)
-        self.critic_2_target = self._build_critic(state_size, action_size, hidden_size)
+        self.actor = self._build_actor_network()
+        self.critic_1 = self._build_critic_network()
+        self.critic_2 = self._build_critic_network()
+        self.critic_target_1 = self._build_critic_network()
+        self.critic_target_2 = self._build_critic_network()
+
+        # Déplacer les réseaux sur le bon périphérique
+        self.actor = self.actor.to(device)
+        self.critic_1 = self.critic_1.to(device)
+        self.critic_2 = self.critic_2.to(device)
+        self.critic_target_1 = self.critic_target_1.to(device)
+        self.critic_target_2 = self.critic_target_2.to(device)
 
         # Copier les poids des critiques vers les cibles
-        self.critic_1_target.set_weights(self.critic_1.get_weights())
-        self.critic_2_target.set_weights(self.critic_2.get_weights())
+        self.critic_target_1.load_state_dict(self.critic_1.state_dict())
+        self.critic_target_2.load_state_dict(self.critic_2.state_dict())
 
         # Réinitialiser les optimiseurs avec les paramètres des nouveaux réseaux
-        self.actor_optimizer = Adam(learning_rate=actor_learning_rate)
-        self.critic_optimizer_1 = Adam(learning_rate=critic_learning_rate)
-        self.critic_optimizer_2 = Adam(learning_rate=critic_learning_rate)
-        self.alpha_optimizer = Adam(learning_rate=alpha_learning_rate)
+        self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=actor_learning_rate)
+        self.critic_optimizer = optim.Adam(
+            list(self.critic_1.parameters()) + list(self.critic_2.parameters()),
+            lr=critic_learning_rate
+        )
+        self.alpha_optimizer = optim.Adam([self.log_alpha], lr=alpha_learning_rate)
 
         logger.info(
             f"Agent NoisySAC initialisé: state_size={state_size}, action_size={action_size}, "
             f"sigma_init={sigma_init}, train_alpha={train_alpha}, target_entropy={self.target_entropy}"
         )
 
-    def _ensure_tf_tensor(self, data):
+    def _build_actor_network(self):
         """
-        S'assure que l'entrée est un tenseur TensorFlow, en convertissant si nécessaire.
+        Construit le réseau de politique (acteur) avec des couches bruitées.
+        
+        Returns:
+            nn.Module: Réseau d'acteur bruité
+        """
+        class NoisyActorNetwork(nn.Module):
+            def __init__(self, state_size, action_size, hidden_size, sigma_init):
+                super(NoisyActorNetwork, self).__init__()
+                self.noisy1 = NoisyLinear(state_size, hidden_size, sigma_init)
+                self.noisy2 = NoisyLinear(hidden_size, hidden_size, sigma_init)
+                self.noisy_mean = NoisyLinear(hidden_size, action_size, sigma_init)
+                self.noisy_log_std = NoisyLinear(hidden_size, action_size, sigma_init)
+                
+            def forward(self, x, training=True):
+                x = F.relu(self.noisy1(x, training))
+                x = F.relu(self.noisy2(x, training))
+                mean = self.noisy_mean(x, training)
+                log_std = self.noisy_log_std(x, training)
+                log_std = torch.clamp(log_std, -20, 2)
+                return mean, log_std
+
+        return NoisyActorNetwork(self.state_size, self.action_size, self.hidden_size, self.sigma_init)
+
+    def _build_critic_network(self):
+        """
+        Construit le réseau critique avec des couches bruitées.
+        
+        Returns:
+            nn.Module: Réseau critique bruité
+        """
+        class NoisyCriticNetwork(nn.Module):
+            def __init__(self, state_size, action_size, hidden_size, sigma_init):
+                super(NoisyCriticNetwork, self).__init__()
+                self.noisy1 = NoisyLinear(state_size + action_size, hidden_size, sigma_init)
+                self.noisy2 = NoisyLinear(hidden_size, hidden_size, sigma_init)
+                self.noisy3 = NoisyLinear(hidden_size, 1, sigma_init)
+                
+            def forward(self, state, action, training=True):
+                x = torch.cat([state, action], dim=1)
+                x = F.relu(self.noisy1(x, training))
+                x = F.relu(self.noisy2(x, training))
+                x = self.noisy3(x, training)
+                return x
+
+        return NoisyCriticNetwork(self.state_size, self.action_size, self.hidden_size, self.sigma_init)
+
+    def select_action(self, state, deterministic=False):
+        """
+        Sélectionne une action selon la politique actuelle.
         
         Args:
-            data: Données d'entrée qui peuvent être un tenseur PyTorch, un tableau NumPy, etc.
+            state: État actuel
+            deterministic (bool): Si True, désactive le bruit dans les couches NoisyLinear
             
         Returns:
-            tf.Tensor: Données converties en tenseur TensorFlow
+            np.array: Action sélectionnée
         """
-        import torch
+        # Convertir l'état en tensor PyTorch
+        if isinstance(state, np.ndarray):
+            state = torch.FloatTensor(state).to(self.device)
         
-        # Si c'est un tenseur PyTorch
-        if isinstance(data, torch.Tensor):
-            # S'il est sur GPU, le déplacer d'abord sur CPU
-            if data.is_cuda:
-                data = data.cpu()
-            # Convertir en numpy puis en tenseur TF
-            return tf.convert_to_tensor(data.detach().numpy(), dtype=tf.float32)
+        # S'assurer que l'état a la bonne forme
+        if len(state.shape) == 1:
+            state = state.unsqueeze(0)
+            
+        # Passer en mode évaluation
+        self.actor.eval()
         
-        # Si c'est déjà un tenseur TensorFlow
-        elif isinstance(data, tf.Tensor):
-            return data
+        with torch.no_grad():
+            # Obtenir la moyenne et l'écart-type de la distribution d'actions
+            # Le paramètre training contrôle si le bruit est utilisé dans les couches NoisyLinear
+            mean, log_std = self.actor(state, training=not deterministic)
+            
+            if deterministic:
+                # Mode déterministe : retourner la moyenne
+                action = mean
+            else:
+                # Mode stochastique : échantillonner depuis la distribution
+                std = torch.exp(log_std)
+                normal = Normal(mean, std)
+                x_t = normal.rsample()  # Reparametrization trick
+                action = torch.tanh(x_t)
+            
+        # Retourner à l'entraînement
+        self.actor.train()
         
-        # Si c'est un tableau NumPy ou liste
-        else:
-            return tf.convert_to_tensor(data, dtype=tf.float32)
-
-    def train(self):
+        # Mettre à l'échelle l'action et convertir en numpy
+        action = action.cpu().numpy()
+        scaled_action = self._scale_action(action)
+        
+        return scaled_action[0]  # Retirer la dimension du lot
+    
+    # Alias pour rester compatible avec l'API existante
+    act = select_action
+    
+    def train(self, batch_size=None):
         """
-        Surcharge la méthode d'entraînement pour gérer correctement les tenseurs PyTorch.
+        Entraîne l'agent sur un batch d'expériences.
         
+        Args:
+            batch_size (int, optional): Taille du batch d'entraînement. Si None, utilise self.batch_size
+            
         Returns:
-            dict: Métriques d'entraînement
+            dict: Dictionnaire contenant les métriques d'entraînement
         """
-        if len(self.replay_buffer) < self.batch_size:
+        if batch_size is None:
+            batch_size = self.batch_size
+            
+        if len(self.replay_buffer) < batch_size:
             return {
                 "critic_loss": 0.0,
                 "actor_loss": 0.0,
                 "alpha_loss": 0.0,
                 "entropy": 0.0,
             }
-
-        # Échantillonner du tampon de replay et convertir en tenseurs TensorFlow
-        states, actions, rewards, next_states, dones = self.replay_buffer.sample(self.batch_size)
+            
+        # Échantillonner du tampon de replay
+        states, actions, rewards, next_states, dones = self.replay_buffer.sample(batch_size)
         
-        # Convertir en tenseurs TensorFlow
-        states_tf = self._ensure_tf_tensor(states)
-        actions_tf = self._ensure_tf_tensor(actions)
-        rewards_tf = self._ensure_tf_tensor(rewards)
-        next_states_tf = self._ensure_tf_tensor(next_states)
-        dones_tf = self._ensure_tf_tensor(dones)
+        # Transférer les données sur le bon périphérique
+        states = states.to(self.device)
+        actions = actions.to(self.device)
+        rewards = rewards.to(self.device)
+        next_states = next_states.to(self.device)
+        dones = dones.to(self.device)
         
-        # Effectuer une étape d'entraînement
-        critic_loss, actor_loss, alpha_loss, entropy = self._train_step(
-            states_tf, actions_tf, rewards_tf, next_states_tf, dones_tf
-        )
+        alpha = self.log_alpha.exp().item()
         
-        # Mettre à jour les historiques
-        self.critic_loss_history.append(critic_loss.numpy())
-        self.actor_loss_history.append(actor_loss.numpy())
-        self.alpha_loss_history.append(alpha_loss.numpy())
-        self.entropy_history.append(entropy.numpy())
+        # --- Mise à jour des critiques ---
+        with torch.no_grad():
+            # Échantillonner les actions suivantes de la politique cible
+            next_mean, next_log_std = self.actor(next_states)
+            next_std = next_log_std.exp()
+            next_distribution = Normal(next_mean, next_std)
+            next_actions = torch.tanh(next_distribution.rsample())
+            
+            # Calculer l'entropie
+            next_log_probs = next_distribution.log_prob(next_actions) - torch.log(1 - next_actions.pow(2) + 1e-6)
+            next_log_probs = next_log_probs.sum(dim=1, keepdim=True)
+            
+            # Calculer les valeurs Q cibles
+            q1_next = self.critic_target_1(next_states, next_actions)
+            q2_next = self.critic_target_2(next_states, next_actions)
+            q_next = torch.min(q1_next, q2_next) - alpha * next_log_probs
+            target_q = rewards + (1 - dones) * self.gamma * q_next
+        
+        # Calculer les valeurs Q actuelles
+        current_q1 = self.critic_1(states, actions)
+        current_q2 = self.critic_2(states, actions)
+        
+        # Calculer la perte des critiques (MSE)
+        critic_1_loss = F.mse_loss(current_q1, target_q)
+        critic_2_loss = F.mse_loss(current_q2, target_q)
+        critic_loss = critic_1_loss + critic_2_loss
+        
+        # Mettre à jour les critiques
+        self.critic_optimizer.zero_grad()
+        critic_loss.backward()
+        if self.grad_clip_value:
+            nn.utils.clip_grad_norm_(self.critic_1.parameters(), self.grad_clip_value)
+            nn.utils.clip_grad_norm_(self.critic_2.parameters(), self.grad_clip_value)
+        self.critic_optimizer.step()
+        
+        # --- Mise à jour de l'acteur ---
+        mean, log_std = self.actor(states)
+        std = log_std.exp()
+        normal = Normal(mean, std)
+        x_t = normal.rsample()
+        actions_pred = torch.tanh(x_t)
+        
+        # Calculer les log probabilités des actions
+        log_probs = normal.log_prob(x_t) - torch.log(1 - actions_pred.pow(2) + 1e-6)
+        log_probs = log_probs.sum(dim=1, keepdim=True)
+        
+        # Calculer les valeurs Q pour les actions prédites
+        q1 = self.critic_1(states, actions_pred)
+        q2 = self.critic_2(states, actions_pred)
+        min_q = torch.min(q1, q2)
+        
+        # Calculer la perte de l'acteur
+        actor_loss = (alpha * log_probs - min_q).mean()
+        
+        # Mettre à jour l'acteur
+        self.actor_optimizer.zero_grad()
+        actor_loss.backward()
+        if self.grad_clip_value:
+            nn.utils.clip_grad_norm_(self.actor.parameters(), self.grad_clip_value)
+        self.actor_optimizer.step()
+        
+        # --- Mise à jour d'alpha ---
+        alpha_loss = torch.tensor(0.0, device=self.device)
+        if self.train_alpha:
+            alpha_loss = -(self.log_alpha * (log_probs.detach() + self.target_entropy)).mean()
+            
+            self.alpha_optimizer.zero_grad()
+            alpha_loss.backward()
+            self.alpha_optimizer.step()
+            
+        # --- Mise à jour des réseaux cibles ---
+        self._update_target_networks()
+        
+        # Stocker les métriques
+        entropy = -log_probs.mean().item()
+        self.critic_1_loss_history.append(critic_1_loss.item())
+        self.critic_2_loss_history.append(critic_2_loss.item())
+        self.actor_loss_history.append(actor_loss.item())
+        self.alpha_loss_history.append(alpha_loss.item())
+        self.entropy_history.append(entropy)
         
         return {
-            "critic_loss": critic_loss.numpy(),
-            "actor_loss": actor_loss.numpy(),
-            "alpha_loss": alpha_loss.numpy(),
-            "entropy": entropy.numpy(),
+            "critic_loss": critic_loss.item(),
+            "actor_loss": actor_loss.item(),
+            "alpha_loss": alpha_loss.item(),
+            "entropy": entropy,
         }
-
-    def act(self, state, deterministic=False):
+        
+    def _update_target_networks(self):
+        """Met à jour les réseaux cibles avec un soft update"""
+        for target_param, param in zip(self.critic_target_1.parameters(), self.critic_1.parameters()):
+            target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
+            
+        for target_param, param in zip(self.critic_target_2.parameters(), self.critic_2.parameters()):
+            target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
+    
+    def save(self, filepath):
         """
-        Sélectionne une action selon la politique actuelle.
-        Le déterminisme est géré différemment pour NoisySAC car l'exploration
-        est intégrée directement dans les poids du réseau.
-
+        Sauvegarde les modèles complets.
+        
         Args:
-            state: État actuel
-            deterministic (bool): Si True, désactive le bruit dans les couches NoisyDense
-
-        Returns:
-            numpy.array: Action sélectionnée
+            filepath (str): Chemin de base pour sauvegarder les modèles
         """
-        # S'assurer que l'état est au bon format et un tenseur TensorFlow
-        state = np.reshape(state, [1, self.state_size]).astype(np.float32)
-        state_tf = self._ensure_tf_tensor(state)
-
-        # Obtenir la moyenne et l'écart-type de la distribution d'actions
-        # Pour le mode déterministe, on passe training=False aux couches NoisyDense
-        mean, log_std = self.actor(state_tf, training=not deterministic)
-
-        if deterministic:
-            # Mode déterministe : retourner la moyenne
-            action = mean
-        else:
-            # Mode stochastique : échantillonner depuis la distribution
-            std = tf.exp(log_std)
-            normal_dist = tfp.distributions.Normal(mean, std)
-
-            # Échantillonner et appliquer tanh pour borner entre -1 et 1
-            action = normal_dist.sample()
-            action = tf.tanh(action)
-
-        # Mettre à l'échelle l'action à l'intervalle correct
-        action_numpy = action.numpy()
-        scaled_action = self._scale_action(action_numpy)
-
-        return scaled_action[0]  # Retirer la dimension du lot
-
-    def _build_actor(self, state_size, action_size, hidden_size):
+        torch.save(self.actor.state_dict(), f"{filepath}_actor.pt")
+        torch.save(self.critic_1.state_dict(), f"{filepath}_critic1.pt")
+        torch.save(self.critic_2.state_dict(), f"{filepath}_critic2.pt")
+        torch.save(self.critic_target_1.state_dict(), f"{filepath}_critic_target1.pt")
+        torch.save(self.critic_target_2.state_dict(), f"{filepath}_critic_target2.pt")
+        torch.save(self.log_alpha, f"{filepath}_log_alpha.pt")
+        
+    def load(self, filepath):
         """
-        Construit le réseau de politique (acteur) qui génère une distribution de probabilité sur les actions.
-        Utilise des couches NoisyDense au lieu des couches Dense standard.
-
-        Returns:
-            Model: Modèle Keras pour l'acteur
-        """
-        inputs = Input(shape=(state_size,))
-        x = NoisyDense(hidden_size, activation="relu", sigma_init=self.sigma_init)(
-            inputs
-        )
-        x = NoisyDense(hidden_size, activation="relu", sigma_init=self.sigma_init)(x)
-
-        # Sortie pour la moyenne de la distribution gaussienne
-        mean = NoisyDense(action_size, activation="tanh", sigma_init=self.sigma_init)(x)
-
-        # Sortie pour le log de l'écart-type (variance) de la distribution
-        log_std = NoisyDense(
-            action_size, activation="linear", sigma_init=self.sigma_init
-        )(x)
-
-        # Contraindre log_std à un intervalle raisonnable
-        log_std = Lambda(lambda x: tf.clip_by_value(x, -20, 2))(log_std)
-
-        # Créer le modèle
-        model = Model(inputs=inputs, outputs=[mean, log_std])
-
-        return model
-
-    def _build_critic(self, state_size, action_size, hidden_size):
-        """
-        Construit un réseau critique (Q-function) qui prédit la valeur Q d'une paire état-action.
-        Utilise des couches NoisyDense au lieu des couches Dense standard.
-
-        Returns:
-            Model: Modèle Keras pour le critique
-        """
-        state_input = Input(shape=(state_size,))
-        action_input = Input(shape=(action_size,))
-
-        # Concaténer l'état et l'action
-        merged = Concatenate()([state_input, action_input])
-
-        x = NoisyDense(hidden_size, activation="relu", sigma_init=self.sigma_init)(
-            merged
-        )
-        x = NoisyDense(hidden_size, activation="relu", sigma_init=self.sigma_init)(x)
-        q_value = NoisyDense(1, activation="linear", sigma_init=self.sigma_init)(x)
-
-        model = Model(inputs=[state_input, action_input], outputs=q_value)
-
-        return model
-
-    @tf.function
-    def _train_step(self, states, actions, rewards, next_states, dones):
-        """
-        Effectue une étape d'entraînement pour tous les réseaux.
-        Cette méthode est complètement réécrite pour gérer correctement
-        les couches bruitées pendant l'entraînement et les opérations TensorFlow.
-
+        Charge les modèles complets.
+        
         Args:
-            states: Lot d'états (tenseur TensorFlow)
-            actions: Lot d'actions (tenseur TensorFlow)
-            rewards: Lot de récompenses (tenseur TensorFlow)
-            next_states: Lot d'états suivants (tenseur TensorFlow)
-            dones: Lot d'indicateurs de fin d'épisode (tenseur TensorFlow)
-
-        Returns:
-            tuple: (critic_loss, actor_loss, alpha_loss, entropy)
+            filepath (str): Chemin de base pour charger les modèles
         """
-        with tf.GradientTape(persistent=True) as tape:
-            # Échantillonner des actions pour l'état suivant avec bruit activé
-            next_means, next_log_stds = self.actor(next_states, training=True)
-            next_stds = tf.exp(next_log_stds)
-            next_normal_dists = tfp.distributions.Normal(next_means, next_stds)
-            next_actions_raw = next_normal_dists.sample()
-            next_actions = tf.tanh(next_actions_raw)
-
-            # Calculer log-prob pour les actions suivantes
-            log_probs_next = next_normal_dists.log_prob(next_actions_raw) - tf.math.log(
-                1.0 - tf.square(next_actions) + 1e-6
-            )
-            log_probs_next = tf.reduce_sum(log_probs_next, axis=1, keepdims=True)
-
-            # Valeurs Q cibles pour l'apprentissage du critique (avec bruit)
-            next_q1 = self.critic_1_target([next_states, next_actions], training=True)
-            next_q2 = self.critic_2_target([next_states, next_actions], training=True)
-            next_q_min = tf.minimum(next_q1, next_q2)
-
-            # Soustraction du terme d'entropie pour SAC
-            next_q_value = next_q_min - self.alpha * log_probs_next
-            target_q = rewards + (1 - dones) * self.discount_factor * next_q_value
-
-            # Valeurs Q actuelles (avec bruit)
-            current_q1 = self.critic_1([states, actions], training=True)
-            current_q2 = self.critic_2([states, actions], training=True)
-
-            # Pertes des critiques (MSE)
-            critic1_loss = tf.reduce_mean(tf.square(current_q1 - target_q))
-            critic2_loss = tf.reduce_mean(tf.square(current_q2 - target_q))
-            critic_loss = critic1_loss + critic2_loss
-
-            # Actions pour l'état actuel selon la politique
-            means, log_stds = self.actor(states, training=True)
-            stds = tf.exp(log_stds)
-            normal_dists = tfp.distributions.Normal(means, stds)
-            actions_raw = normal_dists.sample()
-            actions_policy = tf.tanh(actions_raw)
-
-            # Calculer les log-probs
-            log_probs = normal_dists.log_prob(actions_raw) - tf.math.log(
-                1.0 - tf.square(actions_policy) + 1e-6
-            )
-            log_probs = tf.reduce_sum(log_probs, axis=1, keepdims=True)
-
-            # Valeurs Q pour les actions de la politique
-            q1 = self.critic_1([states, actions_policy], training=True)
-            q2 = self.critic_2([states, actions_policy], training=True)
-            q_min = tf.minimum(q1, q2)
-
-            # Perte de l'acteur (maximiser valeur Q - entropie)
-            actor_loss = tf.reduce_mean(self.alpha * log_probs - q_min)
-
-            # Perte pour ajuster alpha (coefficient d'entropie)
-            if self.train_alpha:
-                alpha_loss = -tf.reduce_mean(
-                    self.log_alpha * tf.stop_gradient(log_probs + self.target_entropy)
-                )
-            else:
-                alpha_loss = tf.constant(0.0)
-
-        # Appliquer les gradients à l'acteur
-        actor_grads = tape.gradient(actor_loss, self.actor.trainable_variables)
-        self.actor_optimizer.apply_gradients(
-            zip(actor_grads, self.actor.trainable_variables)
-        )
-
-        # Appliquer les gradients aux critiques
-        critic1_grads = tape.gradient(critic1_loss, self.critic_1.trainable_variables)
-        self.critic_optimizer_1.apply_gradients(
-            zip(critic1_grads, self.critic_1.trainable_variables)
-        )
-
-        critic2_grads = tape.gradient(critic2_loss, self.critic_2.trainable_variables)
-        self.critic_optimizer_2.apply_gradients(
-            zip(critic2_grads, self.critic_2.trainable_variables)
-        )
-
-        # Appliquer les gradients à alpha
-        if self.train_alpha:
-            alpha_grads = tape.gradient(alpha_loss, [self.log_alpha])
-            self.alpha_optimizer.apply_gradients(zip(alpha_grads, [self.log_alpha]))
-            self.alpha = tf.exp(self.log_alpha)
-
-        del tape
-
-        # Mise à jour des réseaux cibles
-        for target_var, source_var in zip(
-            self.critic_1_target.trainable_variables, self.critic_1.trainable_variables
-        ):
-            target_var.assign(target_var * (1 - self.tau) + source_var * self.tau)
-
-        for target_var, source_var in zip(
-            self.critic_2_target.trainable_variables, self.critic_2.trainable_variables
-        ):
-            target_var.assign(target_var * (1 - self.tau) + source_var * self.tau)
-
-        # Calculer l'entropie
-        entropy = -tf.reduce_mean(log_probs)
-
-        return critic_loss, actor_loss, alpha_loss, entropy
+        self.actor.load_state_dict(torch.load(f"{filepath}_actor.pt", map_location=self.device))
+        self.critic_1.load_state_dict(torch.load(f"{filepath}_critic1.pt", map_location=self.device))
+        self.critic_2.load_state_dict(torch.load(f"{filepath}_critic2.pt", map_location=self.device))
+        self.critic_target_1.load_state_dict(torch.load(f"{filepath}_critic_target1.pt", map_location=self.device))
+        self.critic_target_2.load_state_dict(torch.load(f"{filepath}_critic_target2.pt", map_location=self.device))
+        self.log_alpha = torch.load(f"{filepath}_log_alpha.pt", map_location=self.device)

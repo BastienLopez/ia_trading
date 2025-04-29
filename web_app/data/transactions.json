@@ -5,24 +5,6 @@
             "action": "ACHETER",
             "amount": 1.0,
             "price": 83008.0,
-            "timestamp": 1743933537.193269,
-            "value": 83008.0,
-            "date": "2025-04-06T11:58:57.193269"
-        },
-        {
-            "symbol": "ETH",
-            "action": "ACHETER",
-            "amount": 1.0,
-            "price": 1790.21,
-            "timestamp": 1743933538.719299,
-            "value": 1790.21,
-            "date": "2025-04-06T11:58:58.719299"
-        },
-        {
-            "symbol": "BTC",
-            "action": "ACHETER",
-            "amount": 1.0,
-            "price": 83008.0,
             "timestamp": 1743933560.879752,
             "value": 83008.0,
             "date": "2025-04-06T11:59:20.879752"
@@ -107,23 +89,59 @@
             "timestamp": 1745681081.980128,
             "value": 1798.45,
             "date": "2025-04-26T17:24:41.980128"
+        },
+        {
+            "symbol": "BTC",
+            "action": "ACHETER",
+            "amount": 1.0,
+            "price": 95275.0,
+            "timestamp": 1745957757.85374,
+            "value": 95275.0,
+            "date": "2025-04-29T22:15:57.853740"
+        },
+        {
+            "symbol": "ETH",
+            "action": "ACHETER",
+            "amount": 1.0,
+            "price": 1818.84,
+            "timestamp": 1745957760.22774,
+            "value": 1818.84,
+            "date": "2025-04-29T22:16:00.227740"
+        },
+        {
+            "symbol": "BTC",
+            "action": "ACHETER",
+            "amount": 1.0,
+            "price": 95002.0,
+            "timestamp": 1745958972.381212,
+            "value": 95002.0,
+            "date": "2025-04-29T22:36:12.381212"
+        },
+        {
+            "symbol": "ETH",
+            "action": "ACHETER",
+            "amount": 1.0,
+            "price": 1814.27,
+            "timestamp": 1745958974.462212,
+            "value": 1814.27,
+            "date": "2025-04-29T22:36:14.462212"
         }
     ],
     "portfolio": {
-        "current_value": 578365.15,
+        "current_value": 679528.16,
         "starting_value": 0,
         "assets": [
             {
                 "symbol": "BTC",
-                "amount": 6.0,
-                "value_usd": 565776.0,
-                "current_price": 94296.0
+                "amount": 7.0,
+                "value_usd": 665014.0,
+                "current_price": 95002.0
             },
             {
                 "symbol": "ETH",
-                "amount": 7.0,
-                "value_usd": 12589.15,
-                "current_price": 1798.45
+                "amount": 8.0,
+                "value_usd": 14514.16,
+                "current_price": 1814.27
             }
         ]
     }

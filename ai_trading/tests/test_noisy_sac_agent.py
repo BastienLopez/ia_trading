@@ -17,7 +17,10 @@ class TestNoisySACAgent(unittest.TestCase):
         # Forcer l'utilisation du CPU pour les tests
         os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
         tf.config.set_visible_devices([], 'GPU')
-        torch.set_default_tensor_type('torch.FloatTensor')
+        
+        # Utiliser les méthodes modernes recommandées au lieu de set_default_tensor_type
+        torch.set_default_dtype(torch.float32)
+        # Note: pas besoin de set_default_device car nous voulons CPU
         
         # Définir les paramètres de l'agent
         self.state_size = 10
@@ -81,16 +84,16 @@ class TestNoisySACAgent(unittest.TestCase):
     def test_network_shapes(self):
         """Teste que les réseaux ont les bonnes formes d'entrée/sortie."""
         # Tester l'acteur
-        test_state = np.zeros((1, self.state_size), dtype=np.float32)
+        test_state = torch.zeros((1, self.state_size), dtype=torch.float32).to(self.agent.device)
         mean, log_std = self.agent.actor(test_state)
 
         self.assertEqual(mean.shape, (1, self.action_size))
         self.assertEqual(log_std.shape, (1, self.action_size))
 
         # Tester les critiques
-        test_action = np.zeros((1, self.action_size), dtype=np.float32)
-        q1 = self.agent.critic_1([test_state, test_action])
-        q2 = self.agent.critic_2([test_state, test_action])
+        test_action = torch.zeros((1, self.action_size), dtype=torch.float32).to(self.agent.device)
+        q1 = self.agent.critic_1(test_state, test_action)
+        q2 = self.agent.critic_2(test_state, test_action)
 
         self.assertEqual(q1.shape, (1, 1))
         self.assertEqual(q2.shape, (1, 1))
@@ -226,18 +229,70 @@ class TestNoisySACAgent(unittest.TestCase):
         Teste que les actions sont correctement mises à l'échelle selon les limites d'action définies.
         """
         # Obtenir une action brute (sortie tanh, devrait être entre -1 et 1)
-        test_state = np.random.normal(0, 1, self.state_size)
-        raw_action = self.agent.actor(np.array([test_state]))[0].numpy()[
-            0
-        ]  # Prendre la moyenne
+        test_state = torch.tensor(np.random.normal(0, 1, self.state_size), 
+                                 dtype=torch.float32).unsqueeze(0).to(self.agent.device)
+        
+        # Obtenir les sorties de l'acteur
+        with torch.no_grad():
+            mean, _ = self.agent.actor(test_state)
+            raw_action = mean.cpu().numpy()[0]  # Prendre la moyenne
 
         # La sortie brute du réseau devrait être entre -1 et 1 (tanh)
         self.assertTrue(np.all(raw_action >= -1) and np.all(raw_action <= 1))
 
         # L'action mise à l'échelle devrait être entre action_low et action_high
-        scaled_action = self.agent.act(test_state)
+        scaled_action = self.agent.act(test_state.cpu().numpy()[0])
         self.assertTrue(np.all(scaled_action >= self.action_bounds[0]))
         self.assertTrue(np.all(scaled_action <= self.action_bounds[1]))
+
+    def test_save_load_weights(self):
+        """Teste que l'agent peut sauvegarder et charger ses poids avec PyTorch."""
+        # Créer un dossier temporaire pour les tests
+        with tempfile.TemporaryDirectory() as tmpdirname:
+            # Chemin de sauvegarde
+            save_path = os.path.join(tmpdirname, "noisy_sac_weights")
+
+            # État de test
+            test_state = np.random.normal(0, 1, self.state_size).astype(np.float32)
+
+            # Action avec les poids actuels
+            action_before = self.agent.act(test_state, deterministic=True)
+
+            # Sauvegarder les poids avec spécification explicite du map_location pour éviter les problèmes CUDA
+            torch.save(self.agent.actor.state_dict(), f"{save_path}_actor.pt")
+            torch.save(self.agent.critic_1.state_dict(), f"{save_path}_critic1.pt")
+            torch.save(self.agent.critic_2.state_dict(), f"{save_path}_critic2.pt")
+            
+            # Vérifier que les fichiers existent
+            self.assertTrue(os.path.exists(f"{save_path}_actor.pt"))
+            self.assertTrue(os.path.exists(f"{save_path}_critic1.pt"))
+            self.assertTrue(os.path.exists(f"{save_path}_critic2.pt"))
+
+            # Modifier les poids de l'acteur pour tester le chargement
+            for layer in self.agent.actor.modules():
+                if hasattr(layer, 'weight_mu') and isinstance(layer, type(self.agent.actor.noisy1)):
+                    # Ajouter un petit bruit aux poids
+                    with torch.no_grad():
+                        layer.weight_mu.add_(0.1 * torch.randn_like(layer.weight_mu))
+
+            # Action avec les poids modifiés
+            action_modified = self.agent.act(test_state, deterministic=True)
+
+            # Vérifier que l'action a changé
+            self.assertFalse(np.allclose(action_before, action_modified))
+
+            # Charger les poids sauvegardés avec map_location explicite pour CPU
+            self.agent.actor.load_state_dict(torch.load(f"{save_path}_actor.pt", map_location='cpu'))
+            self.agent.critic_1.load_state_dict(torch.load(f"{save_path}_critic1.pt", map_location='cpu'))
+            self.agent.critic_2.load_state_dict(torch.load(f"{save_path}_critic2.pt", map_location='cpu'))
+
+            # Action avec les poids chargés
+            action_after = self.agent.act(test_state, deterministic=True)
+
+            # Vérifier que l'action est revenue à ce qu'elle était avant la modification
+            np.testing.assert_allclose(
+                action_before, action_after, rtol=1e-2, atol=1e-2
+            )
 
 
 if __name__ == "__main__":
