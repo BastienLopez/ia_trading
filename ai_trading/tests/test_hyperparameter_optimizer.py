@@ -125,7 +125,8 @@ class TestHyperparameterOptimizer(unittest.TestCase):
         # Ajouter quelques indicateurs techniques simples
         self.test_data["sma_10"] = self.test_data["close"].rolling(10).mean()
         self.test_data["sma_20"] = self.test_data["close"].rolling(20).mean()
-        self.test_data = self.test_data.bfill()
+        # Remplir les NaN avec des valeurs constantes au lieu d'utiliser bfill ou backfill
+        self.test_data = self.test_data.fillna(0.0)
 
         # Définir une grille de paramètres minimaliste pour les tests
         self.minimal_param_grid = {

@@ -6,7 +6,6 @@ import os
 import sys
 import tempfile
 import unittest
-import pytest
 
 import numpy as np
 import pandas as pd
@@ -28,14 +27,17 @@ class TestEnhancedMarketDataPreprocessor(unittest.TestCase):
         self.preprocessor = EnhancedMarketDataPreprocessor(scaling="minmax")
 
         # Création des données d'exemple pour les tests
-        dates = pd.date_range(start='2023-01-01', periods=100, freq='D')
-        self.sample_data = pd.DataFrame({
-            'open': np.random.normal(100, 10, 100),
-            'high': np.random.normal(105, 10, 100),
-            'low': np.random.normal(95, 10, 100),
-            'close': np.random.normal(100, 10, 100),
-            'volume': np.random.normal(1000, 100, 100)
-        }, index=dates)
+        dates = pd.date_range(start="2023-01-01", periods=100, freq="D")
+        self.sample_data = pd.DataFrame(
+            {
+                "open": np.random.normal(100, 10, 100),
+                "high": np.random.normal(105, 10, 100),
+                "low": np.random.normal(95, 10, 100),
+                "close": np.random.normal(100, 10, 100),
+                "volume": np.random.normal(1000, 100, 100),
+            },
+            index=dates,
+        )
 
         # Création d'un DataFrame de test
         dates = pd.date_range(start="2023-01-01", periods=100, freq="h")
@@ -71,13 +73,13 @@ class TestEnhancedMarketDataPreprocessor(unittest.TestCase):
     def test_clean_market_data(self):
         """Teste le nettoyage des données de marché."""
         cleaned_data = self.preprocessor.clean_market_data(self.sample_data)
-        
+
         # Vérification qu'il n'y a pas de valeurs manquantes
         assert cleaned_data.isna().sum().sum() == 0
-        
-        # Vérification que les données sont en float32
-        assert all(cleaned_data.dtypes == np.float32)
-        
+
+        # Vérification que les données sont en float16
+        assert all(cleaned_data.dtypes == np.float16)
+
         # Vérification qu'il n'y a pas de doublons
         assert not cleaned_data.duplicated().any()
 
@@ -85,7 +87,7 @@ class TestEnhancedMarketDataPreprocessor(unittest.TestCase):
         """Teste la normalisation des données de marché."""
         cleaned_data = self.preprocessor.clean_market_data(self.sample_data)
         normalized_data = self.preprocessor.normalize_market_data(cleaned_data)
-        
+
         # Vérification que les données sont normalisées
         for col in normalized_data.columns:
             assert normalized_data[col].min() >= -1e6
@@ -137,20 +139,26 @@ class TestEnhancedMarketDataPreprocessor(unittest.TestCase):
         """Teste la création de la variable cible."""
         preprocessor = EnhancedMarketDataPreprocessor()
         cleaned_data = preprocessor.clean_market_data(self.sample_data)
-        
+
         # Test avec la méthode 'return'
-        target = preprocessor.create_target_variable(cleaned_data, horizon=1, method="return")
+        target = preprocessor.create_target_variable(
+            cleaned_data, horizon=1, method="return"
+        )
         assert isinstance(target, pd.Series)
         assert not target.isna().any()
-        
+
         # Test avec la méthode 'direction'
-        target = preprocessor.create_target_variable(cleaned_data, horizon=1, method="direction")
+        target = preprocessor.create_target_variable(
+            cleaned_data, horizon=1, method="direction"
+        )
         assert isinstance(target, pd.Series)
         assert not target.isna().any()
         assert all(target.isin([-1, 0, 1]))
-        
+
         # Test avec la méthode 'threshold'
-        target = preprocessor.create_target_variable(cleaned_data, horizon=1, method="threshold")
+        target = preprocessor.create_target_variable(
+            cleaned_data, horizon=1, method="threshold"
+        )
         assert isinstance(target, pd.Series)
         assert not target.isna().any()
         assert all(target.isin([-1, 0, 1]))

@@ -172,7 +172,9 @@ def preprocess_data(data):
     logger.info("Comblement des valeurs manquantes...")
 
     # Remplissage des valeurs manquantes
-    data_filled = data_with_indicators.copy()  # Pour éviter les avertissements de SettingWithCopyWarning
+    data_filled = (
+        data_with_indicators.copy()
+    )  # Pour éviter les avertissements de SettingWithCopyWarning
     data_filled = data_filled.fillna(data_filled.shift())  # Forward fill
     data_filled = data_filled.fillna(data_filled.shift(-1))  # Backward fill
 

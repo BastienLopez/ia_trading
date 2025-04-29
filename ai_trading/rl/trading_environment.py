@@ -210,7 +210,7 @@ class TradingEnvironment(gym.Env):
             # Action continue entre -1 et 1
             # -1: vendre 100%, -0.5: vendre 50%, 0: ne rien faire, 0.5: acheter 50%, 1: acheter 100%
             self.action_space = spaces.Box(
-                low=-1.0, high=1.0, shape=(1,), dtype=np.float32
+                low=-1.0, high=1.0, shape=(1,), dtype=np.float16
             )
         else:
             raise ValueError(f"Type d'action non supporté: {action_type}")
@@ -227,7 +227,7 @@ class TradingEnvironment(gym.Env):
         # Définir l'espace d'observation avec la taille réelle de l'état
         real_state_size = temp_state.shape[0]
         self.observation_space = spaces.Box(
-            low=-np.inf, high=np.inf, shape=(real_state_size,), dtype=np.float32
+            low=-np.inf, high=np.inf, shape=(real_state_size,), dtype=np.float16
         )
 
         logger.info(
@@ -244,7 +244,7 @@ class TradingEnvironment(gym.Env):
             n_features += self.window_size * 3  # RSI, MACD, BB
 
         self.observation_space = spaces.Box(
-            low=-np.inf, high=np.inf, shape=(n_features,), dtype=np.float32
+            low=-np.inf, high=np.inf, shape=(n_features,), dtype=np.float16
         )
 
     def reset(self, seed=None, options=None):
@@ -663,8 +663,8 @@ class TradingEnvironment(gym.Env):
         if self.include_balance:
             features.append(self.balance / self.initial_balance)
 
-        # Convertir en array numpy et s'assurer que c'est en float32
-        observation = np.array(features, dtype=np.float32)
+        # Convertir en array numpy et s'assurer que c'est en float16
+        observation = np.array(features, dtype=np.float16)
 
         # Appliquer la normalisation adaptative si activée
         if self.normalize_observation:

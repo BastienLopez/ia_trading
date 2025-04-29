@@ -50,7 +50,7 @@ class TestMultiPeriodTrainer(unittest.TestCase):
         # Sample data for mocking
         self.market_data = pd.DataFrame(
             {
-                "timestamp": pd.date_range(start="2023-01-01", periods=100, freq="1H"),
+                "timestamp": pd.date_range(start="2023-01-01", periods=100, freq="1h"),
                 "open": np.random.uniform(40000, 50000, 100),
                 "high": np.random.uniform(40000, 50000, 100),
                 "low": np.random.uniform(40000, 50000, 100),

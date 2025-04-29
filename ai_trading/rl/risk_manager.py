@@ -534,14 +534,18 @@ class RiskManager:
             return False
 
         # Vérifier que les données sont disponibles et valides
-        if not hasattr(self, 'indicators') or \
-           not hasattr(self.indicators, 'df') or \
-           self.indicators.df is None or \
-           self.indicators.df.empty or \
-           "close" not in self.indicators.df.columns:
+        if (
+            not hasattr(self, "indicators")
+            or not hasattr(self.indicators, "df")
+            or self.indicators.df is None
+            or self.indicators.df.empty
+            or "close" not in self.indicators.df.columns
+        ):
             # Au lieu d'afficher un avertissement à chaque fois, on utilise debug
             # et on retourne False (pas de limitation de position)
-            if hasattr(logger, 'debug'):  # Vérifier si le niveau de journalisation debug est disponible
+            if hasattr(
+                logger, "debug"
+            ):  # Vérifier si le niveau de journalisation debug est disponible
                 logger.debug("Données de prix non disponibles pour le calcul de risque")
             return False
 

@@ -42,7 +42,7 @@ class TestEntropyRegularization(unittest.TestCase):
                 "market_cap": prices * volumes,
             }
         )
-        
+
         return df
 
     def setUp(self):
@@ -73,11 +73,11 @@ class TestEntropyRegularization(unittest.TestCase):
         """Calcule l'entropie moyenne des actions de l'agent sur un ensemble d'états."""
         total_std = 0.0
         n_states = min(len(states), 100)  # Limiter le nombre d'états à évaluer
-        
+
         # Sélectionner un sous-ensemble d'états pour l'évaluation
         sample_indices = np.random.choice(len(states), size=n_states, replace=False)
         sampled_states = states[sample_indices]
-        
+
         for state in sampled_states:
             # Obtenir plusieurs échantillons d'actions pour le même état
             actions = []
@@ -85,16 +85,16 @@ class TestEntropyRegularization(unittest.TestCase):
                 # S'assurer que l'état est correctement formaté
                 if not isinstance(state, np.ndarray):
                     state = np.array(state, dtype=np.float32)
-                
+
                 # Utiliser evaluate=False pour avoir de l'exploration
                 action = agent.act(state, evaluate=False)
                 actions.append(action)
-            
+
             # Estimer l'entropie par la variance des actions
             actions_array = np.array(actions)
             std = np.mean(np.std(actions_array, axis=0))
             total_std += std
-        
+
         # Calculer la moyenne
         avg_std = total_std / n_states
         return avg_std
@@ -159,13 +159,13 @@ class TestEntropyRegularization(unittest.TestCase):
             batch_size=64,
             sequence_length=1,
             use_gru=False,
-            device='cpu',
+            device="cpu",
         )
-        
+
         agent_without_entropy = SACAgent(
             state_size=self.state_size,
             action_size=self.action_size,
-            hidden_size=64, 
+            hidden_size=64,
             learning_rate=0.001,
             tau=0.005,
             gamma=0.99,
@@ -175,33 +175,38 @@ class TestEntropyRegularization(unittest.TestCase):
             batch_size=64,
             sequence_length=1,
             use_gru=False,
-            device='cpu',
+            device="cpu",
         )
-        
+
         # Collecter des expériences dans l'environnement
         state, _ = self.env.reset()
         for _ in range(100):
             action_with = agent_with_entropy.select_action(state)
             next_state, reward, done, _, info = self.env.step(action_with)
             agent_with_entropy.remember(state, action_with, reward, next_state, done)
-            
+
             action_without = agent_without_entropy.select_action(state)
             next_state, reward, done, _, info = self.env.step(action_without)
-            agent_without_entropy.remember(state, action_without, reward, next_state, done)
-            
+            agent_without_entropy.remember(
+                state, action_without, reward, next_state, done
+            )
+
             if done:
                 state, _ = self.env.reset()
             else:
                 state = next_state
-        
+
         # Entraîner les agents pendant plusieurs épisodes
         for _ in range(50):
             if len(agent_with_entropy.replay_buffer) >= agent_with_entropy.batch_size:
                 agent_with_entropy.train()
-            
-            if len(agent_without_entropy.replay_buffer) >= agent_without_entropy.batch_size:
+
+            if (
+                len(agent_without_entropy.replay_buffer)
+                >= agent_without_entropy.batch_size
+            ):
                 agent_without_entropy.train()
-        
+
         # Générer des états pour tester l'entropie
         test_states = []
         state, _ = self.env.reset()
@@ -213,21 +218,26 @@ class TestEntropyRegularization(unittest.TestCase):
                 state, _ = self.env.reset()
             else:
                 state = next_state
-        
+
         test_states = np.array(test_states)
-        
+
         # Calculer l'entropie des actions pour chaque agent
         entropy_with = self._calculate_action_entropy(agent_with_entropy, test_states)
-        entropy_without = self._calculate_action_entropy(agent_without_entropy, test_states)
-        
+        entropy_without = self._calculate_action_entropy(
+            agent_without_entropy, test_states
+        )
+
         print(f"Entropie avec régularisation: {entropy_with}")
         print(f"Entropie sans régularisation: {entropy_without}")
-        
+
         # Vérifier que l'entropie est plus faible avec la régularisation
         # Dans notre implémentation, une entropie plus faible signifie plus d'exploration
         # car la déviation standard des actions est plus faible
-        self.assertLess(entropy_with, entropy_without * 0.95, 
-                        "L'entropie avec régularisation devrait être significativement plus faible")
+        self.assertLess(
+            entropy_with,
+            entropy_without * 0.95,
+            "L'entropie avec régularisation devrait être significativement plus faible",
+        )
 
 
 if __name__ == "__main__":

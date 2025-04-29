@@ -20,11 +20,11 @@ class TestNoisySACAgent(unittest.TestCase):
         """Configuration initiale pour les tests."""
         # Forcer l'utilisation du CPU pour les tests
         os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
-        
+
         # Utiliser les méthodes modernes recommandées au lieu de set_default_tensor_type
         torch.set_default_dtype(torch.float32)
         # Note: pas besoin de set_default_device car nous voulons CPU
-        
+
         # Définir les paramètres de l'agent
         self.state_size = 10
         self.action_size = 2
@@ -87,14 +87,18 @@ class TestNoisySACAgent(unittest.TestCase):
     def test_network_shapes(self):
         """Teste que les réseaux ont les bonnes formes d'entrée/sortie."""
         # Tester l'acteur
-        test_state = torch.zeros((1, self.state_size), dtype=torch.float32).to(self.agent.device)
+        test_state = torch.zeros((1, self.state_size), dtype=torch.float32).to(
+            self.agent.device
+        )
         mean, log_std = self.agent.actor(test_state)
 
         self.assertEqual(mean.shape, (1, self.action_size))
         self.assertEqual(log_std.shape, (1, self.action_size))
 
         # Tester les critiques
-        test_action = torch.zeros((1, self.action_size), dtype=torch.float32).to(self.agent.device)
+        test_action = torch.zeros((1, self.action_size), dtype=torch.float32).to(
+            self.agent.device
+        )
         q1 = self.agent.critic_1(test_state, test_action)
         q2 = self.agent.critic_2(test_state, test_action)
 
@@ -232,9 +236,12 @@ class TestNoisySACAgent(unittest.TestCase):
         Teste que les actions sont correctement mises à l'échelle selon les limites d'action définies.
         """
         # Obtenir une action brute (sortie tanh, devrait être entre -1 et 1)
-        test_state = torch.tensor(np.random.normal(0, 1, self.state_size), 
-                                 dtype=torch.float32).unsqueeze(0).to(self.agent.device)
-        
+        test_state = (
+            torch.tensor(np.random.normal(0, 1, self.state_size), dtype=torch.float32)
+            .unsqueeze(0)
+            .to(self.agent.device)
+        )
+
         # Obtenir les sorties de l'acteur
         with torch.no_grad():
             mean, _ = self.agent.actor(test_state)
@@ -265,7 +272,7 @@ class TestNoisySACAgent(unittest.TestCase):
             torch.save(self.agent.actor.state_dict(), f"{save_path}_actor.pt")
             torch.save(self.agent.critic_1.state_dict(), f"{save_path}_critic1.pt")
             torch.save(self.agent.critic_2.state_dict(), f"{save_path}_critic2.pt")
-            
+
             # Vérifier que les fichiers existent
             self.assertTrue(os.path.exists(f"{save_path}_actor.pt"))
             self.assertTrue(os.path.exists(f"{save_path}_critic1.pt"))
@@ -273,7 +280,9 @@ class TestNoisySACAgent(unittest.TestCase):
 
             # Modifier les poids de l'acteur pour tester le chargement
             for layer in self.agent.actor.modules():
-                if hasattr(layer, 'weight_mu') and isinstance(layer, type(self.agent.actor.noisy1)):
+                if hasattr(layer, "weight_mu") and isinstance(
+                    layer, type(self.agent.actor.noisy1)
+                ):
                     # Ajouter un petit bruit aux poids
                     with torch.no_grad():
                         layer.weight_mu.add_(0.1 * torch.randn_like(layer.weight_mu))
@@ -285,9 +294,15 @@ class TestNoisySACAgent(unittest.TestCase):
             self.assertFalse(np.allclose(action_before, action_modified))
 
             # Charger les poids sauvegardés avec map_location explicite pour CPU
-            self.agent.actor.load_state_dict(torch.load(f"{save_path}_actor.pt", map_location='cpu'))
-            self.agent.critic_1.load_state_dict(torch.load(f"{save_path}_critic1.pt", map_location='cpu'))
-            self.agent.critic_2.load_state_dict(torch.load(f"{save_path}_critic2.pt", map_location='cpu'))
+            self.agent.actor.load_state_dict(
+                torch.load(f"{save_path}_actor.pt", map_location="cpu")
+            )
+            self.agent.critic_1.load_state_dict(
+                torch.load(f"{save_path}_critic1.pt", map_location="cpu")
+            )
+            self.agent.critic_2.load_state_dict(
+                torch.load(f"{save_path}_critic2.pt", map_location="cpu")
+            )
 
             # Action avec les poids chargés
             action_after = self.agent.act(test_state, deterministic=True)

@@ -5,7 +5,7 @@ Préprocesseur amélioré pour les données de cryptomonnaies provenant de diff�
 import logging
 import os
 import re
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 
 import nltk
 import numpy as np
@@ -29,42 +29,47 @@ class EnhancedMarketDataPreprocessor:
         self.scaler = None
         self.logger = logging.getLogger("EnhancedPreprocessor")
         self.logger.setLevel(logging.INFO)
-        
+
         # Configuration du logger
         if not self.logger.handlers:
             handler = logging.StreamHandler()
-            formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+            formatter = logging.Formatter(
+                "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+            )
             handler.setFormatter(formatter)
             self.logger.addHandler(handler)
-        
-        self.logger.info(f"Préprocesseur amélioré de données de marché initialisé avec scaling: {scaling}")
+
+        self.logger.info(
+            f"Préprocesseur amélioré de données de marché initialisé avec scaling: {scaling}"
+        )
 
     def clean_market_data(self, data):
         """Nettoie les données de marché."""
         try:
-            # Conversion en float32 pour éviter les problèmes de précision
-            numeric_cols = data.select_dtypes(include=[np.number]).columns
+            # Copie du dataframe pour éviter de modifier l'original
             data = data.copy()
-            data[numeric_cols] = data[numeric_cols].astype(np.float32)
-            
-            # Traitement des valeurs manquantes
+
+            # Traitement des valeurs manquantes - utiliser float32 pour les opérations pandas
             data = data.ffill().bfill()
-            
+
             # Suppression des doublons
             data = data.drop_duplicates()
-            
-            # Traitement des valeurs aberrantes avec IQR
+
+            # Identifier les colonnes numériques
+            numeric_cols = data.select_dtypes(include=[np.number]).columns
+
+            # Traitement des valeurs aberrantes avec IQR (en utilisant float32 pour les calculs)
             for col in numeric_cols:
                 Q1 = data[col].astype(np.float32).quantile(0.25)
                 Q3 = data[col].astype(np.float32).quantile(0.75)
                 IQR = Q3 - Q1
                 lower_bound = Q1 - 1.5 * IQR
                 upper_bound = Q3 + 1.5 * IQR
-                data[col] = data[col].clip(lower_bound, upper_bound).astype(np.float32)
-            
-            # S'assurer que toutes les colonnes numériques sont en float32
-            data[numeric_cols] = data[numeric_cols].astype(np.float32)
-            
+                data[col] = data[col].clip(lower_bound, upper_bound)
+
+            # Conversion finale en float16 après toutes les opérations
+            data[numeric_cols] = data[numeric_cols].astype(np.float16)
+
             return data
         except Exception as e:
             self.logger.error(f"Erreur lors du nettoyage des données: {str(e)}")
@@ -74,17 +79,21 @@ class EnhancedMarketDataPreprocessor:
         """Normalise les données de marché."""
         try:
             numeric_cols = data.select_dtypes(include=[np.number]).columns
-            
+
             if self.scaling == "minmax":
                 self.scaler = MinMaxScaler()
             else:
                 self.scaler = StandardScaler()
-            
+
             # Normalisation avec clipping pour éviter les valeurs infinies
             normalized_data = data.copy()
-            normalized_data[numeric_cols] = self.scaler.fit_transform(data[numeric_cols])
-            normalized_data[numeric_cols] = normalized_data[numeric_cols].clip(-1e6, 1e6)
-            
+            normalized_data[numeric_cols] = self.scaler.fit_transform(
+                data[numeric_cols]
+            )
+            normalized_data[numeric_cols] = normalized_data[numeric_cols].clip(
+                -1e6, 1e6
+            )
+
             return normalized_data
         except Exception as e:
             self.logger.error(f"Erreur lors de la normalisation des données: {str(e)}")
@@ -93,28 +102,40 @@ class EnhancedMarketDataPreprocessor:
     def create_target_variable(self, data, horizon=1, method="return"):
         """Crée la variable cible pour l'apprentissage."""
         try:
-            self.logger.info(f"Création de la variable cible avec horizon={horizon}, méthode={method}")
-            
-            # Conversion en float32 pour éviter les problèmes de précision
-            data = data.astype(np.float32)
-            
+            self.logger.info(
+                f"Création de la variable cible avec horizon={horizon}, méthode={method}"
+            )
+
+            # Utiliser float32 pour les calculs intermédiaires
+            data_temp = data.astype(np.float32)
+
             if method == "return":
-                target = data["close"].pct_change(horizon).shift(-horizon)
+                target = data_temp["close"].pct_change(horizon).shift(-horizon)
             elif method == "direction":
-                target = np.sign(data["close"].pct_change(horizon).shift(-horizon))
+                target = np.sign(data_temp["close"].pct_change(horizon).shift(-horizon))
             elif method == "threshold":
-                returns = data["close"].pct_change(horizon).shift(-horizon)
-                target = pd.cut(returns, bins=[-np.inf, -0.01, 0.01, np.inf], labels=[-1, 0, 1])
+                returns = data_temp["close"].pct_change(horizon).shift(-horizon)
+                target = pd.cut(
+                    returns, bins=[-np.inf, -0.01, 0.01, np.inf], labels=[-1, 0, 1]
+                )
             else:
                 raise ValueError(f"Méthode {method} non supportée")
-            
+
             # Suppression des valeurs manquantes
             target = target.dropna()
-            
-            self.logger.info(f"Création de la cible terminée. Dimensions finales: {target.shape}")
+
+            # Conversion finale en float16 si possible (sauf pour les valeurs catégorielles)
+            if method != "threshold":
+                target = target.astype(np.float16)
+
+            self.logger.info(
+                f"Création de la cible terminée. Dimensions finales: {target.shape}"
+            )
             return target
         except Exception as e:
-            self.logger.error(f"Erreur lors de la création de la variable cible: {str(e)}")
+            self.logger.error(
+                f"Erreur lors de la création de la variable cible: {str(e)}"
+            )
             raise
 
     def create_technical_features(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -158,9 +179,13 @@ class EnhancedMarketDataPreprocessor:
 
         try:
             # Calcul des rendements avec gestion explicite des NaN
-            df_tech = df_tech.copy()  # Pour éviter les avertissements de SettingWithCopyWarning
+            df_tech = (
+                df_tech.copy()
+            )  # Pour éviter les avertissements de SettingWithCopyWarning
             close_prices = df_tech["close"]
-            df_tech["returns"] = (close_prices - close_prices.shift(1)) / close_prices.shift(1)
+            df_tech["returns"] = (
+                close_prices - close_prices.shift(1)
+            ) / close_prices.shift(1)
             df_tech["returns"] = df_tech["returns"].fillna(0)  # Remplacer les NaN par 0
 
             # Moyennes mobiles

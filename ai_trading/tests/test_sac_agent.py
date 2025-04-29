@@ -87,7 +87,7 @@ class TestSACAgent(unittest.TestCase):
             batch_size=32,
             sequence_length=1,
             use_gru=False,
-            device="cpu"  # Utiliser CPU pour les tests
+            device="cpu",  # Utiliser CPU pour les tests
         )
 
         # Collecter quelques expériences pour le tampon de replay
@@ -189,7 +189,7 @@ class TestSACAgent(unittest.TestCase):
                 batch_size=32,
                 sequence_length=1,
                 use_gru=False,
-                device="cpu"  # Utiliser CPU pour les tests
+                device="cpu",  # Utiliser CPU pour les tests
             )
 
             # Charger les poids

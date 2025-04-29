@@ -177,7 +177,7 @@ Ce module contient l'implémentation d'un système de trading de cryptomonnaies 
   - [ ] Visualisations 3D
   - [ ] Analyse post-mortem des trades
 
-  ## 🧩 **Tâches transversales**
+## 🧩 **Tâches transversales**
 
   ### 1. Documentation
   - [ ] Doc du code avec exemples
@@ -233,16 +233,32 @@ Ce module contient l'implémentation d'un système de trading de cryptomonnaies 
   - Tests de bout en bout
   - Validation des performances
 
-### Phase 7: Interface Web et Déploiement ⏳
-- ⏳ 7.1 Développement de l'interface web
+### Phase 7: Optimisation @ai_trading\documentation\opti.md ⏳
+- ⏳ 7.1 Optimisation Projet 
+  - Optimisation mémoire CPU / RAM
+  - Optimisation CPU
+  - Optimisation GPU
+  - Optimisation sur l'architecture IA elle-même
+  - Optimisation sur la gestion RL (Reinforcement Learning)
+  - Optimisation générale du projet
+  - Outils/méthodes qui peuvent aider
+  - Optimisation des performances et fluidité
+- ⏳ 7.2 Format
+  - autoflake --in-place --remove-all-unused-imports --recursive ai_trading/
+	- isort ai_trading/
+	- black ai_trading/
+
+
+### Phase 8: Interface Web et Déploiement ⏳
+- ⏳ 8.1 Développement de l'interface web
   - Dashboard de trading
   - Visualisations interactives
   - Gestion des utilisateurs
-- ⏳ 7.2 Intégration plateforme
+- ⏳ 8.2 Intégration plateforme
   - Connexion aux exchanges (mode réel/paper)
   - Implémentation des API de trading
   - Système de journalisation des transactions
-- ⏳ 7.3 Déploiement production
+- ⏳ 8.3 Déploiement production
   - Configuration cloud
   - Mise en place CI/CD
   - Monitoring de performance

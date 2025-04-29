@@ -3,14 +3,11 @@
 Module pour l'entraînement d'agents de trading RL sur plusieurs périodes temporelles
 """
 
-import json
 import logging
-import os
 from datetime import datetime
 from pathlib import Path
-from typing import List, Tuple, Union
+from typing import List, Union
 
-import numpy as np
 import pandas as pd
 import tensorflow as tf
 
@@ -40,7 +37,6 @@ class MultiEnvTrading(TradingEnvironment):
         pass
 
 
-from ai_trading.rl.agents.n_step_sac_agent import NStepSACAgent
 from ai_trading.rl.agents.sac_agent import SACAgent
 
 
@@ -151,7 +147,9 @@ class MultiPeriodTrainer:
         self.action_type = action_type
 
         # Créer le répertoire de sauvegarde s'il n'existe pas
-        self.save_dir = Path(save_dir) if save_dir else INFO_RETOUR_DIR / "models" / "multi_period"
+        self.save_dir = (
+            Path(save_dir) if save_dir else INFO_RETOUR_DIR / "models" / "multi_period"
+        )
         self.save_dir.mkdir(exist_ok=True, parents=True)
 
         # Créer des sous-répertoires pour chaque période
@@ -188,18 +186,15 @@ class MultiPeriodTrainer:
     def collect_data(self):
         """Collecte les données de marché et de sentiment."""
         market_data = self.market_collector.collect_data(
-            symbol=self.symbol,
-            days=self.days,
-            periods=self.periods
+            symbol=self.symbol, days=self.days, periods=self.periods
         )
-        
+
         sentiment_data = None
         if self.include_sentiment and self.sentiment_collector:
             sentiment_data = self.sentiment_collector.collect_data(
-                coins=[self.symbol],
-                days=self.days
+                coins=[self.symbol], days=self.days
             )
-            
+
         return market_data, sentiment_data
 
     def create_env(self, market_data, sentiment_data=None):
@@ -210,64 +205,64 @@ class MultiPeriodTrainer:
             initial_balance=self.initial_balance,
             transaction_fee=0.001,  # Valeur par défaut
             window_size=20,  # Valeur par défaut
-            is_training=True
+            is_training=True,
         )
 
     def prepare_datasets(self, market_data, sentiment_data, validation_ratio):
         """Prépare les datasets d'entraînement et de validation.
-        
+
         Args:
             market_data: Données de marché
             sentiment_data: Données de sentiment
             validation_ratio: Ratio pour la validation
-            
+
         Returns:
             tuple: (train_market, train_sentiment, val_market, val_sentiment)
         """
         # Calculer l'index de séparation
         split_idx = int(len(market_data) * (1 - validation_ratio))
-        
+
         # Séparer les données de marché
         train_market = market_data.iloc[:split_idx]
         val_market = market_data.iloc[split_idx:]
-        
+
         # Séparer les données de sentiment si disponibles
         train_sentiment = None
         val_sentiment = None
         if sentiment_data is not None:
             train_sentiment = sentiment_data.iloc[:split_idx]
             val_sentiment = sentiment_data.iloc[split_idx:]
-            
+
         return train_market, train_sentiment, val_market, val_sentiment
 
     def save_current_agent(self, custom_name=None):
         """Sauvegarde l'agent courant.
-        
+
         Args:
             custom_name: Nom personnalisé pour la sauvegarde
-            
+
         Returns:
             str: Chemin du fichier de sauvegarde
         """
-        if not hasattr(self, 'current_agent') or self.current_agent is None:
+        if not hasattr(self, "current_agent") or self.current_agent is None:
             raise ValueError("Aucun agent courant à sauvegarder")
-            
+
         # Créer le nom du fichier
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         name = custom_name if custom_name else f"agent_{timestamp}"
         save_path = self.save_dir / f"{name}.h5"
-        
+
         # Sauvegarder l'agent
         self.current_agent.save_weights(str(save_path))
         return str(save_path)
 
     def load_agent(self, path):
         """Charge un agent sauvegardé.
-        
+
         Args:
             path: Chemin vers le fichier de sauvegarde
         """
-        if not hasattr(self, 'current_agent') or self.current_agent is None:
+        if not hasattr(self, "current_agent") or self.current_agent is None:
             raise ValueError("Aucun agent courant pour charger les poids")
-            
+
         self.current_agent.load_weights(path)

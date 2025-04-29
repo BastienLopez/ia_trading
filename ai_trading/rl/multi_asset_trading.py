@@ -789,10 +789,14 @@ class MultiAssetTradingSystem:
 
                 # Vérification sécurisée des colonnes requises
                 required_columns = ["close"]
-                missing_columns = [col for col in required_columns if col not in data.columns]
-                
+                missing_columns = [
+                    col for col in required_columns if col not in data.columns
+                ]
+
                 if missing_columns:
-                    logger.warning(f"Colonnes manquantes pour {asset}: {missing_columns}")
+                    logger.warning(
+                        f"Colonnes manquantes pour {asset}: {missing_columns}"
+                    )
                     actions[asset] = 0.0
                     continue
 

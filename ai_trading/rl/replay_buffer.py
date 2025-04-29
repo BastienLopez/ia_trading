@@ -172,11 +172,11 @@ class ReplayBuffer:
 
         # Convertir en tableaux numpy/tensors
         return (
-            np.array(states, dtype=np.float32),
-            np.array(actions, dtype=np.float32),
-            np.array(rewards, dtype=np.float32).reshape(-1, 1),
-            np.array(next_states, dtype=np.float32),
-            np.array(dones, dtype=np.float32).reshape(-1, 1),
+            np.array(states, dtype=np.float16),
+            np.array(actions, dtype=np.float16),
+            np.array(rewards, dtype=np.float16).reshape(-1, 1),
+            np.array(next_states, dtype=np.float16),
+            np.array(dones, dtype=np.float16).reshape(-1, 1),
         )
 
     def __len__(self) -> int:
@@ -297,7 +297,7 @@ class PrioritizedReplayBuffer(ReplayBuffer):
         batch_size = min(batch_size, len(self.buffer))
 
         # Calculer les probabilités d'échantillonnage
-        priorities = np.array(self.priorities, dtype=np.float32)
+        priorities = np.array(self.priorities, dtype=np.float16)
         probabilities = priorities**self.alpha
         probabilities /= np.sum(probabilities)
 
@@ -330,12 +330,12 @@ class PrioritizedReplayBuffer(ReplayBuffer):
 
         # Convertir en tableaux numpy/tensors
         return (
-            np.array(states, dtype=np.float32),
-            np.array(actions, dtype=np.float32),
-            np.array(rewards, dtype=np.float32).reshape(-1, 1),
-            np.array(next_states, dtype=np.float32),
-            np.array(dones, dtype=np.float32).reshape(-1, 1),
-            np.array(weights, dtype=np.float32).reshape(-1, 1),
+            np.array(states, dtype=np.float16),
+            np.array(actions, dtype=np.float16),
+            np.array(rewards, dtype=np.float16).reshape(-1, 1),
+            np.array(next_states, dtype=np.float16),
+            np.array(dones, dtype=np.float16).reshape(-1, 1),
+            np.array(weights, dtype=np.float16).reshape(-1, 1),
             indices,
         )
 

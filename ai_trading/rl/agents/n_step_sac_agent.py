@@ -280,8 +280,11 @@ class NStepSACAgent(SACAgent):
             filepath (str): Chemin de base pour la sauvegarde
         """
         # Créer le répertoire si nécessaire
-        os.makedirs(os.path.dirname(filepath) if os.path.dirname(filepath) else '.', exist_ok=True)
-        
+        os.makedirs(
+            os.path.dirname(filepath) if os.path.dirname(filepath) else ".",
+            exist_ok=True,
+        )
+
         super(NStepSACAgent, self).save(filepath)
 
         # Sauvegarder les informations sur les étapes multiples

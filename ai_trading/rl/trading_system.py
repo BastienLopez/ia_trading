@@ -227,32 +227,33 @@ class RLTradingSystem:
         for episode in range(num_episodes):
             # Réinitialiser l'environnement et obtenir le premier état
             state, _ = env.reset()
-            
+
             # Vérifier que la taille de l'état correspond à celle de l'agent
             if agent.state_size != state.shape[0]:
                 logger.warning(
                     f"Incompatibilité de dimensions: agent.state_size={agent.state_size}, état={state.shape[0]}. "
                     f"Reconstruction de l'agent..."
                 )
-                
+
                 # Sauvegarder les paramètres importants
                 state_size = state.shape[0]
                 action_size = env.action_space.n
-                
+
                 # Recréer l'agent avec la bonne taille d'état
-                learning_rate = getattr(agent, 'learning_rate', 0.001)
-                gamma = getattr(agent, 'gamma', 0.95)
+                learning_rate = getattr(agent, "learning_rate", 0.001)
+                gamma = getattr(agent, "gamma", 0.95)
                 epsilon = 0.0  # Mode évaluation, pas d'exploration
-                batch_size = getattr(agent, 'batch_size', 32)
-                
+                batch_size = getattr(agent, "batch_size", 32)
+
                 from ai_trading.rl.dqn_agent import DQNAgent
+
                 agent = DQNAgent(
                     state_size=state_size,
                     action_size=action_size,
                     learning_rate=learning_rate,
                     gamma=gamma,
                     epsilon=epsilon,
-                    batch_size=batch_size
+                    batch_size=batch_size,
                 )
                 # Note: L'agent n'est pas entraîné, mais il est utilisé en mode déterministe
 

@@ -1,9 +1,9 @@
 {
-    "student_mse": 0.18963131308555603,
-    "teacher_mse": 0.1898137629032135,
-    "student_inference_time": 0.0023999691009521486,
-    "teacher_inference_time": 0.010200738906860352,
-    "speed_improvement": 4.2503625995907095,
+    "student_mse": 0.19081491231918335,
+    "teacher_mse": 0.18939495086669922,
+    "student_inference_time": 0.002599334716796875,
+    "teacher_inference_time": 0.009801101684570313,
+    "speed_improvement": 3.77061931317875,
     "student_parameters": 71921.0,
     "teacher_parameters": 565537.0,
     "size_reduction": 7.863308352219796

@@ -6,7 +6,6 @@ import unittest
 import matplotlib
 import numpy as np
 import pandas as pd
-from matplotlib.dates import DateFormatter, WeekdayLocator
 
 matplotlib.use("Agg")  # Désactiver l'interface graphique pour les tests
 
@@ -118,7 +117,9 @@ class TestRLTradingSystem(unittest.TestCase):
         # Vérifier que l'agent a été entraîné
         self.assertIsNotNone(agent)
 
-    @unittest.skip("Problème de dimensionnalité: l'environnement génère un état de 38 dimensions mais l'agent en attend 42")
+    @unittest.skip(
+        "Problème de dimensionnalité: l'environnement génère un état de 38 dimensions mais l'agent en attend 42"
+    )
     def test_evaluate(self):
         """Teste l'évaluation du système."""
         # Créer l'environnement
@@ -131,7 +132,7 @@ class TestRLTradingSystem(unittest.TestCase):
 
         # Réinitialiser l'environnement pour obtenir un état réel
         initial_state, _ = env.reset()
-        
+
         # Obtenir la taille de l'état à partir de l'état réel
         state_size = initial_state.shape[0]
         action_size = env.action_space.n

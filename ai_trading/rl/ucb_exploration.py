@@ -41,7 +41,7 @@ class UCBExploration:
         """
         self.action_size = action_size
         self.c = c
-        self.action_values = np.zeros(action_size, dtype=np.float32)
+        self.action_values = np.zeros(action_size, dtype=np.float16)
         self.action_counts = np.zeros(action_size, dtype=np.int32)
         self.total_steps = 0
 
@@ -115,7 +115,7 @@ class UCBExploration:
         """
         Réinitialise l'explorateur UCB.
         """
-        self.action_values = np.zeros(self.action_size, dtype=np.float32)
+        self.action_values = np.zeros(self.action_size, dtype=np.float16)
         self.action_counts = np.zeros(self.action_size, dtype=np.int32)
         self.total_steps = 0
         logger.info("UCBExploration réinitialisé")

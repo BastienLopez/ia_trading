@@ -5,7 +5,6 @@ import unittest
 
 import numpy as np
 import tensorflow as tf
-from tensorflow.keras.layers import GRU
 import torch
 
 # Configurer le niveau de log pour réduire les sorties de TensorFlow
@@ -40,13 +39,20 @@ class TestGRUSACAgent(unittest.TestCase):
             n_points=500, trend=0.001, volatility=0.01, start_price=100.0
         )
 
+        # Convertir d'abord en float32 pour les calculs initiaux
+        numeric_cols = self.data.select_dtypes(include=[np.number]).columns
+        self.data[numeric_cols] = self.data[numeric_cols].astype(np.float32)
+
         # Ajouter des indicateurs techniques
         self.data["sma_10"] = self.data["close"].rolling(10).mean()
         self.data["sma_30"] = self.data["close"].rolling(30).mean()
-        self.data["rsi"] = 50 + np.random.normal(0, 10, len(self.data))  # RSI simulé
+        self.data["rsi"] = 50 + np.random.normal(0, 10, len(self.data))
 
-        # Remplir les NaN avec des valeurs appropriées
-        self.data = self.data.bfill()
+        # Remplir les valeurs NaN directement
+        self.data = self.data.fillna(0)
+
+        # Maintenant convertir en float16
+        self.data[numeric_cols] = self.data[numeric_cols].astype(np.float16)
 
         # Initialiser l'environnement
         self.env = TradingEnvironment(
@@ -94,8 +100,10 @@ class TestGRUSACAgent(unittest.TestCase):
         # Préparer un mini-batch de séquences pour les tests
         self.batch_sequences = np.random.normal(
             0, 1, (32, self.sequence_length, self.state_size)
+        ).astype(np.float16)
+        self.batch_states = np.random.normal(0, 1, (32, self.state_size)).astype(
+            np.float16
         )
-        self.batch_states = np.random.normal(0, 1, (32, self.state_size))
 
         # Initialiser les listes d'historique pour éviter les erreurs lors de l'appel à train()
         self.gru_agent.critic_loss_history = []
@@ -116,21 +124,21 @@ class TestGRUSACAgent(unittest.TestCase):
         """Vérifie que les réseaux GRU sont correctement construits."""
         # Vérifier que les réseaux de l'agent GRU contiennent bien des couches GRU
         self.assertTrue(
-            hasattr(self.gru_agent.actor, 'gru'),
-            "L'acteur devrait avoir une couche GRU"
+            hasattr(self.gru_agent.actor, "gru"),
+            "L'acteur devrait avoir une couche GRU",
         )
-        
+
         # Vérifier que le critique contient une couche GRU
         self.assertTrue(
-            hasattr(self.gru_agent.critic_1, 'gru'),
-            "Le critique devrait avoir une couche GRU"
+            hasattr(self.gru_agent.critic_1, "gru"),
+            "Le critique devrait avoir une couche GRU",
         )
-        
+
         # Vérifier que c'est bien une instance de nn.GRU
         self.assertIsInstance(
-            self.gru_agent.actor.gru, 
-            torch.nn.GRU, 
-            "La couche GRU de l'acteur devrait être une instance de torch.nn.GRU"
+            self.gru_agent.actor.gru,
+            torch.nn.GRU,
+            "La couche GRU de l'acteur devrait être une instance de torch.nn.GRU",
         )
 
     def test_sequence_normalization(self):
@@ -165,12 +173,14 @@ class TestGRUSACAgent(unittest.TestCase):
 
         # Ajouter directement des séquences complètes
         for i in range(20):
-            sequence = np.random.normal(0, 1, (self.sequence_length, self.state_size))
-            action = np.random.normal(0, 1, self.action_size)
-            reward = np.random.normal(0, 1)
+            sequence = np.random.normal(
+                0, 1, (self.sequence_length, self.state_size)
+            ).astype(np.float16)
+            action = np.random.normal(0, 1, self.action_size).astype(np.float16)
+            reward = float(np.random.normal(0, 1))  # Convertir en float standard
             next_sequence = np.random.normal(
                 0, 1, (self.sequence_length, self.state_size)
-            )
+            ).astype(np.float16)
             done = False
 
             # Ajouter l'expérience à la mémoire
@@ -195,7 +205,7 @@ class TestGRUSACAgent(unittest.TestCase):
         state = self.env.reset()[0]  # Extraire l'état de la tuple (state, info)
 
         # Créer une séquence d'états
-        sequence = np.array([state] * self.sequence_length)
+        sequence = np.array([state] * self.sequence_length).astype(np.float16)
 
         # Sélectionner une action en mode évaluation
         try:
@@ -215,12 +225,14 @@ class TestGRUSACAgent(unittest.TestCase):
         # Préparer des expériences séquentielles
         for i in range(100):
             # Créer une séquence d'états aléatoires
-            sequence = np.random.normal(0, 1, (self.sequence_length, self.state_size))
-            action = np.random.normal(
-                0, 0.5, self.action_size
+            sequence = np.random.normal(
+                0, 1, (self.sequence_length, self.state_size)
+            ).astype(np.float16)
+            action = np.random.normal(0, 0.5, self.action_size).astype(
+                np.float16
             )  # Actions entre -1 et 1 approximativement
-            reward = np.random.normal(0, 1)
-            next_state = np.random.normal(0, 1, self.state_size)
+            reward = float(np.random.normal(0, 1))  # Convertir en float standard
+            next_state = np.random.normal(0, 1, self.state_size).astype(np.float16)
             done = False if i < 99 else True
 
             # Ajouter à la mémoire
@@ -242,23 +254,27 @@ class TestGRUSACAgent(unittest.TestCase):
 
     def test_gradient_flow(self):
         """Teste le flux de gradient à travers les couches GRU."""
-        # Créer une séquence d'états de test de la bonne forme
-        test_states = np.random.normal(0, 1, (1, self.sequence_length, self.state_size))
-        
+        # PyTorch GRU ne supporte pas le float16, donc utiliser float32
+        test_states = np.random.normal(
+            0, 1, (1, self.sequence_length, self.state_size)
+        ).astype(np.float32)
+
         # Normaliser les états avec TensorFlow
         tf_test_states = tf.convert_to_tensor(test_states, dtype=tf.float32)
         tf_test_states = self.gru_agent._normalize_sequence_states(tf_test_states)
-        
+
         # Convertir en tenseur PyTorch pour l'utiliser avec le modèle PyTorch
-        torch_test_states = torch.tensor(tf_test_states.numpy(), dtype=torch.float32).to(self.gru_agent.device)
-        
+        torch_test_states = torch.tensor(
+            tf_test_states.numpy(), dtype=torch.float32
+        ).to(self.gru_agent.device)
+
         # Effectuer une passe avant de l'acteur et calculer la perte
         mean, log_std = self.gru_agent.actor(torch_test_states)
-        
+
         # Récupérer les gradients par rapport à la sortie de l'acteur
         dummy_loss = mean.mean() + log_std.mean()
         dummy_loss.backward()
-        
+
         # Vérifier que les gradients existent dans les paramètres de l'acteur
         for name, param in self.gru_agent.actor.named_parameters():
             self.assertIsNotNone(param.grad)

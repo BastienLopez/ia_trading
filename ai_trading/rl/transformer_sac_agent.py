@@ -1,18 +1,15 @@
 import datetime
 import logging
 import os
+import sys
 from collections import deque
 from pathlib import Path
-import sys
 
 import numpy as np
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 from torch.optim import Adam
-from torch.utils.tensorboard import SummaryWriter
 
-from ai_trading.config import MODELS_DIR
 from ai_trading.rl.prioritized_replay import PrioritizedReplayBuffer
 from ai_trading.rl.replay_buffer import ReplayBuffer
 from ai_trading.rl.transformer_models import TransformerHybridModel
@@ -30,6 +27,7 @@ if not logger.handlers:
 
 INFO_RETOUR_DIR = Path(__file__).parent.parent / "info_retour"
 INFO_RETOUR_DIR.mkdir(exist_ok=True)
+
 
 class TransformerSACAgent:
     """
@@ -120,7 +118,9 @@ class TransformerSACAgent:
         # Initialiser target_entropy et log_alpha si auto_alpha_tuning est activé
         if self.auto_alpha_tuning:
             self.target_entropy = -np.prod(action_dim)
-            self.log_alpha = torch.nn.Parameter(torch.tensor(0.0, requires_grad=True, device=self.device))
+            self.log_alpha = torch.nn.Parameter(
+                torch.tensor(0.0, requires_grad=True, device=self.device)
+            )
             self.alpha = self.log_alpha.exp()
         else:
             self.alpha = torch.tensor(alpha, device=self.device)
@@ -226,7 +226,7 @@ class TransformerSACAgent:
         self.alpha_optimizer = Adam([self.log_alpha], lr=3e-4)
 
         # Compiler les modèles uniquement si on n'est pas sous Windows
-        if not sys.platform.startswith('win'):
+        if not sys.platform.startswith("win"):
             self.actor = torch.compile(self.actor)
             self.critic_1 = torch.compile(self.critic_1)
             self.critic_2 = torch.compile(self.critic_2)
@@ -236,11 +236,19 @@ class TransformerSACAgent:
     def _update_target_networks(self):
         """Met à jour les réseaux cibles avec les poids des réseaux principaux."""
         with torch.no_grad():
-            for target_param, param in zip(self.critic_1_target.parameters(), self.critic_1.parameters()):
-                target_param.data.copy_(self.tau * param.data + (1.0 - self.tau) * target_param.data)
-            
-            for target_param, param in zip(self.critic_2_target.parameters(), self.critic_2.parameters()):
-                target_param.data.copy_(self.tau * param.data + (1.0 - self.tau) * target_param.data)
+            for target_param, param in zip(
+                self.critic_1_target.parameters(), self.critic_1.parameters()
+            ):
+                target_param.data.copy_(
+                    self.tau * param.data + (1.0 - self.tau) * target_param.data
+                )
+
+            for target_param, param in zip(
+                self.critic_2_target.parameters(), self.critic_2.parameters()
+            ):
+                target_param.data.copy_(
+                    self.tau * param.data + (1.0 - self.tau) * target_param.data
+                )
 
     def update_state_buffer(self, state):
         """Met à jour le tampon d'état avec le nouvel état."""
@@ -312,7 +320,9 @@ class TransformerSACAgent:
         dones = torch.FloatTensor(dones).to(self.device)
 
         # Entraîner les critiques
-        critic_loss = self._train_critics(states, actions, rewards, next_states, dones, weights)
+        critic_loss = self._train_critics(
+            states, actions, rewards, next_states, dones, weights
+        )
         self.critic_loss_history.append(critic_loss)
 
         # Entraîner l'acteur et alpha
@@ -327,11 +337,19 @@ class TransformerSACAgent:
         # Mettre à jour les priorités si on utilise le replay prioritaire
         if isinstance(self.replay_buffer, PrioritizedReplayBuffer):
             with torch.no_grad():
-                next_actions, next_log_probs = self._get_action_and_log_prob(next_states)
-                next_q1 = self.critic_1_target(torch.cat([next_states, next_actions], dim=-1))
-                next_q2 = self.critic_2_target(torch.cat([next_states, next_actions], dim=-1))
+                next_actions, next_log_probs = self._get_action_and_log_prob(
+                    next_states
+                )
+                next_q1 = self.critic_1_target(
+                    torch.cat([next_states, next_actions], dim=-1)
+                )
+                next_q2 = self.critic_2_target(
+                    torch.cat([next_states, next_actions], dim=-1)
+                )
                 next_q = torch.min(next_q1, next_q2)
-                target_q = rewards + (1 - dones) * self.gamma * (next_q - self.alpha * next_log_probs)
+                target_q = rewards + (1 - dones) * self.gamma * (
+                    next_q - self.alpha * next_log_probs
+                )
                 current_q1 = self.critic_1(torch.cat([states, actions], dim=-1))
                 current_q2 = self.critic_2(torch.cat([states, actions], dim=-1))
                 td_errors = torch.abs(target_q - torch.min(current_q1, current_q2))
@@ -343,23 +361,29 @@ class TransformerSACAgent:
         """Entraîne les réseaux de critique."""
         with torch.no_grad():
             next_actions, next_log_probs = self._get_action_and_log_prob(next_states)
-            
+
             # Reshape next_actions to match next_states dimensions
             next_actions = next_actions.unsqueeze(1).expand(-1, next_states.size(1), -1)
-            
-            next_q1 = self.critic_1_target(torch.cat([next_states, next_actions], dim=-1))
-            next_q2 = self.critic_2_target(torch.cat([next_states, next_actions], dim=-1))
+
+            next_q1 = self.critic_1_target(
+                torch.cat([next_states, next_actions], dim=-1)
+            )
+            next_q2 = self.critic_2_target(
+                torch.cat([next_states, next_actions], dim=-1)
+            )
             next_q = torch.min(next_q1, next_q2)
             next_q = next_q - self.alpha * next_log_probs.unsqueeze(-1)
             target_q = rewards + (1 - dones) * self.gamma * next_q
 
         # Reshape actions to match states dimensions
         actions = actions.unsqueeze(1).expand(-1, states.size(1), -1)
-        
+
         current_q1 = self.critic_1(torch.cat([states, actions], dim=-1))
         current_q2 = self.critic_2(torch.cat([states, actions], dim=-1))
 
-        critic_loss = F.mse_loss(current_q1, target_q) + F.mse_loss(current_q2, target_q)
+        critic_loss = F.mse_loss(current_q1, target_q) + F.mse_loss(
+            current_q2, target_q
+        )
         critic_loss = (critic_loss * weights).mean()
 
         self.critic_1_optimizer.zero_grad()
@@ -373,10 +397,10 @@ class TransformerSACAgent:
     def _train_actor_and_alpha(self, states):
         """Entraîne le réseau d'acteur et le paramètre alpha."""
         actions, log_probs = self._get_action_and_log_prob(states)
-        
+
         # Reshape actions to match states dimensions
         actions = actions.unsqueeze(1).expand(-1, states.size(1), -1)
-        
+
         q1 = self.critic_1(torch.cat([states, actions], dim=-1))
         q2 = self.critic_2(torch.cat([states, actions], dim=-1))
         q = torch.min(q1, q2)
@@ -391,7 +415,9 @@ class TransformerSACAgent:
         # Entraînement de alpha si auto_alpha_tuning est activé
         alpha_loss = None
         if self.auto_alpha_tuning:
-            alpha_loss = -(self.log_alpha * (log_probs + self.target_entropy).detach()).mean()
+            alpha_loss = -(
+                self.log_alpha * (log_probs + self.target_entropy).detach()
+            ).mean()
             self.alpha_optimizer.zero_grad()
             alpha_loss.backward()
             self.alpha_optimizer.step()
@@ -416,40 +442,43 @@ class TransformerSACAgent:
         checkpoint_dir = self.checkpoints_dir / f"checkpoint_{timestamp}{suffix}"
         checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
-        torch.save({
-            'actor_state_dict': self.actor.state_dict(),
-            'critic_1_state_dict': self.critic_1.state_dict(),
-            'critic_2_state_dict': self.critic_2.state_dict(),
-            'critic_1_target_state_dict': self.critic_1_target.state_dict(),
-            'critic_2_target_state_dict': self.critic_2_target.state_dict(),
-            'actor_optimizer': self.actor_optimizer.state_dict(),
-            'critic_1_optimizer': self.critic_1_optimizer.state_dict(),
-            'critic_2_optimizer': self.critic_2_optimizer.state_dict(),
-            'alpha_optimizer': self.alpha_optimizer.state_dict(),
-            'log_alpha': self.log_alpha,
-            'alpha': self.alpha,
-        }, checkpoint_dir / "models.pt")
+        torch.save(
+            {
+                "actor_state_dict": self.actor.state_dict(),
+                "critic_1_state_dict": self.critic_1.state_dict(),
+                "critic_2_state_dict": self.critic_2.state_dict(),
+                "critic_1_target_state_dict": self.critic_1_target.state_dict(),
+                "critic_2_target_state_dict": self.critic_2_target.state_dict(),
+                "actor_optimizer": self.actor_optimizer.state_dict(),
+                "critic_1_optimizer": self.critic_1_optimizer.state_dict(),
+                "critic_2_optimizer": self.critic_2_optimizer.state_dict(),
+                "alpha_optimizer": self.alpha_optimizer.state_dict(),
+                "log_alpha": self.log_alpha,
+                "alpha": self.alpha,
+            },
+            checkpoint_dir / "models.pt",
+        )
 
         logger.info(f"Modèles sauvegardés dans {checkpoint_dir}")
 
     def load_models(self, path):
         """Charge les modèles."""
         checkpoint = torch.load(path)
-        
-        self.actor.load_state_dict(checkpoint['actor_state_dict'])
-        self.critic_1.load_state_dict(checkpoint['critic_1_state_dict'])
-        self.critic_2.load_state_dict(checkpoint['critic_2_state_dict'])
-        self.critic_1_target.load_state_dict(checkpoint['critic_1_target_state_dict'])
-        self.critic_2_target.load_state_dict(checkpoint['critic_2_target_state_dict'])
-        
-        self.actor_optimizer.load_state_dict(checkpoint['actor_optimizer'])
-        self.critic_1_optimizer.load_state_dict(checkpoint['critic_1_optimizer'])
-        self.critic_2_optimizer.load_state_dict(checkpoint['critic_2_optimizer'])
-        self.alpha_optimizer.load_state_dict(checkpoint['alpha_optimizer'])
-        
-        self.log_alpha = checkpoint['log_alpha']
-        self.alpha = checkpoint['alpha']
-        
+
+        self.actor.load_state_dict(checkpoint["actor_state_dict"])
+        self.critic_1.load_state_dict(checkpoint["critic_1_state_dict"])
+        self.critic_2.load_state_dict(checkpoint["critic_2_state_dict"])
+        self.critic_1_target.load_state_dict(checkpoint["critic_1_target_state_dict"])
+        self.critic_2_target.load_state_dict(checkpoint["critic_2_target_state_dict"])
+
+        self.actor_optimizer.load_state_dict(checkpoint["actor_optimizer"])
+        self.critic_1_optimizer.load_state_dict(checkpoint["critic_1_optimizer"])
+        self.critic_2_optimizer.load_state_dict(checkpoint["critic_2_optimizer"])
+        self.alpha_optimizer.load_state_dict(checkpoint["alpha_optimizer"])
+
+        self.log_alpha = checkpoint["log_alpha"]
+        self.alpha = checkpoint["alpha"]
+
         logger.info(f"Modèles chargés depuis {path}")
 
     def update_target_networks(self):

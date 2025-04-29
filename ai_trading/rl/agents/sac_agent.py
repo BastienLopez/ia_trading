@@ -1,16 +1,16 @@
 import logging
 import os
 import random
-import traceback
+import sys
 from collections import deque
 
 import numpy as np
+import tensorflow as tf
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.distributions import Normal
 import torch.optim as optim
-import tensorflow as tf
+from torch.distributions import Normal
 
 # Configuration du logger
 logger = logging.getLogger(__name__)
@@ -29,7 +29,7 @@ class ReplayBuffer:
     Tampon de replay pour stocker les expériences de l'agent.
     """
 
-    def __init__(self, capacity, device='cuda' if torch.cuda.is_available() else 'cpu'):
+    def __init__(self, capacity, device="cuda" if torch.cuda.is_available() else "cpu"):
         """
         Initialise le tampon de replay.
 
@@ -55,7 +55,7 @@ class ReplayBuffer:
         if len(self.buffer) >= self.capacity:
             self.buffer.pop(0)
         self.buffer.append((state, action, reward, next_state, done))
-    
+
     # Alias pour compatibilité
     def add(self, state, action, reward, next_state, done):
         """Alias pour push pour maintenir la compatibilité."""
@@ -72,14 +72,18 @@ class ReplayBuffer:
             tuple: Contient (états, actions, récompenses, états suivants, indicateurs de fin)
         """
         batch = random.sample(self.buffer, min(batch_size, len(self.buffer)))
-        
+
         # Convertir les états et actions en tenseurs PyTorch avec gestion des dimensions
-        states = torch.tensor(np.array([exp[0].flatten() for exp in batch]), dtype=torch.float32)
-        actions = torch.tensor(np.array([exp[1] for exp in batch]), dtype=torch.float32)
-        rewards = torch.tensor(np.array([exp[2] for exp in batch]), dtype=torch.float32)
-        next_states = torch.tensor(np.array([exp[3].flatten() for exp in batch]), dtype=torch.float32)
-        dones = torch.tensor(np.array([exp[4] for exp in batch]), dtype=torch.float32)
-        
+        states = torch.tensor(
+            np.array([exp[0].flatten() for exp in batch]), dtype=torch.float16
+        )
+        actions = torch.tensor(np.array([exp[1] for exp in batch]), dtype=torch.float16)
+        rewards = torch.tensor(np.array([exp[2] for exp in batch]), dtype=torch.float16)
+        next_states = torch.tensor(
+            np.array([exp[3].flatten() for exp in batch]), dtype=torch.float16
+        )
+        dones = torch.tensor(np.array([exp[4] for exp in batch]), dtype=torch.float16)
+
         # Redimensionner les tenseurs si nécessaire
         if len(states.shape) == 1:
             states = states.unsqueeze(0)
@@ -91,7 +95,7 @@ class ReplayBuffer:
             next_states = next_states.unsqueeze(0)
         if len(dones.shape) == 1:
             dones = dones.unsqueeze(1)
-        
+
         return states, actions, rewards, next_states, dones
 
     def __len__(self):
@@ -104,47 +108,63 @@ class ReplayBuffer:
     def get_weights(self):
         """
         Retourne les poids de tous les réseaux sous forme de tableaux numpy.
-        
+
         Returns:
             dict: Dictionnaire contenant les poids de chaque réseau
         """
         weights = {
-            'actor': [param.cpu().detach().numpy() for param in self.actor.parameters()],
-            'critic_1': [param.cpu().detach().numpy() for param in self.critic_1.parameters()],
-            'critic_2': [param.cpu().detach().numpy() for param in self.critic_2.parameters()],
-            'critic_target_1': [param.cpu().detach().numpy() for param in self.critic_target_1.parameters()],
-            'critic_target_2': [param.cpu().detach().numpy() for param in self.critic_target_2.parameters()],
+            "actor": [
+                param.cpu().detach().numpy() for param in self.actor.parameters()
+            ],
+            "critic_1": [
+                param.cpu().detach().numpy() for param in self.critic_1.parameters()
+            ],
+            "critic_2": [
+                param.cpu().detach().numpy() for param in self.critic_2.parameters()
+            ],
+            "critic_target_1": [
+                param.cpu().detach().numpy()
+                for param in self.critic_target_1.parameters()
+            ],
+            "critic_target_2": [
+                param.cpu().detach().numpy()
+                for param in self.critic_target_2.parameters()
+            ],
         }
         return weights
-    
+
     def set_weights(self, weights):
         """
         Définit les poids des réseaux à partir de tableaux numpy.
-        
+
         Args:
             weights (dict): Dictionnaire contenant les poids pour chaque réseau
         """
         # Définir les poids de l'acteur
-        if 'actor' in weights:
-            for param, weight in zip(self.actor.parameters(), weights['actor']):
+        if "actor" in weights:
+            for param, weight in zip(self.actor.parameters(), weights["actor"]):
                 param.data = torch.tensor(weight, device=self.device)
-                
+
         # Définir les poids des critiques
-        if 'critic_1' in weights:
-            for param, weight in zip(self.critic_1.parameters(), weights['critic_1']):
+        if "critic_1" in weights:
+            for param, weight in zip(self.critic_1.parameters(), weights["critic_1"]):
                 param.data = torch.tensor(weight, device=self.device)
-                
-        if 'critic_2' in weights:
-            for param, weight in zip(self.critic_2.parameters(), weights['critic_2']):
+
+        if "critic_2" in weights:
+            for param, weight in zip(self.critic_2.parameters(), weights["critic_2"]):
                 param.data = torch.tensor(weight, device=self.device)
-                
+
         # Définir les poids des critiques cibles
-        if 'critic_target_1' in weights:
-            for param, weight in zip(self.critic_target_1.parameters(), weights['critic_target_1']):
+        if "critic_target_1" in weights:
+            for param, weight in zip(
+                self.critic_target_1.parameters(), weights["critic_target_1"]
+            ):
                 param.data = torch.tensor(weight, device=self.device)
-                
-        if 'critic_target_2' in weights:
-            for param, weight in zip(self.critic_target_2.parameters(), weights['critic_target_2']):
+
+        if "critic_target_2" in weights:
+            for param, weight in zip(
+                self.critic_target_2.parameters(), weights["critic_target_2"]
+            ):
                 param.data = torch.tensor(weight, device=self.device)
 
 
@@ -154,7 +174,12 @@ class SequenceReplayBuffer:
     Utilisé pour les architectures avec GRU qui nécessitent des séquences temporelles.
     """
 
-    def __init__(self, buffer_size=100000, sequence_length=10, device='cuda' if torch.cuda.is_available() else 'cpu'):
+    def __init__(
+        self,
+        buffer_size=100000,
+        sequence_length=10,
+        device="cuda" if torch.cuda.is_available() else "cpu",
+    ):
         """
         Initialise le tampon de replay pour séquences.
 
@@ -455,6 +480,20 @@ class SACAgent:
         self.critic_target_1 = self.critic_target_1.to(device)
         self.critic_target_2 = self.critic_target_2.to(device)
 
+        # Compiling models with torch.compile (not on Windows)
+        if not sys.platform.startswith("win"):
+            try:
+                logger.info("Compilation des réseaux avec torch.compile()")
+                self.actor = torch.compile(self.actor)
+                self.critic_1 = torch.compile(self.critic_1)
+                self.critic_2 = torch.compile(self.critic_2)
+                self.critic_target_1 = torch.compile(self.critic_target_1)
+                self.critic_target_2 = torch.compile(self.critic_target_2)
+                logger.info("Compilation réussie")
+            except Exception as e:
+                logger.warning(f"Erreur lors de la compilation des réseaux: {e}")
+                logger.warning("Pas de compilation, utilisation des modèles standards")
+
         # Copier les poids des critiques vers les critiques cibles
         self.critic_target_1.load_state_dict(self.critic_1.state_dict())
         self.critic_target_2.load_state_dict(self.critic_2.state_dict())
@@ -463,17 +502,21 @@ class SACAgent:
         self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=learning_rate)
         self.critic_optimizer = optim.Adam(
             list(self.critic_1.parameters()) + list(self.critic_2.parameters()),
-            lr=learning_rate
+            lr=learning_rate,
         )
 
         # Paramètre alpha entraînable
-        self.target_entropy = target_entropy if target_entropy is not None else -action_size
+        self.target_entropy = (
+            target_entropy if target_entropy is not None else -action_size
+        )
         self.log_alpha = torch.zeros(1, requires_grad=True, device=device)
         self.alpha_optimizer = optim.Adam([self.log_alpha], lr=learning_rate)
 
         # Buffer de replay approprié selon l'architecture
         if use_gru:
-            self.replay_buffer = SequenceReplayBuffer(buffer_size, sequence_length, device=device)
+            self.replay_buffer = SequenceReplayBuffer(
+                buffer_size, sequence_length, device=device
+            )
         else:
             self.replay_buffer = ReplayBuffer(buffer_size, device=device)
 
@@ -484,10 +527,13 @@ class SACAgent:
         self.alpha_loss_history = []
         self.entropy_history = []
 
-        logger.info(f"Agent SAC initialisé avec state_size={state_size}, action_size={action_size}")
+        logger.info(
+            f"Agent SAC initialisé avec state_size={state_size}, action_size={action_size}"
+        )
 
     def _build_actor_network(self):
         """Construit le réseau de l'acteur."""
+
         class ActorNetwork(nn.Module):
             def __init__(self, state_size, action_size, hidden_size):
                 super(ActorNetwork, self).__init__()
@@ -507,6 +553,7 @@ class SACAgent:
 
     def _build_critic_network(self):
         """Construit le réseau critique."""
+
         class CriticNetwork(nn.Module):
             def __init__(self, state_size, action_size, hidden_size=64):
                 super(CriticNetwork, self).__init__()
@@ -520,7 +567,7 @@ class SACAgent:
                     state = state.squeeze(1)
                 if len(action.shape) == 3:
                     action = action.squeeze(1)
-                    
+
                 x = torch.cat([state, action], dim=1)
                 x = F.relu(self.fc1(x))
                 x = F.relu(self.fc2(x))
@@ -530,6 +577,7 @@ class SACAgent:
 
     def _build_gru_actor_network(self):
         """Construit le réseau d'acteur avec couches GRU."""
+
         class GRUActorNetwork(nn.Module):
             def __init__(self, state_size, action_size, hidden_size, gru_units):
                 super(GRUActorNetwork, self).__init__()
@@ -545,10 +593,13 @@ class SACAgent:
                 log_std = torch.clamp(self.log_std(x), -20, 2)
                 return mean, log_std
 
-        return GRUActorNetwork(self.state_size, self.action_size, self.hidden_size, self.gru_units)
+        return GRUActorNetwork(
+            self.state_size, self.action_size, self.hidden_size, self.gru_units
+        )
 
     def _build_gru_critic_network(self):
         """Construit le réseau de critique avec couches GRU."""
+
         class GRUCriticNetwork(nn.Module):
             def __init__(self, state_size, action_size, hidden_size, gru_units):
                 super(GRUCriticNetwork, self).__init__()
@@ -564,7 +615,9 @@ class SACAgent:
                 x = F.relu(self.fc2(x))
                 return self.fc3(x)
 
-        return GRUCriticNetwork(self.state_size, self.action_size, self.hidden_size, self.gru_units)
+        return GRUCriticNetwork(
+            self.state_size, self.action_size, self.hidden_size, self.gru_units
+        )
 
     def select_action(self, state, evaluate=False):
         """
@@ -587,11 +640,14 @@ class SACAgent:
         if state.shape[1] != self.state_size:
             # Si la dimension est trop petite, compléter avec des zéros
             if state.shape[1] < self.state_size:
-                padding = torch.zeros((state.shape[0], self.state_size - state.shape[1]), device=self.device)
+                padding = torch.zeros(
+                    (state.shape[0], self.state_size - state.shape[1]),
+                    device=self.device,
+                )
                 state = torch.cat([state, padding], dim=1)
             # Si la dimension est trop grande, tronquer
             else:
-                state = state[:, :self.state_size]
+                state = state[:, : self.state_size]
 
         # Passer en mode évaluation
         self.actor.eval()
@@ -624,20 +680,24 @@ class SACAgent:
 
         # Convertir en numpy et s'assurer que la forme est (1,)
         action = action.cpu().numpy()
-        return action.reshape(1,)
+        return action.reshape(
+            1,
+        )
 
     # Alias pour select_action
     act = select_action
 
     def train(self, batch_size=None):
         """
-        Effectue une étape d'entraînement sur un batch d'expériences.
+        Entraîne l'agent sur un batch de données.
 
         Args:
-            batch_size (int, optional): Taille du batch. Si None, utilise self.batch_size
+            batch_size (int, optional): Taille du batch d'entraînement.
+                                      Si None, utilise self.batch_size.
 
         Returns:
-            dict: Dictionnaire contenant les différentes pertes et la récompense moyenne
+            dict: Dictionnaire contenant les métriques d'entraînement
+                  ou None si le buffer est trop petit.
         """
         if batch_size is None:
             batch_size = self.batch_size
@@ -646,52 +706,57 @@ class SACAgent:
             return None
 
         # Obtenir les données directement depuis la méthode sample du ReplayBuffer
-        states, actions, rewards, next_states, dones = self.replay_buffer.sample(batch_size)
+        states, actions, rewards, next_states, dones = self.replay_buffer.sample(
+            batch_size
+        )
 
         # Convertir les tableaux numpy en tenseurs PyTorch si nécessaire
         if isinstance(states, np.ndarray):
-            states = torch.FloatTensor(states)
+            states = torch.FloatTensor(states).to(torch.float32)
         if isinstance(actions, np.ndarray):
-            actions = torch.FloatTensor(actions)
+            actions = torch.FloatTensor(actions).to(torch.float32)
         if isinstance(rewards, np.ndarray):
-            rewards = torch.FloatTensor(rewards)
+            rewards = torch.FloatTensor(rewards).to(torch.float32)
         if isinstance(next_states, np.ndarray):
-            next_states = torch.FloatTensor(next_states)
+            next_states = torch.FloatTensor(next_states).to(torch.float32)
         if isinstance(dones, np.ndarray):
-            dones = torch.FloatTensor(dones)
+            dones = torch.FloatTensor(dones).to(torch.float32)
 
-        # S'assurer que tous les tenseurs sont sur le bon device
-        states = states.to(self.device)
-        actions = actions.to(self.device)
-        
+        # S'assurer que tous les tenseurs sont sur le bon device et du bon type
+        states = states.to(self.device, dtype=torch.float32)
+        actions = actions.to(self.device, dtype=torch.float32)
+
         # Assurer que rewards et dones ont les bonnes dimensions (batch_size, 1)
         if len(rewards.shape) == 1:
             rewards = rewards.unsqueeze(-1)
-        rewards = rewards.to(self.device)
-        
+        rewards = rewards.to(self.device, dtype=torch.float32)
+
         if len(dones.shape) == 1:
             dones = dones.unsqueeze(-1)
-        dones = dones.to(self.device)
-        
-        next_states = next_states.to(self.device)
+        dones = dones.to(self.device, dtype=torch.float32)
+
+        next_states = next_states.to(self.device, dtype=torch.float32)
 
         # Calcul des Q-values cibles
         with torch.no_grad():
             next_actions, next_log_probs = self.actor(next_states)
-            
+
             # Assurer que next_log_probs a les bonnes dimensions
             if len(next_log_probs.shape) == 1:
                 next_log_probs = next_log_probs.unsqueeze(-1)
-                
+
             next_q1 = self.critic_target_1(next_states, next_actions)
             next_q2 = self.critic_target_2(next_states, next_actions)
-            next_q = torch.min(next_q1, next_q2) - self.alpha * next_log_probs * self.entropy_regularization
+            next_q = (
+                torch.min(next_q1, next_q2)
+                - self.alpha * next_log_probs * self.entropy_regularization
+            )
             target_q = rewards + (1 - dones) * self.gamma * next_q
 
         # Calcul de la perte des critiques
         current_q1 = self.critic_1(states, actions)
         current_q2 = self.critic_2(states, actions)
-        
+
         # Utiliser un calcul de perte MSE plus simple
         critic1_loss = ((current_q1 - target_q) ** 2).mean()
         critic2_loss = ((current_q2 - target_q) ** 2).mean()
@@ -703,17 +768,17 @@ class SACAgent:
         if self.grad_clip_value is not None:
             torch.nn.utils.clip_grad_norm_(
                 list(self.critic_1.parameters()) + list(self.critic_2.parameters()),
-                self.grad_clip_value
+                self.grad_clip_value,
             )
         self.critic_optimizer.step()
 
         # Mise à jour de l'acteur
         actions_pred, log_probs = self.actor(states)
-        
+
         # Assurer que log_probs a les bonnes dimensions
         if len(log_probs.shape) == 1:
             log_probs = log_probs.unsqueeze(-1)
-            
+
         q1 = self.critic_1(states, actions_pred)
         q2 = self.critic_2(states, actions_pred)
         q = torch.min(q1, q2)
@@ -722,11 +787,15 @@ class SACAgent:
         self.actor_optimizer.zero_grad()
         actor_loss.backward()
         if self.grad_clip_value is not None:
-            torch.nn.utils.clip_grad_norm_(self.actor.parameters(), self.grad_clip_value)
+            torch.nn.utils.clip_grad_norm_(
+                self.actor.parameters(), self.grad_clip_value
+            )
         self.actor_optimizer.step()
 
         # Mise à jour du paramètre alpha
-        alpha_loss = -(self.log_alpha * (log_probs + self.target_entropy).detach()).mean()
+        alpha_loss = -(
+            self.log_alpha * (log_probs + self.target_entropy).detach()
+        ).mean()
         self.alpha_optimizer.zero_grad()
         alpha_loss.backward()
         self.alpha_optimizer.step()
@@ -743,11 +812,11 @@ class SACAgent:
         self.entropy_history.append(-log_probs.mean().item())
 
         return {
-            'critic_loss': critic_loss.item(),
-            'actor_loss': actor_loss.item(),
-            'alpha_loss': alpha_loss.item(),
-            'entropy': -log_probs.mean().item(),
-            'reward': rewards.mean().item()
+            "critic_loss": critic_loss.item(),
+            "actor_loss": actor_loss.item(),
+            "alpha_loss": alpha_loss.item(),
+            "entropy": -log_probs.mean().item(),
+            "reward": rewards.mean().item(),
         }
 
     def save(self, filepath):
@@ -763,9 +832,15 @@ class SACAgent:
         torch.save(self.actor.state_dict(), os.path.join(filepath, "actor.h5"))
         torch.save(self.critic_1.state_dict(), os.path.join(filepath, "critic_1.h5"))
         torch.save(self.critic_2.state_dict(), os.path.join(filepath, "critic_2.h5"))
-        torch.save(self.critic_target_1.state_dict(), os.path.join(filepath, "target_critic_1.h5"))
-        torch.save(self.critic_target_2.state_dict(), os.path.join(filepath, "target_critic_2.h5"))
-        torch.save({'log_alpha': self.log_alpha}, os.path.join(filepath, "alpha.h5"))
+        torch.save(
+            self.critic_target_1.state_dict(),
+            os.path.join(filepath, "target_critic_1.h5"),
+        )
+        torch.save(
+            self.critic_target_2.state_dict(),
+            os.path.join(filepath, "target_critic_2.h5"),
+        )
+        torch.save({"log_alpha": self.log_alpha}, os.path.join(filepath, "alpha.h5"))
 
         logging.info(f"Modèles sauvegardés dans {filepath}")
 
@@ -779,12 +854,16 @@ class SACAgent:
         self.actor.load_state_dict(torch.load(os.path.join(filepath, "actor.h5")))
         self.critic_1.load_state_dict(torch.load(os.path.join(filepath, "critic_1.h5")))
         self.critic_2.load_state_dict(torch.load(os.path.join(filepath, "critic_2.h5")))
-        self.critic_target_1.load_state_dict(torch.load(os.path.join(filepath, "target_critic_1.h5")))
-        self.critic_target_2.load_state_dict(torch.load(os.path.join(filepath, "target_critic_2.h5")))
-        
+        self.critic_target_1.load_state_dict(
+            torch.load(os.path.join(filepath, "target_critic_1.h5"))
+        )
+        self.critic_target_2.load_state_dict(
+            torch.load(os.path.join(filepath, "target_critic_2.h5"))
+        )
+
         # Charger log_alpha
         alpha_state = torch.load(os.path.join(filepath, "alpha.h5"))
-        self.log_alpha = alpha_state['log_alpha']
+        self.log_alpha = alpha_state["log_alpha"]
 
         logging.info(f"Modèles chargés depuis {filepath}")
 
@@ -796,7 +875,8 @@ class SACAgent:
             dict: Historique des pertes
         """
         return {
-            "critic_loss_history": self.critic_1_loss_history + self.critic_2_loss_history,
+            "critic_loss_history": self.critic_1_loss_history
+            + self.critic_2_loss_history,
             "actor_loss_history": self.actor_loss_history,
             "alpha_loss_history": self.alpha_loss_history,
             "entropy_history": self.entropy_history,
@@ -873,10 +953,18 @@ class SACAgent:
     def _update_target_networks(self):
         """Met à jour les réseaux cibles en utilisant la moyenne mobile exponentielle."""
         with torch.no_grad():
-            for target_param, param in zip(self.critic_target_1.parameters(), self.critic_1.parameters()):
-                target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
-            for target_param, param in zip(self.critic_target_2.parameters(), self.critic_2.parameters()):
-                target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
+            for target_param, param in zip(
+                self.critic_target_1.parameters(), self.critic_1.parameters()
+            ):
+                target_param.data.copy_(
+                    self.tau * param.data + (1 - self.tau) * target_param.data
+                )
+            for target_param, param in zip(
+                self.critic_target_2.parameters(), self.critic_2.parameters()
+            ):
+                target_param.data.copy_(
+                    self.tau * param.data + (1 - self.tau) * target_param.data
+                )
 
     def sample_action(self, states):
         """
@@ -895,7 +983,7 @@ class SACAgent:
         x_t = normal.rsample()  # Reparametrization trick
         action = torch.tanh(x_t)
         log_prob = normal.log_prob(x_t)
-        
+
         # Correction pour la transformation tanh
         log_prob -= torch.log(1 - action.pow(2) + 1e-6)
         log_prob = log_prob.sum(1, keepdim=True)
@@ -905,31 +993,31 @@ class SACAgent:
     def _normalize_sequence_states(self, states):
         """
         Normalise une séquence d'états.
-        
+
         Args:
             states (tf.Tensor, torch.Tensor ou np.ndarray): Un tenseur de forme (batch_size, sequence_length, state_size)
-            
+
         Returns:
             Même type que l'entrée: États normalisés de même forme
         """
         # Vérifier si c'est un tableau NumPy et le convertir en tenseur approprié
         if isinstance(states, np.ndarray):
             # Convertir en TensorFlow pour la normalisation
-            states_tf = tf.convert_to_tensor(states, dtype=tf.float32)
+            states_tf = tf.convert_to_tensor(states, dtype=tf.float16)
             # Calculer la moyenne et l'écart-type sur l'axe des features (dernier axe)
             mean = tf.reduce_mean(states_tf, axis=-1, keepdims=True)
             std = tf.math.reduce_std(states_tf, axis=-1, keepdims=True) + 1e-8
-            
+
             # Normaliser les états
             normalized_states = (states_tf - mean) / std
             return normalized_states
         # Vérifier si c'est un tenseur TensorFlow
-        elif hasattr(states, 'numpy'):
+        elif hasattr(states, "numpy"):
             # TensorFlow tensor
             # Calculer la moyenne et l'écart-type sur l'axe des features (dernier axe)
             mean = tf.reduce_mean(states, axis=-1, keepdims=True)
             std = tf.math.reduce_std(states, axis=-1, keepdims=True) + 1e-8
-            
+
             # Normaliser les états
             normalized_states = (states - mean) / std
             return normalized_states
@@ -939,11 +1027,11 @@ class SACAgent:
             # Convertir en PyTorch si ce n'est pas déjà le cas
             if not isinstance(states, torch.Tensor):
                 states = torch.FloatTensor(states).to(self.device)
-                
+
             # Calculer la moyenne et l'écart-type sur l'axe des features (dernier axe)
             mean = torch.mean(states, dim=-1, keepdim=True)
             std = torch.std(states, dim=-1, keepdim=True) + 1e-8
-            
+
             # Normaliser les états
             normalized_states = (states - mean) / std
             return normalized_states
@@ -951,45 +1039,61 @@ class SACAgent:
     def get_weights(self):
         """
         Retourne les poids de tous les réseaux sous forme de tableaux numpy.
-        
+
         Returns:
             dict: Dictionnaire contenant les poids de chaque réseau
         """
         weights = {
-            'actor': [param.cpu().detach().numpy() for param in self.actor.parameters()],
-            'critic_1': [param.cpu().detach().numpy() for param in self.critic_1.parameters()],
-            'critic_2': [param.cpu().detach().numpy() for param in self.critic_2.parameters()],
-            'critic_target_1': [param.cpu().detach().numpy() for param in self.critic_target_1.parameters()],
-            'critic_target_2': [param.cpu().detach().numpy() for param in self.critic_target_2.parameters()],
+            "actor": [
+                param.cpu().detach().numpy() for param in self.actor.parameters()
+            ],
+            "critic_1": [
+                param.cpu().detach().numpy() for param in self.critic_1.parameters()
+            ],
+            "critic_2": [
+                param.cpu().detach().numpy() for param in self.critic_2.parameters()
+            ],
+            "critic_target_1": [
+                param.cpu().detach().numpy()
+                for param in self.critic_target_1.parameters()
+            ],
+            "critic_target_2": [
+                param.cpu().detach().numpy()
+                for param in self.critic_target_2.parameters()
+            ],
         }
         return weights
-    
+
     def set_weights(self, weights):
         """
         Définit les poids des réseaux à partir de tableaux numpy.
-        
+
         Args:
             weights (dict): Dictionnaire contenant les poids pour chaque réseau
         """
         # Définir les poids de l'acteur
-        if 'actor' in weights:
-            for param, weight in zip(self.actor.parameters(), weights['actor']):
+        if "actor" in weights:
+            for param, weight in zip(self.actor.parameters(), weights["actor"]):
                 param.data = torch.tensor(weight, device=self.device)
-                
+
         # Définir les poids des critiques
-        if 'critic_1' in weights:
-            for param, weight in zip(self.critic_1.parameters(), weights['critic_1']):
+        if "critic_1" in weights:
+            for param, weight in zip(self.critic_1.parameters(), weights["critic_1"]):
                 param.data = torch.tensor(weight, device=self.device)
-                
-        if 'critic_2' in weights:
-            for param, weight in zip(self.critic_2.parameters(), weights['critic_2']):
+
+        if "critic_2" in weights:
+            for param, weight in zip(self.critic_2.parameters(), weights["critic_2"]):
                 param.data = torch.tensor(weight, device=self.device)
-                
+
         # Définir les poids des critiques cibles
-        if 'critic_target_1' in weights:
-            for param, weight in zip(self.critic_target_1.parameters(), weights['critic_target_1']):
+        if "critic_target_1" in weights:
+            for param, weight in zip(
+                self.critic_target_1.parameters(), weights["critic_target_1"]
+            ):
                 param.data = torch.tensor(weight, device=self.device)
-                
-        if 'critic_target_2' in weights:
-            for param, weight in zip(self.critic_target_2.parameters(), weights['critic_target_2']):
+
+        if "critic_target_2" in weights:
+            for param, weight in zip(
+                self.critic_target_2.parameters(), weights["critic_target_2"]
+            ):
                 param.data = torch.tensor(weight, device=self.device)

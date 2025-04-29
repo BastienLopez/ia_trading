@@ -6,7 +6,6 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import DataLoader, TensorDataset
 
 # Configuration du logger
 logger = logging.getLogger(__name__)
@@ -126,27 +125,20 @@ class DQNNetwork(nn.Module):
     def __init__(self, state_size, action_size, use_dueling=False):
         super(DQNNetwork, self).__init__()
         self.use_dueling = use_dueling
-        
+
         # Couches partagées
         self.shared_layers = nn.Sequential(
-            nn.Linear(state_size, 64),
-            nn.ReLU(),
-            nn.Linear(64, 64),
-            nn.ReLU()
+            nn.Linear(state_size, 64), nn.ReLU(), nn.Linear(64, 64), nn.ReLU()
         )
-        
+
         if use_dueling:
             # Architecture Dueling
             self.value_stream = nn.Sequential(
-                nn.Linear(64, 32),
-                nn.ReLU(),
-                nn.Linear(32, 1)
+                nn.Linear(64, 32), nn.ReLU(), nn.Linear(32, 1)
             )
-            
+
             self.advantage_stream = nn.Sequential(
-                nn.Linear(64, 32),
-                nn.ReLU(),
-                nn.Linear(32, action_size)
+                nn.Linear(64, 32), nn.ReLU(), nn.Linear(32, action_size)
             )
         else:
             # Architecture DQN standard
@@ -154,17 +146,17 @@ class DQNNetwork(nn.Module):
 
     def forward(self, x):
         x = self.shared_layers(x)
-        
+
         if self.use_dueling:
             value = self.value_stream(x)
             advantage = self.advantage_stream(x)
-            
+
             # Q(s,a) = V(s) + (A(s,a) - mean(A(s,a')))
             advantage_mean = advantage.mean(dim=1, keepdim=True)
             q_values = value + (advantage - advantage_mean)
         else:
             q_values = self.output_layer(x)
-            
+
         return q_values
 
 
@@ -187,7 +179,7 @@ class DoubleDQNAgent:
         buffer_size=10000,
         use_prioritized_replay=True,
         use_dueling=False,
-        device="cpu"
+        device="cpu",
     ):
         """
         Initialise l'agent Double DQN.
@@ -300,8 +292,8 @@ class DoubleDQNAgent:
 
         # Échantillonner un batch
         if self.use_prioritized_replay:
-            states, actions, rewards, next_states, dones, indices, weights = self.memory.sample(
-                self.batch_size
+            states, actions, rewards, next_states, dones, indices, weights = (
+                self.memory.sample(self.batch_size)
             )
             weights = torch.FloatTensor(weights).to(self.device)
         else:
@@ -328,8 +320,12 @@ class DoubleDQNAgent:
             # Sélectionner les actions avec le modèle principal
             next_actions = self.model(next_states).argmax(1)
             # Évaluer les Q-values avec le modèle cible
-            next_q_values = self.target_model(next_states).gather(1, next_actions.unsqueeze(1))
-            target_q_values = rewards + (1 - dones) * self.discount_factor * next_q_values
+            next_q_values = self.target_model(next_states).gather(
+                1, next_actions.unsqueeze(1)
+            )
+            target_q_values = (
+                rewards + (1 - dones) * self.discount_factor * next_q_values
+            )
 
         # Calculer la perte
         loss = self.criterion(current_q_values, target_q_values)
@@ -402,7 +398,7 @@ class DuelingDQNAgent(DoubleDQNAgent):
         update_target_every=5,
         buffer_size=10000,
         use_prioritized_replay=True,
-        device="cpu"
+        device="cpu",
     ):
         super().__init__(
             state_size=state_size,
@@ -417,7 +413,7 @@ class DuelingDQNAgent(DoubleDQNAgent):
             buffer_size=buffer_size,
             use_prioritized_replay=use_prioritized_replay,
             use_dueling=True,
-            device=device
+            device=device,
         )
 
 
@@ -437,7 +433,7 @@ class DoubleDuelingDQNAgent(DoubleDQNAgent):
         update_target_every=5,
         buffer_size=10000,
         use_prioritized_replay=True,
-        device="cpu"
+        device="cpu",
     ):
         super().__init__(
             state_size=state_size,
@@ -452,6 +448,6 @@ class DoubleDuelingDQNAgent(DoubleDQNAgent):
             buffer_size=buffer_size,
             use_prioritized_replay=use_prioritized_replay,
             use_dueling=True,
-            device=device
+            device=device,
         )
         logger.info("Agent Double-Dueling DQN initialisé")

@@ -230,7 +230,9 @@ class RLDataIntegrator:
         )
 
         # Remplissage des valeurs manquantes
-        merged = merged.copy()  # Pour éviter les avertissements de SettingWithCopyWarning
+        merged = (
+            merged.copy()
+        )  # Pour éviter les avertissements de SettingWithCopyWarning
         merged = merged.fillna(merged.shift())  # Forward fill
         merged = merged.fillna(merged.shift(-1))  # Backward fill
 
@@ -528,10 +530,12 @@ class RLDataIntegrator:
         combined_data = market_data.join(sentiment_resampled, how="left")
 
         # Remplissage des valeurs manquantes avec une stratégie plus robuste
-        combined_data = combined_data.copy()  # Pour éviter les avertissements de SettingWithCopyWarning
-        
+        combined_data = (
+            combined_data.copy()
+        )  # Pour éviter les avertissements de SettingWithCopyWarning
+
         # Pour les colonnes de sentiment
-        sentiment_cols = ['polarity', 'subjectivity', 'compound_score']
+        sentiment_cols = ["polarity", "subjectivity", "compound_score"]
         for col in sentiment_cols:
             if col in combined_data.columns:
                 # Forward fill
@@ -550,7 +554,9 @@ class RLDataIntegrator:
                 # Backward fill
                 combined_data[col] = combined_data[col].bfill()
                 # Si des valeurs manquantes persistent, remplir avec la moyenne
-                combined_data[col] = combined_data[col].fillna(combined_data[col].mean())
+                combined_data[col] = combined_data[col].fillna(
+                    combined_data[col].mean()
+                )
 
         logger.info(
             f"Données intégrées avec succès. Colonnes: {combined_data.columns.tolist()}"

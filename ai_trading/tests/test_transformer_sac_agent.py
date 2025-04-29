@@ -89,7 +89,7 @@ class TestTransformerSACAgent(unittest.TestCase):
             num_transformer_blocks=2,
             rnn_units=32,
             model_type="gru",  # Utiliser GRU pour les tests
-            device="cpu"  # Utiliser CPU pour les tests
+            device="cpu",  # Utiliser CPU pour les tests
         )
 
     def test_initialization(self):
@@ -243,7 +243,7 @@ class TestTransformerSACAgent(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             # Configurer le répertoire de checkpoints de l'agent
             self.agent.checkpoints_dir = Path(temp_dir)
-            
+
             # Sauvegarder les modèles
             self.agent.save_models(suffix="_test")
 
@@ -252,7 +252,9 @@ class TestTransformerSACAgent(unittest.TestCase):
             self.assertTrue(any("checkpoint" in f for f in checkpoint_files))
 
             # Trouver le dernier checkpoint
-            checkpoint_dir = sorted([d for d in checkpoint_files if "checkpoint" in d])[-1]
+            checkpoint_dir = sorted([d for d in checkpoint_files if "checkpoint" in d])[
+                -1
+            ]
             model_path = os.path.join(temp_dir, checkpoint_dir, "models.pt")
 
             # Charger les modèles
@@ -288,8 +290,10 @@ class TestTransformerSACAgent(unittest.TestCase):
             next_sequence_state = np.copy(sequence_state)
             next_sequence_state[:-1] = sequence_state[1:]
             next_sequence_state[-1] = next_state
-            
-            self.agent.remember(sequence_state, action, reward, next_sequence_state, done)
+
+            self.agent.remember(
+                sequence_state, action, reward, next_sequence_state, done
+            )
 
             # Entraîner l'agent
             if len(self.agent.replay_buffer) >= self.agent.batch_size:

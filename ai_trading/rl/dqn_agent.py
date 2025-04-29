@@ -5,9 +5,8 @@ from collections import deque
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.optim as optim
-from torch.utils.data import DataLoader, TensorDataset
 import torch.nn.functional as F
+import torch.optim as optim
 
 # Configuration du logger
 logger = logging.getLogger("DQNAgent")
@@ -192,7 +191,9 @@ class DQNAgent:
                 f"La taille de l'état ({self.state_size}) ne correspond pas à celle attendue par le modèle ({old_size}). Reconstruction des modèles..."
             )
             self.model = DQNNetwork(self.state_size, self.action_size).to(self.device)
-            self.target_model = DQNNetwork(self.state_size, self.action_size).to(self.device)
+            self.target_model = DQNNetwork(self.state_size, self.action_size).to(
+                self.device
+            )
             self.update_target_model()
             self.optimizer = optim.Adam(self.model.parameters(), lr=self.learning_rate)
 
@@ -264,7 +265,7 @@ class DQNAgent:
 
         # Échantillonner un batch d'expériences
         minibatch = random.sample(self.memory, batch_size)
-        
+
         # Convertir les expériences en tenseurs
         states = np.array([e[0] for e in minibatch])
         actions = np.array([e[1] for e in minibatch])
