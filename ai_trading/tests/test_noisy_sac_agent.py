@@ -1,12 +1,16 @@
 import os
 import tempfile
 import unittest
+import warnings
 
 import numpy as np
-import tensorflow as tf
 import torch
 
 from ai_trading.rl.agents.noisy_sac_agent import NoisySACAgent
+
+# Filtrer les avertissements de dépréciation liés à TensorFlow et JAX
+warnings.filterwarnings("ignore", message=".*jax.xla_computation is deprecated.*")
+warnings.filterwarnings("ignore", category=DeprecationWarning, module="tensorflow.*")
 
 
 class TestNoisySACAgent(unittest.TestCase):
@@ -16,7 +20,6 @@ class TestNoisySACAgent(unittest.TestCase):
         """Configuration initiale pour les tests."""
         # Forcer l'utilisation du CPU pour les tests
         os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
-        tf.config.set_visible_devices([], 'GPU')
         
         # Utiliser les méthodes modernes recommandées au lieu de set_default_tensor_type
         torch.set_default_dtype(torch.float32)
