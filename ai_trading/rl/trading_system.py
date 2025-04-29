@@ -185,15 +185,15 @@ class RLTradingSystem:
         save_dir=None,
     ):
         """
-        Évalue l'agent sur l'environnement.
+        Évalue les performances de l'agent.
 
         Args:
-            agent: Agent d'apprentissage par renforcement
+            agent: Agent à évaluer
             env: Environnement de trading
-            num_episodes (int): Nombre d'épisodes d'évaluation
-            test_data (DataFrame): Données de test (si différentes de celles de l'environnement)
-            visualize (bool): Afficher les visualisations
-            save_dir (str): Répertoire pour sauvegarder les visualisations
+            num_episodes (int): Nombre d'épisodes à exécuter
+            test_data (pandas.DataFrame, optional): Données de test
+            visualize (bool): Si True, visualise les performances
+            save_dir (str, optional): Répertoire pour sauvegarder les visualisations
 
         Returns:
             dict: Résultats de l'évaluation
@@ -225,9 +225,37 @@ class RLTradingSystem:
 
         # Évaluer l'agent
         for episode in range(num_episodes):
-            state = env.reset()
-            if isinstance(state, tuple):
-                state = state[0]  # Prendre seulement l'état, pas les infos
+            # Réinitialiser l'environnement et obtenir le premier état
+            state, _ = env.reset()
+            
+            # Vérifier que la taille de l'état correspond à celle de l'agent
+            if agent.state_size != state.shape[0]:
+                logger.warning(
+                    f"Incompatibilité de dimensions: agent.state_size={agent.state_size}, état={state.shape[0]}. "
+                    f"Reconstruction de l'agent..."
+                )
+                
+                # Sauvegarder les paramètres importants
+                state_size = state.shape[0]
+                action_size = env.action_space.n
+                
+                # Recréer l'agent avec la bonne taille d'état
+                learning_rate = getattr(agent, 'learning_rate', 0.001)
+                gamma = getattr(agent, 'gamma', 0.95)
+                epsilon = 0.0  # Mode évaluation, pas d'exploration
+                batch_size = getattr(agent, 'batch_size', 32)
+                
+                from ai_trading.rl.dqn_agent import DQNAgent
+                agent = DQNAgent(
+                    state_size=state_size,
+                    action_size=action_size,
+                    learning_rate=learning_rate,
+                    gamma=gamma,
+                    epsilon=epsilon,
+                    batch_size=batch_size
+                )
+                # Note: L'agent n'est pas entraîné, mais il est utilisé en mode déterministe
+
             done = False
             episode_reward = 0
             episode_actions = []

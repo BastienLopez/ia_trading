@@ -3,9 +3,11 @@ import random
 from collections import deque
 
 import numpy as np
-from tensorflow.keras.layers import Dense, Dropout
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.optimizers import Adam
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import DataLoader, TensorDataset
+import torch.nn.functional as F
 
 # Configuration du logger
 logger = logging.getLogger("DQNAgent")
@@ -17,6 +19,42 @@ if not logger.handlers:
     )
     handler.setFormatter(formatter)
     logger.addHandler(handler)
+
+
+class DQNNetwork(nn.Module):
+    """Réseau de neurones pour l'agent DQN."""
+
+    def __init__(self, state_size, action_size):
+        super(DQNNetwork, self).__init__()
+        self.fc1 = nn.Linear(state_size, 64)
+        self.dropout1 = nn.Dropout(0.2)
+        self.fc2 = nn.Linear(64, 128)
+        self.dropout2 = nn.Dropout(0.2)
+        self.fc3 = nn.Linear(128, 64)
+        self.dropout3 = nn.Dropout(0.2)
+        self.fc4 = nn.Linear(64, action_size)
+
+    def forward(self, x):
+        x = torch.relu(self.fc1(x))
+        x = self.dropout1(x)
+        x = torch.relu(self.fc2(x))
+        x = self.dropout2(x)
+        x = torch.relu(self.fc3(x))
+        x = self.dropout3(x)
+        x = self.fc4(x)
+        return x
+
+    def get_weights(self):
+        """Retourne les poids du modèle sous forme de listes numpy."""
+        weights = []
+        for param in self.parameters():
+            weights.append(param.data.cpu().numpy())
+        return weights
+
+    def set_weights(self, weights):
+        """Définit les poids du modèle à partir d'une liste de tableaux numpy."""
+        for param, weight in zip(self.parameters(), weights):
+            param.data = torch.from_numpy(weight).to(param.device)
 
 
 class DQNAgent:
@@ -35,6 +73,7 @@ class DQNAgent:
         epsilon_min=0.01,
         batch_size=32,
         memory_size=2000,
+        device="cpu",
     ):
         """
         Initialise l'agent DQN.
@@ -49,25 +88,29 @@ class DQNAgent:
             epsilon_min (float): Valeur minimale d'epsilon
             batch_size (int): Taille du batch pour l'apprentissage
             memory_size (int): Taille de la mémoire de replay
+            device (str): Appareil à utiliser pour les calculs ('cpu' ou 'cuda')
         """
         self.state_size = state_size
         self.action_size = action_size
         self.learning_rate = learning_rate
-        self.gamma = gamma  # facteur d'actualisation
-        self.epsilon = epsilon  # taux d'exploration
+        self.gamma = gamma
+        self.epsilon = epsilon
         self.epsilon_decay = epsilon_decay
         self.epsilon_min = epsilon_min
         self.batch_size = batch_size
+        self.device = device
 
         # Mémoire de replay
         self.memory = deque(maxlen=memory_size)
 
-        # Modèle principal (pour la prédiction)
-        self.model = self.build_model()
-
-        # Modèle cible (pour la stabilité de l'apprentissage)
-        self.target_model = self.build_model()
+        # Modèles
+        self.model = DQNNetwork(state_size, action_size).to(device)
+        self.target_model = DQNNetwork(state_size, action_size).to(device)
         self.update_target_model()
+
+        # Optimiseur
+        self.optimizer = optim.Adam(self.model.parameters(), lr=learning_rate)
+        self.criterion = nn.MSELoss()
 
         # Métriques de suivi
         self.loss_history = []
@@ -78,43 +121,9 @@ class DQNAgent:
             f"Agent DQN initialisé avec state_size={state_size}, action_size={action_size}"
         )
 
-    def build_model(self):
-        """
-        Construit le modèle de réseau neuronal.
-
-        Returns:
-            keras.Model: Modèle compilé.
-        """
-        model = Sequential()
-
-        # Déterminer dynamiquement la taille de l'état d'entrée
-        input_shape = (
-            (self.state_size,) if isinstance(self.state_size, int) else self.state_size
-        )
-
-        # Couche d'entrée
-        model.add(Dense(64, input_shape=input_shape, activation="relu"))
-        model.add(Dropout(0.2))
-
-        # Couches cachées
-        model.add(Dense(128, activation="relu"))
-        model.add(Dropout(0.2))
-        model.add(Dense(64, activation="relu"))
-        model.add(Dropout(0.2))
-
-        # Couche de sortie
-        model.add(Dense(self.action_size, activation="linear"))
-
-        # Compilation du modèle
-        model.compile(loss="mse", optimizer=Adam(learning_rate=self.learning_rate))
-
-        return model
-
     def update_target_model(self):
-        """
-        Met à jour le modèle cible avec les poids du modèle principal.
-        """
-        self.target_model.set_weights(self.model.get_weights())
+        """Met à jour le modèle cible avec les poids du modèle principal."""
+        self.target_model.load_state_dict(self.model.state_dict())
         logger.debug("Modèle cible mis à jour")
 
     def remember(self, state, action, reward, next_state, done):
@@ -131,11 +140,9 @@ class DQNAgent:
         # Traiter l'état si c'est un tuple
         if isinstance(state, tuple):
             if len(state) > 0:
-                # Si le premier élément est un array, on utilise celui-là
                 if hasattr(state[0], "shape"):
                     state = state[0]
                 else:
-                    # Sinon, on essaie de prendre le premier élément du tuple
                     try:
                         state = np.array([state[0]])
                     except:
@@ -147,11 +154,9 @@ class DQNAgent:
         # Traiter next_state si c'est un tuple
         if isinstance(next_state, tuple):
             if len(next_state) > 0:
-                # Si le premier élément est un array, on utilise celui-là
                 if hasattr(next_state[0], "shape"):
                     next_state = next_state[0]
                 else:
-                    # Sinon, on essaie de prendre le premier élément du tuple
                     try:
                         next_state = np.array([next_state[0]])
                     except:
@@ -181,15 +186,15 @@ class DQNAgent:
 
         # Vérifier si la taille de l'état correspond à celle attendue par le modèle
         if len(state.shape) == 1 and state.shape[0] != self.state_size:
-            # Mettre à jour la taille de l'état et reconstruire le modèle
             old_size = self.state_size
             self.state_size = state.shape[0]
             logger.warning(
                 f"La taille de l'état ({self.state_size}) ne correspond pas à celle attendue par le modèle ({old_size}). Reconstruction des modèles..."
             )
-            self.model = self.build_model()
-            self.target_model = self.build_model()
+            self.model = DQNNetwork(self.state_size, self.action_size).to(self.device)
+            self.target_model = DQNNetwork(self.state_size, self.action_size).to(self.device)
             self.update_target_model()
+            self.optimizer = optim.Adam(self.model.parameters(), lr=self.learning_rate)
 
             # Vider la mémoire pour éviter les incohérences de tailles d'état
             self.memory.clear()
@@ -198,17 +203,13 @@ class DQNAgent:
             )
 
         # Vérifier que state et next_state ont la même taille
-        if (
-            len(state.shape) == 1
-            and len(next_state.shape) == 1
-            and state.shape[0] != next_state.shape[0]
-        ):
-            logger.warning(
-                f"Les tailles de state ({state.shape[0]}) et next_state ({next_state.shape[0]}) diffèrent. Cette expérience sera ignorée."
+        if state.shape != next_state.shape:
+            logger.error(
+                f"Les tailles de state ({state.shape}) et next_state ({next_state.shape}) ne correspondent pas"
             )
             return
 
-        # Ajouter l'expérience à la mémoire
+        # Stocker l'expérience dans la mémoire
         self.memory.append((state, action, reward, next_state, done))
 
     def act(self, state):
@@ -216,198 +217,144 @@ class DQNAgent:
         Choisit une action en fonction de l'état actuel.
 
         Args:
-            state (numpy.array or tuple): État actuel.
+            state (numpy.array): État actuel
 
         Returns:
-            int: Action choisie.
+            int: Action choisie
         """
-        # Gérer le cas où state est un tuple
-        if isinstance(state, tuple):
-            if len(state) > 0:
-                # Si le premier élément est un array, on utilise celui-là
-                if hasattr(state[0], "shape"):
-                    state = state[0]
-                else:
-                    # Sinon, on essaie de prendre le premier élément du tuple
-                    state = np.array([state[0]])
-
-        # Assurons-nous que state est un array numpy
-        if not isinstance(state, np.ndarray):
-            try:
-                state = np.array(state)
-            except:
-                logger.error(
-                    f"Impossible de convertir state en array numpy, type: {type(state)}"
-                )
-                # Fallback en cas d'échec: action aléatoire
-                return random.randrange(self.action_size)
-
-        # S'assurer que l'état a la bonne forme pour le modèle
-        if len(state.shape) == 1:
-            state = np.reshape(state, [1, len(state)])
-
-        # Vérifier si la taille de l'état correspond à ce que le modèle attend
-        if state.shape[1] != self.state_size:
-            logger.warning(
-                f"La taille de l'état ({state.shape[1]}) ne correspond pas à celle attendue par le modèle ({self.state_size}). Reconstruction du modèle..."
-            )
-            self.state_size = state.shape[1]
-            self.model = self.build_model()
-            self.target_model = self.build_model()
-            self.update_target_model()
-
-        # Exploration aléatoire
         if np.random.rand() <= self.epsilon:
             return random.randrange(self.action_size)
 
-        # Exploitation: choisir la meilleure action
-        act_values = self.model.predict(state, verbose=0)
-        return np.argmax(act_values[0])
+        # Convertir l'état en tensor
+        if isinstance(state, np.ndarray):
+            if len(state.shape) == 1:
+                state = state.reshape(1, -1)
+            elif len(state.shape) == 2 and state.shape[0] != 1:
+                state = state.reshape(1, -1)
+        state = torch.FloatTensor(state).to(self.device)
+
+        # Obtenir les Q-values
+        self.model.eval()  # Passer en mode évaluation
+        with torch.no_grad():
+            q_values = self.model(state)
+        self.model.train()  # Repasser en mode entraînement
+
+        # Retourner l'action avec la Q-value la plus élevée
+        return q_values.argmax(dim=1).item()
 
     def select_action(self, state):
         """
-        Alias pour act().
-        Choisit une action en fonction de l'état actuel.
+        Sélectionne une action en fonction de l'état actuel.
 
         Args:
-            state (numpy.array): État actuel.
+            state (numpy.array): État actuel
 
         Returns:
-            int: Action choisie.
+            int: Action sélectionnée
         """
         return self.act(state)
 
     def replay(self, batch_size=None):
-        """
-        Entraîne le modèle sur un batch d'expériences.
-
-        Args:
-            batch_size (int, optional): Taille du batch. Si None, utilise self.batch_size
-
-        Returns:
-            float: Perte moyenne du batch
-        """
+        """Effectue une étape d'apprentissage sur un batch d'expériences."""
         if batch_size is None:
             batch_size = self.batch_size
 
-        # Vérifier si la mémoire contient assez d'expériences
         if len(self.memory) < batch_size:
-            return 0
+            return 0.0
 
-        # Échantillonner un batch aléatoire de la mémoire
+        # Échantillonner un batch d'expériences
         minibatch = random.sample(self.memory, batch_size)
+        
+        # Convertir les expériences en tenseurs
+        states = np.array([e[0] for e in minibatch])
+        actions = np.array([e[1] for e in minibatch])
+        rewards = np.array([e[2] for e in minibatch])
+        next_states = np.array([e[3] for e in minibatch])
+        dones = np.array([e[4] for e in minibatch])
 
-        # Vérifier si la taille des états est constante dans le minibatch
-        first_state = minibatch[0][0]
-        if len(first_state.shape) > 1:
-            first_state = first_state[0]
+        # Reshape les états si nécessaire
+        if len(states.shape) == 3:  # Si la forme est (batch_size, 1, state_size)
+            states = states.squeeze(1)
+            next_states = next_states.squeeze(1)
+        elif len(states.shape) == 1:  # Si la forme est (state_size,)
+            states = states.reshape(-1, self.state_size)
+            next_states = next_states.reshape(-1, self.state_size)
 
-        # Si la taille d'état a changé, reconstruire les modèles
-        if len(first_state) != self.state_size:
-            logger.warning(
-                f"La taille de l'état dans la mémoire ({len(first_state)}) ne correspond pas à celle attendue par le modèle ({self.state_size}). Reconstruction des modèles..."
-            )
-            self.state_size = len(first_state)
-            self.model = self.build_model()
-            self.target_model = self.build_model()
-            self.update_target_model()
+        # Convertir en tenseurs PyTorch
+        states = torch.FloatTensor(states).to(self.device)
+        actions = torch.LongTensor(actions).to(self.device)
+        rewards = torch.FloatTensor(rewards).to(self.device)
+        next_states = torch.FloatTensor(next_states).to(self.device)
+        dones = torch.FloatTensor(dones).to(self.device)
 
-        # Préparer les données d'entraînement
-        states = np.zeros((batch_size, self.state_size), dtype=np.float32)
-        targets = np.zeros((batch_size, self.action_size), dtype=np.float32)
+        # Calculer les Q-values actuelles
+        current_q_values = self.model(states)
+        current_q_values = current_q_values.gather(1, actions.unsqueeze(1)).squeeze(1)
 
-        for i, (state, action, reward, next_state, done) in enumerate(minibatch):
-            # S'assurer que state est dans le bon format et en float32
-            if len(state.shape) > 1:
-                state = state[0]  # Prendre le premier élément si c'est un batch
-            state = state.astype(np.float32)
+        # Calculer les Q-values cibles
+        with torch.no_grad():
+            next_q_values = self.target_model(next_states).max(1)[0]
+            target_q_values = rewards + (1 - dones) * self.gamma * next_q_values
 
-            # S'assurer que next_state est dans le bon format et en float32
-            if len(next_state.shape) > 1:
-                next_state = next_state[0]
-            next_state = next_state.astype(np.float32)
+        # Calculer la perte
+        loss = F.mse_loss(current_q_values, target_q_values)
 
-            # Vérifier si la taille de next_state correspond à celle attendue par le modèle
-            if len(next_state) != self.state_size:
-                logger.warning(
-                    f"La taille de next_state ({len(next_state)}) ne correspond pas à celle attendue par le modèle ({self.state_size}). Cet exemple sera ignoré."
-                )
-                continue
+        # Optimiser le modèle
+        self.optimizer.zero_grad()
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
+        self.optimizer.step()
 
-            # Prédire les Q-values pour l'état actuel
-            state_reshaped = np.reshape(state, [1, len(state)])
-            target = self.model.predict(state_reshaped, verbose=0)[0]
+        # Mettre à jour l'historique des pertes
+        self.loss_history.append(loss.item())
 
-            if done:
-                # Si l'épisode est terminé, la cible est simplement la récompense
-                target[action] = reward
-            else:
-                # Sinon, la cible est la récompense plus la Q-value future actualisée
-                # Utiliser le modèle cible pour la stabilité
-                next_state_reshaped = np.reshape(next_state, [1, len(next_state)])
-                t = self.target_model.predict(next_state_reshaped, verbose=0)[0]
-                target[action] = reward + self.gamma * np.amax(t)
-
-            # Stocker pour l'entraînement par lot
-            states[i] = state
-            targets[i] = target
-
-        # Entraîner le modèle
-        history = self.model.fit(states, targets, batch_size=batch_size, verbose=0)
-
-        # Enregistrer la perte
-        loss = history.history["loss"][0]
-        self.loss_history.append(loss)
-
-        # Décroître epsilon
-        self.decay_epsilon()
-
-        return loss
+        return loss.item()
 
     def learn(self, batch_size=None):
         """
-        Alias pour replay().
-        Entraîne le modèle sur un batch d'expériences.
+        Alias pour la méthode replay.
 
         Args:
-            batch_size (int, optional): Taille du batch. Si None, utilise self.batch_size
+            batch_size (int, optional): Taille du batch. Si None, utilise self.batch_size.
 
         Returns:
-            float: Perte moyenne du batch
+            float: Perte moyenne sur le batch
         """
-        return self.replay(batch_size)
+        return self.replay()
 
     def load(self, name):
         """
-        Charge les poids du modèle à partir d'un fichier.
+        Charge les poids du modèle depuis un fichier.
 
         Args:
-            name (str): Chemin du fichier
+            name (str): Nom du fichier à charger
         """
-        if not name.endswith(".weights.h5"):
-            name += ".weights.h5"
-        self.model.load_weights(name)
-        self.update_target_model()
-        logger.info(f"Modèle chargé depuis {name}")
+        try:
+            self.model.load_state_dict(torch.load(name))
+            self.update_target_model()
+            logger.info(f"Modèle chargé depuis {name}")
+        except Exception as e:
+            logger.error(f"Erreur lors du chargement du modèle: {str(e)}")
 
     def save(self, name):
         """
         Sauvegarde les poids du modèle dans un fichier.
 
         Args:
-            name (str): Chemin du fichier
+            name (str): Nom du fichier de sauvegarde
         """
-        if not name.endswith(".weights.h5"):
-            name += ".weights.h5"
-        self.model.save_weights(name)
-        logger.info(f"Modèle sauvegardé dans {name}")
+        try:
+            torch.save(self.model.state_dict(), name)
+            logger.info(f"Modèle sauvegardé dans {name}")
+        except Exception as e:
+            logger.error(f"Erreur lors de la sauvegarde du modèle: {str(e)}")
 
     def get_metrics(self):
         """
         Retourne les métriques de l'agent.
 
         Returns:
-            dict: Métriques de l'agent
+            dict: Dictionnaire contenant les métriques
         """
         return {
             "loss_history": self.loss_history,
@@ -416,8 +363,7 @@ class DQNAgent:
         }
 
     def decay_epsilon(self):
-        """Décroît epsilon selon le facteur de décroissance"""
+        """Décroît la valeur d'epsilon."""
         if self.epsilon > self.epsilon_min:
-            self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
-            self.epsilon_history.append(self.epsilon)
-        return self.epsilon
+            self.epsilon = max(self.epsilon * self.epsilon_decay, self.epsilon_min)
+        self.epsilon_history.append(self.epsilon)

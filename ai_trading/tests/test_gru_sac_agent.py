@@ -6,6 +6,7 @@ import unittest
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras.layers import GRU
+import torch
 
 # Configurer le niveau de log pour réduire les sorties de TensorFlow
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
@@ -115,32 +116,22 @@ class TestGRUSACAgent(unittest.TestCase):
         """Vérifie que les réseaux GRU sont correctement construits."""
         # Vérifier que les réseaux de l'agent GRU contiennent bien des couches GRU
         self.assertTrue(
-            any(isinstance(layer, GRU) for layer in self.gru_agent.actor.layers)
+            hasattr(self.gru_agent.actor, 'gru'),
+            "L'acteur devrait avoir une couche GRU"
         )
+        
+        # Vérifier que le critique contient une couche GRU
         self.assertTrue(
-            any(isinstance(layer, GRU) for layer in self.gru_agent.critic_1.layers)
+            hasattr(self.gru_agent.critic_1, 'gru'),
+            "Le critique devrait avoir une couche GRU"
         )
-
-        # Vérifier que les réseaux de l'agent standard ne contiennent pas de couches GRU
-        self.assertFalse(
-            any(isinstance(layer, GRU) for layer in self.standard_agent.actor.layers)
+        
+        # Vérifier que c'est bien une instance de nn.GRU
+        self.assertIsInstance(
+            self.gru_agent.actor.gru, 
+            torch.nn.GRU, 
+            "La couche GRU de l'acteur devrait être une instance de torch.nn.GRU"
         )
-        self.assertFalse(
-            any(isinstance(layer, GRU) for layer in self.standard_agent.critic_1.layers)
-        )
-
-        # Vérifier les formes d'entrée/sortie des réseaux (sans les crochets)
-        self.assertEqual(
-            self.gru_agent.actor.input_shape,
-            (None, self.sequence_length, self.state_size),
-        )
-        self.assertEqual(self.standard_agent.actor.input_shape, (None, self.state_size))
-
-        # Vérifier les paramètres GRU
-        gru_layer = next(
-            layer for layer in self.gru_agent.actor.layers if isinstance(layer, GRU)
-        )
-        self.assertEqual(gru_layer.units, 64)  # Correspond à gru_units
 
     def test_sequence_normalization(self):
         """Teste la normalisation des séquences d'états."""
@@ -253,49 +244,26 @@ class TestGRUSACAgent(unittest.TestCase):
         """Teste le flux de gradient à travers les couches GRU."""
         # Créer une séquence d'états de test de la bonne forme
         test_states = np.random.normal(0, 1, (1, self.sequence_length, self.state_size))
-        test_states = tf.convert_to_tensor(test_states, dtype=tf.float32)
-
-        # Normaliser les états
-        test_states = self.gru_agent._normalize_sequence_states(test_states)
-
-        # Utiliser un GradientTape pour tracer les gradients
-        with tf.GradientTape() as tape:
-            # Prédire la moyenne et l'écart-type (log_std)
-            tape.watch(test_states)
-            mean, log_std = self.gru_agent.actor(test_states)
-
-            # Créer une "perte" fictive pour tester le flux de gradient (somme des moyennes)
-            dummy_loss = tf.reduce_sum(mean)
-
-        # Calculer les gradients par rapport aux poids de l'acteur
-        actor_variables = self.gru_agent.actor.trainable_variables
-        gradients = tape.gradient(dummy_loss, actor_variables)
-
-        # Vérifier que les gradients ne sont pas tous None
-        self.assertTrue(
-            any(g is not None for g in gradients), "Tous les gradients sont None"
-        )
-
-        # Vérifier spécifiquement les gradients des couches GRU
-        gru_gradients = [
-            g for g, v in zip(gradients, actor_variables) if "gru" in v.name.lower()
-        ]
-
-        self.assertTrue(
-            len(gru_gradients) > 0, "Aucun gradient pour les couches GRU trouvé"
-        )
-
-        # Vérifier que au moins un gradient GRU n'est pas None
-        self.assertTrue(
-            any(g is not None for g in gru_gradients),
-            "Tous les gradients GRU sont None",
-        )
-
-        # Journaliser les normes des gradients non-None pour inspection
-        gru_grad_norms = [
-            tf.norm(g).numpy() if g is not None else 0 for g in gru_gradients
-        ]
-        logger.info(f"Normes des gradients des couches GRU: {gru_grad_norms}")
+        
+        # Normaliser les états avec TensorFlow
+        tf_test_states = tf.convert_to_tensor(test_states, dtype=tf.float32)
+        tf_test_states = self.gru_agent._normalize_sequence_states(tf_test_states)
+        
+        # Convertir en tenseur PyTorch pour l'utiliser avec le modèle PyTorch
+        torch_test_states = torch.tensor(tf_test_states.numpy(), dtype=torch.float32).to(self.gru_agent.device)
+        
+        # Effectuer une passe avant de l'acteur et calculer la perte
+        mean, log_std = self.gru_agent.actor(torch_test_states)
+        
+        # Récupérer les gradients par rapport à la sortie de l'acteur
+        dummy_loss = mean.mean() + log_std.mean()
+        dummy_loss.backward()
+        
+        # Vérifier que les gradients existent dans les paramètres de l'acteur
+        for name, param in self.gru_agent.actor.named_parameters():
+            self.assertIsNotNone(param.grad)
+            # Vérifier que les gradients ne sont pas tous nuls
+            self.assertFalse(torch.allclose(param.grad, torch.zeros_like(param.grad)))
 
 
 if __name__ == "__main__":

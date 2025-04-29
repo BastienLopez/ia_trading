@@ -41,8 +41,10 @@ class TestDQNAgent(unittest.TestCase):
         self.assertIsNotNone(self.agent.target_model)
 
         # Vérifier que les modèles ont la bonne architecture
-        self.assertEqual(self.agent.model.input_shape, (None, self.state_size))
-        self.assertEqual(self.agent.model.output_shape, (None, self.action_size))
+        # Vérifier la première couche (input)
+        self.assertEqual(self.agent.model.fc1.in_features, self.state_size)
+        # Vérifier la dernière couche (output)
+        self.assertEqual(self.agent.model.fc4.out_features, self.action_size)
 
     def test_act(self):
         """Teste la méthode d'action."""

@@ -19,6 +19,10 @@ pytest ai_trading/tests/test_sentiment_integration.py -v
 ```bash	
 python -m pytest ai_trading/tests/ -v
 ```
+# Stop si erreurs 
+```bash	
+python -m pytest ai_trading/tests/ -v -x
+```
 
 
 # Exécuter tous les tests RL

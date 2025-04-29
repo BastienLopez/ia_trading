@@ -3,10 +3,10 @@ import random
 from collections import deque
 
 import numpy as np
-import tensorflow as tf
-from tensorflow.keras.layers import Dense, Input, Lambda
-from tensorflow.keras.models import Model
-from tensorflow.keras.optimizers import Adam
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import DataLoader, TensorDataset
 
 # Configuration du logger
 logger = logging.getLogger(__name__)
@@ -120,6 +120,54 @@ class PrioritizedReplayBuffer:
             self.max_priority = max(self.max_priority, priority)
 
 
+class DQNNetwork(nn.Module):
+    """Réseau de neurones pour l'agent DQN."""
+
+    def __init__(self, state_size, action_size, use_dueling=False):
+        super(DQNNetwork, self).__init__()
+        self.use_dueling = use_dueling
+        
+        # Couches partagées
+        self.shared_layers = nn.Sequential(
+            nn.Linear(state_size, 64),
+            nn.ReLU(),
+            nn.Linear(64, 64),
+            nn.ReLU()
+        )
+        
+        if use_dueling:
+            # Architecture Dueling
+            self.value_stream = nn.Sequential(
+                nn.Linear(64, 32),
+                nn.ReLU(),
+                nn.Linear(32, 1)
+            )
+            
+            self.advantage_stream = nn.Sequential(
+                nn.Linear(64, 32),
+                nn.ReLU(),
+                nn.Linear(32, action_size)
+            )
+        else:
+            # Architecture DQN standard
+            self.output_layer = nn.Linear(64, action_size)
+
+    def forward(self, x):
+        x = self.shared_layers(x)
+        
+        if self.use_dueling:
+            value = self.value_stream(x)
+            advantage = self.advantage_stream(x)
+            
+            # Q(s,a) = V(s) + (A(s,a) - mean(A(s,a')))
+            advantage_mean = advantage.mean(dim=1, keepdim=True)
+            q_values = value + (advantage - advantage_mean)
+        else:
+            q_values = self.output_layer(x)
+            
+        return q_values
+
+
 class DoubleDQNAgent:
     """
     Agent Double DQN pour le trading de cryptomonnaies.
@@ -139,6 +187,7 @@ class DoubleDQNAgent:
         buffer_size=10000,
         use_prioritized_replay=True,
         use_dueling=False,
+        device="cpu"
     ):
         """
         Initialise l'agent Double DQN.
@@ -156,6 +205,7 @@ class DoubleDQNAgent:
             buffer_size (int): Taille du tampon de replay
             use_prioritized_replay (bool): Utiliser un tampon de replay prioritaire
             use_dueling (bool): Utiliser l'architecture Dueling DQN
+            device (str): Appareil à utiliser pour les calculs ('cpu' ou 'cuda')
         """
         self.state_size = state_size
         self.action_size = action_size
@@ -168,6 +218,7 @@ class DoubleDQNAgent:
         self.update_target_every = update_target_every
         self.use_prioritized_replay = use_prioritized_replay
         self.use_dueling = use_dueling
+        self.device = device
 
         # Compteur d'étapes pour la mise à jour du réseau cible
         self.target_update_counter = 0
@@ -179,54 +230,23 @@ class DoubleDQNAgent:
             self.memory = deque(maxlen=buffer_size)
 
         # Créer les réseaux principal et cible
-        self.model = self._build_model()
-        self.target_model = self._build_model()
-        self.target_model.set_weights(self.model.get_weights())
+        self.model = DQNNetwork(state_size, action_size, use_dueling).to(device)
+        self.target_model = DQNNetwork(state_size, action_size, use_dueling).to(device)
+        self.update_target_model()
+
+        # Optimiseur et fonction de perte
+        self.optimizer = optim.Adam(self.model.parameters(), lr=learning_rate)
+        self.criterion = nn.MSELoss()
 
         logger.info(
             f"Agent initialisé avec state_size={state_size}, action_size={action_size}, "
             f"use_dueling={use_dueling}, use_prioritized_replay={use_prioritized_replay}"
         )
 
-    def _build_model(self):
-        """
-        Construit le réseau de neurones pour l'agent.
-
-        Returns:
-            Model: Modèle Keras
-        """
-        inputs = Input(shape=(self.state_size,))
-
-        # Couches partagées
-        x = Dense(64, activation="relu")(inputs)
-        x = Dense(64, activation="relu")(x)
-
-        if self.use_dueling:
-            # Architecture Dueling: séparer les flux de valeur et d'avantage
-            state_value = Dense(32, activation="relu")(x)
-            state_value = Dense(1)(state_value)
-
-            action_advantages = Dense(32, activation="relu")(x)
-            action_advantages = Dense(self.action_size)(action_advantages)
-
-            # Combinaison de la valeur et des avantages
-            # Q(s,a) = V(s) + (A(s,a) - 1/|A| * sum(A(s,a')))
-            action_advantages_mean = Lambda(
-                lambda x: tf.reduce_mean(x, axis=1, keepdims=True)
-            )(action_advantages)
-            action_advantages = Lambda(lambda x: x[0] - x[1])(
-                [action_advantages, action_advantages_mean]
-            )
-
-            outputs = Lambda(lambda x: x[0] + x[1])([state_value, action_advantages])
-        else:
-            # Architecture DQN standard
-            outputs = Dense(self.action_size)(x)
-
-        model = Model(inputs=inputs, outputs=outputs)
-        model.compile(optimizer=Adam(learning_rate=self.learning_rate), loss="mse")
-
-        return model
+    def update_target_model(self):
+        """Met à jour le modèle cible avec les poids du modèle principal."""
+        self.target_model.load_state_dict(self.model.state_dict())
+        logger.debug("Modèle cible mis à jour")
 
     def remember(self, state, action, reward, next_state, done):
         """
@@ -250,133 +270,124 @@ class DoubleDQNAgent:
 
         Args:
             state: État actuel
-            training (bool): Si True, utilise une politique epsilon-greedy
+            training (bool): Si True, utilise la politique d'exploration
 
         Returns:
             int: Action choisie
         """
-        # Exploration avec probabilité epsilon
-        if training and np.random.rand() < self.epsilon:
+        if training and np.random.rand() <= self.epsilon:
             return random.randrange(self.action_size)
 
-        # Exploitation: choisir l'action avec la valeur Q maximale
-        state = np.reshape(state, [1, self.state_size])
-        q_values = self.model.predict(state, verbose=0)[0]
-        return np.argmax(q_values)
+        # Convertir l'état en tensor
+        state = torch.FloatTensor(state).unsqueeze(0).to(self.device)
+
+        # Obtenir les Q-values
+        with torch.no_grad():
+            q_values = self.model(state)
+
+        # Retourner l'action avec la Q-value la plus élevée
+        return q_values.argmax().item()
 
     def train(self):
         """
-        Entraîne l'agent sur un lot d'expériences.
+        Entraîne le modèle sur un batch d'expériences.
 
         Returns:
-            float: Perte moyenne sur le lot
+            float: Perte moyenne sur le batch
         """
-        # Vérifier si le tampon contient suffisamment d'échantillons
-        if self.use_prioritized_replay and self.memory.size < self.batch_size:
-            return 0
-        elif not self.use_prioritized_replay and len(self.memory) < self.batch_size:
-            return 0
+        if len(self.memory) < self.batch_size:
+            return 0.0
 
-        # Échantillonner un lot du tampon de replay
+        # Échantillonner un batch
         if self.use_prioritized_replay:
-            states, actions, rewards, next_states, dones, indices, is_weights = (
-                self.memory.sample(self.batch_size)
+            states, actions, rewards, next_states, dones, indices, weights = self.memory.sample(
+                self.batch_size
             )
+            weights = torch.FloatTensor(weights).to(self.device)
         else:
             minibatch = random.sample(self.memory, self.batch_size)
-            states = np.array([experience[0] for experience in minibatch])
-            actions = np.array([experience[1] for experience in minibatch])
-            rewards = np.array([experience[2] for experience in minibatch])
-            next_states = np.array([experience[3] for experience in minibatch])
-            dones = np.array([experience[4] for experience in minibatch])
-            indices = None
-            is_weights = np.ones(self.batch_size)
+            states = np.array([t[0] for t in minibatch])
+            actions = np.array([t[1] for t in minibatch])
+            rewards = np.array([t[2] for t in minibatch])
+            next_states = np.array([t[3] for t in minibatch])
+            dones = np.array([t[4] for t in minibatch])
+            weights = torch.ones(self.batch_size).to(self.device)
 
-        # Double DQN: utiliser le modèle principal pour sélectionner l'action
-        # et le modèle cible pour estimer sa valeur
-        next_q_values = self.model.predict(next_states, verbose=0)
-        next_actions = np.argmax(next_q_values, axis=1)
+        # Convertir en tensors
+        states = torch.FloatTensor(states).to(self.device)
+        actions = torch.LongTensor(actions).to(self.device)
+        rewards = torch.FloatTensor(rewards).to(self.device)
+        next_states = torch.FloatTensor(next_states).to(self.device)
+        dones = torch.FloatTensor(dones).to(self.device)
 
-        # Obtenir les valeurs Q du modèle cible pour les prochains états
-        target_next_q_values = self.target_model.predict(next_states, verbose=0)
+        # Calculer les Q-values actuelles
+        current_q_values = self.model(states).gather(1, actions.unsqueeze(1))
 
-        # Calculer les valeurs Q cibles
-        targets = (
-            rewards
-            + (1 - dones)
-            * self.discount_factor
-            * target_next_q_values[np.arange(self.batch_size), next_actions]
-        )
+        # Calculer les Q-values cibles (Double DQN)
+        with torch.no_grad():
+            # Sélectionner les actions avec le modèle principal
+            next_actions = self.model(next_states).argmax(1)
+            # Évaluer les Q-values avec le modèle cible
+            next_q_values = self.target_model(next_states).gather(1, next_actions.unsqueeze(1))
+            target_q_values = rewards + (1 - dones) * self.discount_factor * next_q_values
 
-        # Obtenir les valeurs Q actuelles
-        current_q = self.model.predict(states, verbose=0)
+        # Calculer la perte
+        loss = self.criterion(current_q_values, target_q_values)
+        loss = (loss * weights).mean()
 
-        # Calculer les erreurs TD pour la mise à jour des priorités
-        td_errors = np.abs(targets - current_q[np.arange(self.batch_size), actions])
+        # Mettre à jour le modèle
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
 
-        # Mettre à jour les valeurs Q pour les actions prises
-        target_q = current_q.copy()
-        target_q[np.arange(self.batch_size), actions] = targets
+        # Mettre à jour les priorités si on utilise le replay prioritaire
+        if self.use_prioritized_replay:
+            with torch.no_grad():
+                td_errors = torch.abs(current_q_values - target_q_values).cpu().numpy()
+            self.memory.update_priorities(indices, td_errors)
 
-        # Appliquer les poids d'importance-sampling pour le calcul de la perte
-        sample_weights = is_weights
+        # Mettre à jour le modèle cible périodiquement
+        self.target_update_counter += 1
+        if self.target_update_counter >= self.update_target_every:
+            self.update_target_model()
+            self.target_update_counter = 0
 
-        # Entraîner le modèle
-        history = self.model.fit(
-            states,
-            target_q,
-            batch_size=self.batch_size,
-            epochs=1,
-            verbose=0,
-            sample_weight=sample_weights,
-        )
-
-        # Mettre à jour les priorités dans le tampon à priorité
-        if self.use_prioritized_replay and indices is not None:
-            self.memory.update_priorities(
-                indices, td_errors + 1e-6
-            )  # Ajouter un petit epsilon pour éviter les priorités nulles
-
-        # Mettre à jour epsilon
+        # Décroître epsilon
         if self.epsilon > self.epsilon_min:
             self.epsilon *= self.epsilon_decay
 
-        # Incrémenter le compteur et mettre à jour le réseau cible si nécessaire
-        self.target_update_counter += 1
-        if self.target_update_counter >= self.update_target_every:
-            self.target_model.set_weights(self.model.get_weights())
-            self.target_update_counter = 0
-            logger.debug("Mise à jour du réseau cible")
-
-        return history.history["loss"][0]
+        return loss.item()
 
     def save(self, filepath):
         """
-        Sauvegarde le modèle.
+        Sauvegarde les poids du modèle.
 
         Args:
-            filepath (str): Chemin du fichier pour la sauvegarde
+            filepath (str): Chemin du fichier de sauvegarde
         """
-        self.model.save_weights(filepath)
-        logger.info(f"Modèle sauvegardé à {filepath}")
+        try:
+            torch.save(self.model.state_dict(), filepath)
+            logger.info(f"Modèle sauvegardé dans {filepath}")
+        except Exception as e:
+            logger.error(f"Erreur lors de la sauvegarde du modèle: {str(e)}")
 
     def load(self, filepath):
         """
-        Charge le modèle.
+        Charge les poids du modèle.
 
         Args:
             filepath (str): Chemin du fichier à charger
         """
-        self.model.load_weights(filepath)
-        self.target_model.load_weights(filepath)
-        logger.info(f"Modèle chargé depuis {filepath}")
+        try:
+            self.model.load_state_dict(torch.load(filepath))
+            self.update_target_model()
+            logger.info(f"Modèle chargé depuis {filepath}")
+        except Exception as e:
+            logger.error(f"Erreur lors du chargement du modèle: {str(e)}")
 
 
 class DuelingDQNAgent(DoubleDQNAgent):
-    """
-    Agent Dueling DQN pour le trading de cryptomonnaies.
-    Hérite de Double DQN et active l'architecture Dueling.
-    """
+    """Agent Dueling DQN qui hérite de DoubleDQNAgent."""
 
     def __init__(
         self,
@@ -391,13 +402,8 @@ class DuelingDQNAgent(DoubleDQNAgent):
         update_target_every=5,
         buffer_size=10000,
         use_prioritized_replay=True,
+        device="cpu"
     ):
-        """
-        Initialise l'agent Dueling DQN.
-
-        Args:
-            Voir DoubleDQNAgent pour la description des paramètres.
-        """
         super().__init__(
             state_size=state_size,
             action_size=action_size,
@@ -410,15 +416,13 @@ class DuelingDQNAgent(DoubleDQNAgent):
             update_target_every=update_target_every,
             buffer_size=buffer_size,
             use_prioritized_replay=use_prioritized_replay,
-            use_dueling=True,  # Activer l'architecture Dueling
+            use_dueling=True,
+            device=device
         )
 
 
 class DoubleDuelingDQNAgent(DoubleDQNAgent):
-    """
-    Agent combinant Double DQN et Dueling DQN pour le trading de cryptomonnaies.
-    Cette combinaison offre les avantages des deux architectures.
-    """
+    """Agent Double Dueling DQN qui hérite de DoubleDQNAgent."""
 
     def __init__(
         self,
@@ -433,13 +437,8 @@ class DoubleDuelingDQNAgent(DoubleDQNAgent):
         update_target_every=5,
         buffer_size=10000,
         use_prioritized_replay=True,
+        device="cpu"
     ):
-        """
-        Initialise l'agent Double-Dueling DQN.
-
-        Args:
-            Voir DoubleDQNAgent pour la description des paramètres.
-        """
         super().__init__(
             state_size=state_size,
             action_size=action_size,
@@ -452,6 +451,7 @@ class DoubleDuelingDQNAgent(DoubleDQNAgent):
             update_target_every=update_target_every,
             buffer_size=buffer_size,
             use_prioritized_replay=use_prioritized_replay,
-            use_dueling=True,  # Activer l'architecture Dueling
+            use_dueling=True,
+            device=device
         )
         logger.info("Agent Double-Dueling DQN initialisé")

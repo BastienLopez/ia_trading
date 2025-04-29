@@ -78,10 +78,16 @@ class TestSACAgent(unittest.TestCase):
         self.agent = SACAgent(
             state_size=self.state_size,
             action_size=1,  # L'environnement a un espace d'action de dimension 1
-            action_bounds=(-1, 1),  # Les actions sont normalisées entre -1 et 1
-            batch_size=32,
-            buffer_size=5000,
             hidden_size=64,
+            learning_rate=3e-4,
+            gamma=0.99,
+            tau=0.005,
+            alpha=0.2,
+            buffer_size=5000,
+            batch_size=32,
+            sequence_length=1,
+            use_gru=False,
+            device="cpu"  # Utiliser CPU pour les tests
         )
 
         # Collecter quelques expériences pour le tampon de replay
@@ -114,13 +120,13 @@ class TestSACAgent(unittest.TestCase):
         state, _ = self.env.reset()
 
         # Test mode stochastique
-        action = self.agent.act(state)
+        action = self.agent.select_action(state)
         self.assertIsInstance(action, np.ndarray)
         self.assertEqual(action.shape, (1,))
         self.assertTrue(-1 <= action[0] <= 1)
 
         # Test mode déterministe (évaluation)
-        action_det = self.agent.act(state, evaluate=True)
+        action_det = self.agent.select_action(state, evaluate=True)
         self.assertIsInstance(action_det, np.ndarray)
         self.assertEqual(action_det.shape, (1,))
         self.assertTrue(-1 <= action_det[0] <= 1)
@@ -174,8 +180,16 @@ class TestSACAgent(unittest.TestCase):
             new_agent = SACAgent(
                 state_size=self.state_size,
                 action_size=1,
-                action_bounds=(-1, 1),
-                hidden_size=64,  # Utiliser le même hidden_size que l'agent original
+                hidden_size=64,
+                learning_rate=3e-4,
+                gamma=0.99,
+                tau=0.005,
+                alpha=0.2,
+                buffer_size=5000,
+                batch_size=32,
+                sequence_length=1,
+                use_gru=False,
+                device="cpu"  # Utiliser CPU pour les tests
             )
 
             # Charger les poids
@@ -183,8 +197,8 @@ class TestSACAgent(unittest.TestCase):
 
             # Tester une action avec l'agent original et l'agent chargé
             state, _ = self.env.reset()
-            action_original = self.agent.act(state, evaluate=True)
-            action_loaded = new_agent.act(state, evaluate=True)
+            action_original = self.agent.select_action(state, evaluate=True)
+            action_loaded = new_agent.select_action(state, evaluate=True)
 
             # Les actions devraient être similaires (pas forcément identiques)
             # Différence relative faible
