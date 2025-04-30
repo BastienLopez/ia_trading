@@ -65,6 +65,7 @@ class TransformerHybridModel(nn.Module):
         dropout_rate=0.1,
         recurrent_dropout=0.0,
         sequence_length=20,
+        num_rnn_layers=1,
     ):
         super().__init__()
 
@@ -85,14 +86,16 @@ class TransformerHybridModel(nn.Module):
                 embed_dim,
                 rnn_units,
                 batch_first=True,
-                dropout=dropout_rate if num_transformer_blocks > 1 else 0,
+                dropout=dropout_rate if num_rnn_layers > 1 else 0,
+                num_layers=num_rnn_layers,
             )
         elif model_type.lower() == "lstm":
             self.rnn = nn.LSTM(
                 embed_dim,
                 rnn_units,
                 batch_first=True,
-                dropout=dropout_rate if num_transformer_blocks > 1 else 0,
+                dropout=dropout_rate if num_rnn_layers > 1 else 0,
+                num_layers=num_rnn_layers,
             )
         else:
             raise ValueError(
@@ -108,7 +111,8 @@ class TransformerHybridModel(nn.Module):
         logger.info(
             f"Modèle hybride Transformer-{model_type.upper()} créé avec "
             f"{num_transformer_blocks} blocs Transformer, {num_heads} têtes d'attention, "
-            f"dimension d'embedding {embed_dim}, {rnn_units} unités récurrentes"
+            f"dimension d'embedding {embed_dim}, {rnn_units} unités récurrentes, "
+            f"{num_rnn_layers} couches récurrentes"
         )
 
     def forward(self, x):

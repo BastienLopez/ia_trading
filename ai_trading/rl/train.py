@@ -119,7 +119,7 @@ class TrainingMonitor:
 
         # Afficher les figures
         for fig in self.figs.values():
-            fig.show()
+            fig.tight_layout()
 
     def update(
         self,
@@ -204,8 +204,12 @@ class TrainingMonitor:
 
         # Rafraîchir les figures
         for fig in self.figs.values():
-            fig.canvas.draw()
-            fig.canvas.flush_events()
+            fig.canvas.draw_idle()
+            try:
+                fig.canvas.flush_events()
+            except NotImplementedError:
+                # Ignorer les erreurs sur les backends qui ne supportent pas flush_events
+                pass
 
     def save_plots(self):
         """Sauvegarde tous les graphiques dans le répertoire spécifié."""

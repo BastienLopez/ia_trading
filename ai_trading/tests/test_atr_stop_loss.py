@@ -2,6 +2,8 @@ import os
 import sys
 from datetime import datetime
 
+import matplotlib
+matplotlib.use('Agg')  # Utiliser le backend non-interactif Agg
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -423,7 +425,22 @@ def visualize_trades(data, trades):
     ax2.legend()
 
     plt.tight_layout()
-    plt.show()
+    
+    # Au lieu d'utiliser plt.show(), sauvegarder l'image dans un fichier temporaire
+    import tempfile
+    import os
+    
+    # Créer un répertoire temporaire pour les visualisations
+    output_dir = os.path.join(os.path.dirname(__file__), "..", "info_retour", "visualisations")
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Sauvegarder l'image
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    save_path = os.path.join(output_dir, f"atr_stop_loss_{timestamp}.png")
+    plt.savefig(save_path)
+    plt.close()
+    
+    print(f"Visualisation sauvegardée dans {save_path}")
 
 
 if __name__ == "__main__":

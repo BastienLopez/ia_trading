@@ -69,8 +69,17 @@ def generate_synthetic_market_data(
     log_returns = np.log1p(price_changes_f32)
     cumulative_returns = np.cumsum(log_returns)
     close_prices = start_price * np.exp(cumulative_returns)
+    
+    # Vérifier les valeurs avant la conversion
+    close_prices = np.clip(close_prices, np.finfo(dtype).min, np.finfo(dtype).max)
+    
     # Reconvertir en float16 si nécessaire après le calcul
-    close_prices = close_prices.astype(dtype)
+    try:
+        close_prices = close_prices.astype(dtype, casting='safe')
+    except TypeError:
+        # Si le casting sécurisé échoue, utiliser une approche plus conservative
+        close_prices = np.clip(close_prices, -65000, 65000).astype(dtype)
+        
     close_prices = np.maximum(close_prices, start_price * min_price_ratio)
 
     # Application de la dépréciation
@@ -142,20 +151,20 @@ def generate_synthetic_market_data(
     # Création du DataFrame optimisé
     df = pd.DataFrame(
         {
-            "open": open_prices.astype(dtype),
-            "high": high_prices.astype(dtype),
-            "low": low_prices.astype(dtype),
-            "close": close_prices.astype(dtype),
-            "volume": volume.astype(dtype),
+            "open": np.clip(open_prices, -65000, 65000).astype(dtype),
+            "high": np.clip(high_prices, -65000, 65000).astype(dtype),
+            "low": np.clip(low_prices, -65000, 65000).astype(dtype),
+            "close": np.clip(close_prices, -65000, 65000).astype(dtype),
+            "volume": np.clip(volume, 0, 65000).astype(dtype),
         },
         index=dates,
     )
 
     # Ajout des colonnes pour suivre la dépréciation
-    df["depreciation_factor"] = depreciation_factor.astype(dtype)
-    df["price_ratio"] = (df["close"] / start_price).astype(dtype)
+    df["depreciation_factor"] = np.clip(depreciation_factor, 0, 1).astype(dtype)
+    df["price_ratio"] = np.clip(df["close"] / start_price, 0, 65000).astype(dtype)
     df["volume_ratio"] = (
-        (df["volume"] / base_volume).astype(dtype) if include_volume else 0
+        np.clip(df["volume"] / base_volume, 0, 65000).astype(dtype) if include_volume else 0
     )
 
     logger.info(f"Données synthétiques générées avec succès: {len(df)} points")
