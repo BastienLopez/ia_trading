@@ -23,18 +23,11 @@ python -m pytest ai_trading/tests/ -v
 ```bash	
 python -m pytest ai_trading/tests/ -v -x
 ```
-
-
-# Exécuter tous les tests RL
-```bash
-python -m unittest discover -s ai_trading/tests
+# Skip test long
+```bash	
+python -m pytest ai_trading/tests/ -v --skip-slow
 ```
-
-# Test RL3.1.1+ PASSED OR FAILED en ligne
-```bash 
-python -m pytest ai_trading/tests/test_trading_environment.py -v
-```
-
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 # Test all indicateurs PASSED OR FAILED en ligne
 ```bash
 python -m pytest ai_trading/tests/test_technical_indicators.py -v

@@ -2,6 +2,7 @@ import os
 import sys
 import tempfile
 import unittest
+import pytest
 
 import numpy as np
 import tensorflow as tf
@@ -173,6 +174,7 @@ class TestTransformerHybrid(unittest.TestCase):
         # Vérifier la forme de sortie
         self.assertEqual(output.shape, (self.batch_size, self.output_dim))
 
+    @pytest.mark.slow
     def test_save_load_model(self):
         """Teste la sauvegarde et le chargement du modèle."""
         # Créer un modèle

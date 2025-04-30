@@ -237,32 +237,22 @@ class FinancialTemporalTransformer(nn.Module):
             - Liste des matrices d'attention de chaque couche
         """
         # Vérifier et adapter le format d'entrée
-        if src.dim() > 3:
-            # Si l'entrée est 4D [batch, seq_len, autre_dim, features]
-            batch_size, seq_len, other_dim, input_dim = src.shape
-
-            # Au lieu d'aplatir, sous-échantillonner pour réduire la longueur de séquence
-            if seq_len * other_dim > 5000:
-                # Prendre un échantillon plus petit en utilisant la première et dernière partie
-                samples_per_dim = min(
-                    50, seq_len
-                )  # Limiter à 50 échantillons par dimension
-                stride = max(1, seq_len // samples_per_dim)
-
-                # Sélectionner un sous-ensemble des séquences
-                indices = torch.arange(0, seq_len, stride)[:samples_per_dim]
-                src = src[:, indices, :, :]
-
-                # Mettre à jour les dimensions
-                _, seq_len, _, _ = src.shape
-                print(
-                    f"Séquence sous-échantillonnée: de {batch_size}x{src.size(1)}x{other_dim}x{input_dim}"
-                )
-
-            # Aplatir les dimensions
-            src = src.reshape(batch_size, seq_len * other_dim, input_dim)
-            print(f"Format d'entrée final: {src.shape}")
-
+        if src.dim() == 4:
+            # Format (batch_size, seq_len, seq_dim, features) -> convertir en (batch_size, seq_len, features)
+            batch_size, seq_len, seq_dim, features = src.shape
+            src = src.view(batch_size, seq_len, seq_dim * features)
+        
+        # Vérifier si le tensor est 3D avec une dimension de 1 à la fin et réorganiser
+        if src.dim() == 3 and src.size(2) == 1:
+            # Format (batch_size, seq_len, 1) où chaque élément est un scalaire
+            # Si input_dim est plus grand que 1, répliquer la valeur
+            if self.input_projection[0].in_features > 1:
+                # Obtenir les dimensions de la source
+                batch_size = src.size(0)
+                seq_len = src.size(1)
+                # Étendre la dernière dimension pour correspondre à input_dim
+                src = src.expand(batch_size, seq_len, self.input_projection[0].in_features)
+        
         # Normalisation des données d'entrée
         src_mean = src.mean(dim=1, keepdim=True)
         src_std = src.std(dim=1, keepdim=True) + 1e-8

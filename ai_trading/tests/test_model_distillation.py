@@ -84,11 +84,28 @@ def prepare_sequences(data, seq_length=50):
 
     # Convertir en tenseurs de manière efficace
     sequences = torch.FloatTensor(np.array(sequences))
-    targets = torch.FloatTensor(targets).unsqueeze(1)
+    targets = torch.FloatTensor(targets)
+    
+    # Transformer les données en 3D (batch, seq_len, features) au lieu de 4D
+    # S'assurer que les séquences ont la bonne forme pour le modèle
+    if sequences.dim() > 3:
+        # Si les données sont 4D, les réorganiser correctement
+        batch_size, seq_len, height, width = sequences.shape
+        sequences = sequences.reshape(batch_size, seq_len, height * width)
+    elif sequences.dim() == 2:
+        # Si les données sont 2D, ajouter une dimension
+        sequences = sequences.unsqueeze(2)
+    
+    # S'assurer que les cibles sont des scalaires (dim=0) ou vecteurs (dim=1)
+    if targets.dim() == 0:
+        targets = targets.unsqueeze(0)  # Ajouter dimension batch
+    if targets.dim() == 1:
+        targets = targets.unsqueeze(1)  # Transformer en (batch, 1)
 
     return sequences, targets
 
 
+@pytest.mark.slow
 def test_distillation_loss():
     """
     Teste la fonction de perte de distillation.
@@ -129,6 +146,7 @@ def test_distillation_loss():
     assert loss_without_attention.item() != loss_with_attention.item()
 
 
+@pytest.mark.slow
 def test_distilled_financial_transformer():
     """
     Teste la création et l'utilisation du modèle financier distillé.
@@ -171,6 +189,7 @@ def test_distilled_financial_transformer():
     assert len(attention) == max(1, num_layers // 2)  # Nombre de couches
 
 
+@pytest.mark.slow
 def test_train_distilled_model(real_market_data):
     """
     Teste l'entraînement du modèle distillé sur des données simulées.
@@ -272,6 +291,7 @@ def test_train_distilled_model(real_market_data):
     assert student_preds.shape == teacher_preds.shape
 
 
+@pytest.mark.slow
 def test_accuracy_vs_speed_tradeoff(real_market_data):
     """
     Teste le compromis entre précision et vitesse avec différents facteurs de réduction.
@@ -346,6 +366,7 @@ def test_accuracy_vs_speed_tradeoff(real_market_data):
     assert os.path.exists(save_path)
 
 
+@pytest.mark.slow
 def test_save_load_distilled_model(real_market_data):
     """
     Teste l'enregistrement et le chargement d'un modèle distillé.

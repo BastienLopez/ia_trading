@@ -14,6 +14,14 @@ import pandas as pd
 import torch
 from torch.utils.data import DataLoader, Dataset
 
+try:
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    import queue
+    import threading
+    HAVE_THREADING = True
+except ImportError:
+    HAVE_THREADING = False
+
 # Configuration du logger
 logger = logging.getLogger(__name__)
 
@@ -21,6 +29,7 @@ logger = logging.getLogger(__name__)
 HAVE_PYARROW = False
 HAVE_HDF5 = False
 HAVE_LRU_CACHE = False
+HAVE_THREADING_OPTIMIZER = False
 
 try:
     import pyarrow.parquet as pq
@@ -40,6 +49,12 @@ try:
     HAVE_LRU_CACHE = True
 except ImportError:
     HAVE_LRU_CACHE = False
+
+try:
+    from ai_trading.utils.threading_optimizer import ThreadingOptimizer
+    HAVE_THREADING_OPTIMIZER = True
+except ImportError:
+    HAVE_THREADING_OPTIMIZER = False
 
 
 def optimize_memory(force_cuda_empty: bool = False) -> Tuple[float, Optional[float]]:
@@ -187,8 +202,10 @@ class MemoryManager:
 
 class FinancialDataset(Dataset):
     """
-    Dataset optimisé pour les données financières avec prise en charge de différents formats et conversions.
-    Supporte la création de séquences temporelles et normalisations.
+    Dataset pour les données financières avec support pour le chargement paresseux.
+    
+    Prend en charge plusieurs formats de données source : DataFrame, ndarray, Tensor, fichier CSV, etc.
+    Optimisé pour la mémoire avec chargement paresseux et mémoire partagée.
     """
 
     def __init__(
@@ -209,28 +226,36 @@ class FinancialDataset(Dataset):
         precompute_features: bool = False,
         chunk_size: Optional[int] = None,
         memory_optimize: bool = True,
+        async_prefetch: bool = False,        # Activer le pré-chargement asynchrone
+        prefetch_num_chunks: int = 2,        # Nombre de chunks à précharger à l'avance
+        max_prefetch_queue_size: int = 5,    # Taille maximale de la file d'attente de préchargement
     ):
         """
-        Initialise le dataset financier avec prétraitement optimisé.
-
+        Initialise le dataset.
+        
         Args:
-            data: Données source (DataFrame, ndarray, chemin de fichier ou tensor)
+            data: Source de données (DataFrame, ndarray, Tensor, ou chemin de fichier)
             sequence_length: Longueur des séquences à générer
-            target_column: Nom de la colonne contenant la valeur cible (pour DataFrame)
-            feature_columns: Liste des colonnes à utiliser comme features (pour DataFrame)
-            transform: Fonction de transformation des features
+            target_column: Nom/index de la colonne cible pour la prédiction
+            feature_columns: Liste des colonnes à utiliser comme features
+            transform: Fonction de transformation des séquences
             target_transform: Fonction de transformation des cibles
-            predict_n_ahead: Nombre de pas de temps à prédire dans le futur
-            is_train: Si True, mode entraînement (utilise les targets), sinon mode prédiction
-            device: Dispositif sur lequel charger les données ("cpu" ou "cuda")
-            use_shared_memory: Si True, utilise la mémoire partagée pour les workers
-            dtype: Type de données à utiliser pour les tenseurs
-            lazy_loading: Si True, charge les données à la demande plutôt qu'en totalité au début
-            cache_size: Taille du cache LRU pour les séquences (si lazy_loading=True)
-            precompute_features: Si True, prétraite et met en cache certaines features coûteuses
-            chunk_size: Taille des chunks pour le chargement paresseux (None=auto)
-            memory_optimize: Si True, active la gestion automatique de la mémoire
+            predict_n_ahead: Nombre de pas à prédire dans le futur
+            is_train: Si True, inclut les cibles pour l'entraînement
+            device: Périphérique pour les tenseurs ('cpu' ou 'cuda')
+            use_shared_memory: Utiliser la mémoire partagée pour les tensors
+            dtype: Type de données des tensors
+            lazy_loading: Activer le chargement paresseux
+            cache_size: Taille du cache pour les séquences
+            precompute_features: Pré-calculer et mettre en cache les features
+            chunk_size: Taille des chunks pour le lazy loading
+            memory_optimize: Activer l'optimisation mémoire
+            async_prefetch: Pré-chargement asynchrone des chunks
+            prefetch_num_chunks: Nombre de chunks à précharger à l'avance
+            max_prefetch_queue_size: Taille maximale de la file d'attente de préchargement
         """
+        super().__init__()
+        self.data_source = data
         self.sequence_length = sequence_length
         self.target_column = target_column
         self.feature_columns = feature_columns
@@ -242,516 +267,917 @@ class FinancialDataset(Dataset):
         self.use_shared_memory = use_shared_memory
         self.dtype = dtype
         self.lazy_loading = lazy_loading
+        self.memory_optimize = memory_optimize
+        self.async_prefetch = async_prefetch
+        self.prefetch_num_chunks = prefetch_num_chunks
+        self.max_prefetch_queue_size = max_prefetch_queue_size
+        
+        # Taille du cache pour les séquences
+        self._cache_size = cache_size
+        self._sequence_cache = {}
+        self._cache_keys = []
         self.precompute_features = precompute_features
-
-        # Initialisation des caches
-        self.feature_cache = {}
-        self.sequence_cache = {}
-        self.cache_size = cache_size
-
-        # Déterminer automatiquement la taille de chunk si non spécifiée
-        # (Utiliser ~100MB par chunk comme règle empirique)
         self.chunk_size = chunk_size
+        
+        # Nombre d'exemples dans le dataset
+        self._num_examples = 0
+        
+        # Initialisation du gestionnaire de mémoire si demandé
+        self.memory_manager = MemoryManager(enabled=memory_optimize) if memory_optimize else None
+        
+        # Initialisation des attributs de préchargement
+        if self.async_prefetch:
+            self._prefetch_lock = threading.Lock()
+            self._prefetched_chunks = set()
+            self._current_chunk_idx = 0
+            self._prefetch_queue = queue.Queue(maxsize=max_prefetch_queue_size)
+            self._stop_prefetch = threading.Event()
+            self._thread_pool = ThreadPoolExecutor(max_workers=2)
+        
+        # Initialisation des données en fonction du mode (lazy ou complet)
+        data_source = self._init_data_source(data)
+        
+        self.data_tensor = data_source.get("data_tensor")
+        self.target_tensor = data_source.get("target_tensor")
+        self.column_names = data_source.get("column_names")
+        self.feature_indices = data_source.get("feature_indices")
+        self.target_index = data_source.get("target_index")
+        self.data_info = data_source  # Sauvegarder toutes les informations de la source
 
-        # Méta-informations sur les données source pour le lazy loading
-        self.data_source = data
-        self.data_info = self._init_data_source(data)
-
-        # Initialiser le gestionnaire de mémoire si activé
-        self.memory_manager = (
-            MemoryManager(enabled=memory_optimize) if memory_optimize else None
-        )
-
-        # Si pas de chargement paresseux, charger les données immédiatement
-        if not lazy_loading:
-            self.features, self.targets = self._load_and_preprocess_data(data)
-
-            # Si on utilise la mémoire partagée pour les workers, on la configure
-            if self.use_shared_memory:
-                # Vérifier si la mémoire partagée est supportée
-                if hasattr(torch.multiprocessing, "get_context") and callable(
-                    getattr(self.features, "share_memory_", None)
-                ):
-                    self.features = self.features.share_memory_()
-                    if self.targets is not None:
-                        self.targets = self.targets.share_memory_()
-                else:
-                    logger.warning(
-                        "Mémoire partagée non supportée ou désactivée. "
-                        "Les performances multiprocessus peuvent être affectées."
-                    )
-        else:
-            # En mode lazy loading, on définit des variables qui seront utilisées à la demande
-            self.features = None
-            self.targets = None
-
-            # Initialiser les chunks pour le lazy loading
+        if self.lazy_loading:
+            # En mode chargement paresseux, on initialise les chunks et les métadonnées
             self._init_chunks()
-
-            # Précharger les premiers chunks si spécifié
-            if self.precompute_features:
-                self._precompute_initial_chunks()
-
-        # Calcul du nombre d'exemples
-        if is_train:
-            # Calcul du nombre d'exemples pour l'entraînement
-            calculated_examples = (
-                self.data_info["length"] - sequence_length - predict_n_ahead + 1
-            )
-            # S'assurer que le nombre est positif pour éviter les erreurs
-            self._num_examples = max(calculated_examples, 0)
+            self._init_prefetch_system()
+            # Calculer le nombre d'exemples en mode lazy loading
+            data_length = self.data_info.get("length", 0)
+            if data_length > self.sequence_length + self.predict_n_ahead - 1:
+                self._num_examples = data_length - self.sequence_length - self.predict_n_ahead + 1
+            else:
+                self._num_examples = 0
         else:
-            # Calcul du nombre d'exemples pour l'inférence/test
-            calculated_examples = self.data_info["length"] - sequence_length + 1
-            # S'assurer que le nombre est positif pour éviter les erreurs
-            self._num_examples = max(calculated_examples, 0)
+            # En mode chargement complet, on calcule le nombre d'exemples
+            if self.data_tensor is not None:
+                data_length = len(self.data_tensor)
+                if data_length > self.sequence_length + self.predict_n_ahead - 1:
+                    self._num_examples = data_length - self.sequence_length - self.predict_n_ahead + 1
+                else:
+                    self._num_examples = 0
+            else:
+                # Si aucune donnée n'est chargée, définir un nombre d'exemples par défaut
+                self._num_examples = 0
+                logger.warning("Aucune donnée valide n'a été chargée. Le dataset est vide.")
 
-        # Si le nombre d'exemples est 0, avertir l'utilisateur
+        # S'assurer que le nombre d'exemples est raisonnable
         if self._num_examples <= 0:
             logger.warning(
-                f"Dataset financier initialisé avec un nombre d'exemples insuffisant ou négatif. Cela peut être dû à une séquence trop longue ({sequence_length}) par rapport au nombre de données ({self.data_info['length']}). Utilisation d'une valeur par défaut."
+                f"Le nombre d'exemples calculé est invalide: {self._num_examples}. "
+                f"Vérifiez la longueur des données ({self.data_info.get('length', 0)}) par rapport à "
+                f"la longueur de séquence ({self.sequence_length}) et prediction_ahead ({self.predict_n_ahead})."
             )
             # Valeur par défaut pour éviter les erreurs
-            self._num_examples = 1
-
-        logger.info(f"Dataset financier initialisé avec {self._num_examples} exemples")
-
-        # Exécuter un garbage collection initial pour libérer la mémoire après initialisation
-        if memory_optimize:
-            optimize_memory(force_cuda_empty=False)
+            self._num_examples = max(1, self.data_info.get("length", 1) - self.sequence_length)
 
     def _init_data_source(
         self, data: Union[pd.DataFrame, np.ndarray, str, torch.Tensor]
     ) -> Dict:
         """
-        Initialise les informations sur la source de données sans charger le contenu complet.
+        Initialise les informations sur la source de données et charge les données.
 
         Args:
             data: Source de données
 
         Returns:
-            Dictionnaire avec métadonnées sur les données
+            Dictionnaire avec métadonnées sur les données et les tenseurs chargés
         """
-        info = {"type": None, "length": 0, "columns": None, "path": None}
+        info = {"type": None, "length": 0, "columns": None, "path": None, "data_tensor": None, "target_tensor": None}
 
         # Traitement selon le type de données
         if isinstance(data, pd.DataFrame):
             info["type"] = "dataframe"
             info["length"] = len(data)
             info["columns"] = list(data.columns)
+            
+            # Créer les tenseurs de données et de cibles
+            if not self.lazy_loading:
+                # Extraire les features
+                if self.feature_columns is not None:
+                    feature_cols = self.feature_columns
+                else:
+                    feature_cols = list(data.columns)
+                    if self.target_column in feature_cols:
+                        feature_cols.remove(self.target_column)
+                
+                # Convertir en tenseurs
+                feature_data = data[feature_cols].values
+                info["data_tensor"] = torch.tensor(feature_data, dtype=self.dtype)
+                
+                # Extraire la colonne cible si spécifiée
+                if self.target_column and self.target_column in data.columns:
+                    target_data = data[self.target_column].values
+                    info["target_tensor"] = torch.tensor(target_data, dtype=self.dtype)
+                    info["target_index"] = data.columns.get_loc(self.target_column)
+                
+                # Stocker les indices des colonnes features
+                info["feature_indices"] = [data.columns.get_loc(col) for col in feature_cols if col in data.columns]
+                info["column_names"] = feature_cols
+                
+            # Stocker les informations même en mode lazy loading
+            if self.feature_columns is not None:
+                feature_cols = self.feature_columns
+            else:
+                feature_cols = list(data.columns)
+                if self.target_column in feature_cols:
+                    feature_cols.remove(self.target_column)
+            
+            info["feature_indices"] = [data.columns.get_loc(col) for col in feature_cols if col in data.columns]
+            info["column_names"] = feature_cols
+            if self.target_column and self.target_column in data.columns:
+                info["target_index"] = data.columns.get_loc(self.target_column)
 
         elif isinstance(data, np.ndarray):
             info["type"] = "ndarray"
             info["length"] = data.shape[0]
-            info["columns"] = list(range(data.shape[1]))
+            
+            # Nombre de colonnes
+            n_cols = data.shape[1]
+            info["columns"] = list(range(n_cols))
+            
+            if not self.lazy_loading:
+                # Si les indices des colonnes de caractéristiques ne sont pas spécifiés, utiliser toutes les colonnes sauf la cible
+                if self.feature_columns is not None:
+                    feature_indices = [int(col) for col in self.feature_columns if isinstance(col, (int, str)) and int(col) < n_cols]
+                else:
+                    # Si la colonne cible est un index, l'exclure des features
+                    target_idx = int(self.target_column) if isinstance(self.target_column, (int, str)) and self.target_column.isdigit() else -1
+                    feature_indices = [i for i in range(n_cols) if i != target_idx]
+                
+                # Extraire les données
+                info["data_tensor"] = torch.tensor(data[:, feature_indices], dtype=self.dtype)
+                
+                # Extraire la colonne cible si spécifiée
+                if self.target_column is not None:
+                    target_idx = int(self.target_column) if isinstance(self.target_column, (int, str)) and (isinstance(self.target_column, int) or self.target_column.isdigit()) else -1
+                    if 0 <= target_idx < n_cols:
+                        info["target_tensor"] = torch.tensor(data[:, target_idx], dtype=self.dtype)
+                        info["target_index"] = target_idx
+                
+                info["feature_indices"] = feature_indices
+                info["column_names"] = [str(idx) for idx in feature_indices]
 
         elif isinstance(data, torch.Tensor):
             info["type"] = "tensor"
             info["length"] = data.size(0)
-            info["columns"] = list(range(data.size(1)))
+            
+            # Pour un tenseur, on suppose que c'est déjà dans le bon format
+            if data.dim() == 2:
+                n_cols = data.size(1)
+                info["columns"] = list(range(n_cols))
+                
+                if not self.lazy_loading:
+                    # Si les indices des colonnes de caractéristiques ne sont pas spécifiés, utiliser toutes les colonnes sauf la cible
+                    if self.feature_columns is not None:
+                        feature_indices = [int(col) for col in self.feature_columns if isinstance(col, (int, str)) and int(col) < n_cols]
+                    else:
+                        # Si la colonne cible est un index, l'exclure des features
+                        target_idx = int(self.target_column) if isinstance(self.target_column, (int, str)) and (isinstance(self.target_column, int) or str(self.target_column).isdigit()) else -1
+                        feature_indices = [i for i in range(n_cols) if i != target_idx]
+                    
+                    # Extraire les données
+                    info["data_tensor"] = data[:, feature_indices].to(dtype=self.dtype)
+                    
+                    # Extraire la colonne cible si spécifiée
+                    if self.target_column is not None:
+                        target_idx = int(self.target_column) if isinstance(self.target_column, (int, str)) and (isinstance(self.target_column, int) or str(self.target_column).isdigit()) else -1
+                        if 0 <= target_idx < n_cols:
+                            info["target_tensor"] = data[:, target_idx].to(dtype=self.dtype)
+                            info["target_index"] = target_idx
+                    
+                    info["feature_indices"] = feature_indices
+                    info["column_names"] = [str(idx) for idx in feature_indices]
+            else:
+                # Si le tenseur est unidimensionnel, on le considère comme une seule colonne
+                info["columns"] = [0]
+                
+                if not self.lazy_loading:
+                    info["data_tensor"] = data.view(-1, 1).to(dtype=self.dtype)
+                    info["feature_indices"] = [0]
+                    info["column_names"] = ["0"]
 
         elif isinstance(data, str) and os.path.exists(data):
             info["type"] = "file"
             info["path"] = data
             ext = os.path.splitext(data)[1].lower()
 
-            # Déterminer le nombre de lignes et colonnes sans charger le fichier entier
-            if ext == ".csv":
-                # Pour CSV, lire seulement l'en-tête pour récupérer les colonnes
-                try:
-                    df_sample = pd.read_csv(data, nrows=5)
-                    info["columns"] = list(df_sample.columns)
-
-                    # Obtenir le nombre total de lignes
-                    with open(data, "r") as f:
-                        info["length"] = sum(1 for _ in f) - 1  # -1 pour l'en-tête
-                except Exception as e:
-                    logger.warning(f"Erreur lors de la lecture du fichier CSV: {e}")
-                    # Valeur par défaut
-                    info["length"] = 1000
-
-            elif ext == ".parquet":
-                if HAVE_PYARROW:
+            # Charger les données depuis le fichier si nécessaire
+            if not self.lazy_loading:
+                if ext == ".csv":
                     try:
-                        parquet_file = pq.ParquetFile(data)
-                        info["length"] = parquet_file.metadata.num_rows
-                        info["columns"] = parquet_file.schema.names
+                        # Charger le CSV et convertir les colonnes object en float si possible
+                        df = pd.read_csv(data)
+                        
+                        # Convertir les colonnes object en numériques lorsque possible
+                        for col in df.select_dtypes(include=['object']).columns:
+                            try:
+                                df[col] = pd.to_numeric(df[col], errors='coerce')
+                            except Exception:
+                                # Si la conversion échoue, conserver comme string
+                                pass
+                        
+                        # Supprimer les colonnes non numériques qui ne peuvent pas être converties en tenseurs
+                        numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
+                        if not numeric_cols:
+                            logger.error(f"Aucune colonne numérique trouvée dans le fichier CSV: {data}")
+                            info["length"] = len(df)
+                            return info
+                            
+                        df = df[numeric_cols]
+                        
+                        n_rows, n_cols = df.shape
+                        info["length"] = n_rows
+                        info["columns"] = list(df.columns)
+                        
+                        # Extraire les features
+                        if self.feature_columns is not None:
+                            feature_cols = [col for col in self.feature_columns if col in df.columns]
+                        else:
+                            feature_cols = list(df.columns)
+                            if self.target_column in feature_cols:
+                                feature_cols.remove(self.target_column)
+                        
+                        # Convertir en tenseurs
+                        feature_data = df[feature_cols].values
+                        info["data_tensor"] = torch.tensor(feature_data, dtype=self.dtype)
+                        
+                        # Extraire la colonne cible si spécifiée
+                        if self.target_column and self.target_column in df.columns:
+                            target_data = df[self.target_column].values
+                            info["target_tensor"] = torch.tensor(target_data, dtype=self.dtype)
+                            info["target_index"] = df.columns.get_loc(self.target_column)
+                        
+                        # Stocker les indices des colonnes features
+                        info["feature_indices"] = [df.columns.get_loc(col) for col in feature_cols]
+                        info["column_names"] = feature_cols
                     except Exception as e:
-                        logger.warning(
-                            f"Erreur lors de la lecture du fichier Parquet: {e}"
-                        )
-                        info["length"] = 1000
-                else:
+                        logger.error(f"Erreur lors du chargement du fichier CSV: {e}")
+                        # Essayer une approche alternative avec des options différentes
+                        try:
+                            # Tenter le chargement avec spécification explicite des types de données
+                            df = pd.read_csv(data, dtype=float)
+                            n_rows, n_cols = df.shape
+                            info["length"] = n_rows
+                            info["columns"] = list(df.columns)
+                            
+                            # Extraire les features
+                            if self.feature_columns is not None:
+                                feature_cols = [col for col in self.feature_columns if col in df.columns]
+                            else:
+                                feature_cols = list(df.columns)
+                                if self.target_column in feature_cols:
+                                    feature_cols.remove(self.target_column)
+                            
+                            # Convertir en tenseurs
+                            feature_data = df[feature_cols].values
+                            info["data_tensor"] = torch.tensor(feature_data, dtype=self.dtype)
+                            
+                            # Extraire la colonne cible si spécifiée
+                            if self.target_column and self.target_column in df.columns:
+                                target_data = df[self.target_column].values
+                                info["target_tensor"] = torch.tensor(target_data, dtype=self.dtype)
+                                info["target_index"] = df.columns.get_loc(self.target_column)
+                            
+                            # Stocker les indices des colonnes features
+                            info["feature_indices"] = [df.columns.get_loc(col) for col in feature_cols]
+                            info["column_names"] = feature_cols
+                        except Exception as e2:
+                            logger.error(f"Deuxième tentative de lecture CSV échouée: {e2}")
+                            info["error"] = str(e2)
+                
+                # Autres formats de fichier (parquet, hdf5, etc.)
+                elif ext == ".parquet" and HAVE_PYARROW:
                     try:
-                        # Utiliser pandas sans charger toutes les données
-                        df_sample = pd.read_parquet(data, engine="auto")
+                        # Charger les métadonnées Parquet
+                        parquet_metadata = pq.read_metadata(data)
+                        
+                        # Charger les données parquet
+                        df = pq.read_table(data).to_pandas()
+                        
+                        n_rows, n_cols = df.shape
+                        info["length"] = n_rows
+                        info["columns"] = list(df.columns)
+                        
+                        # Extraire les features
+                        if self.feature_columns is not None:
+                            feature_cols = [col for col in self.feature_columns if col in df.columns]
+                        else:
+                            feature_cols = list(df.columns)
+                            if self.target_column in feature_cols:
+                                feature_cols.remove(self.target_column)
+                        
+                        # Convertir en tenseurs
+                        feature_data = df[feature_cols].values
+                        info["data_tensor"] = torch.tensor(feature_data, dtype=self.dtype)
+                        
+                        # Extraire la colonne cible si spécifiée
+                        if self.target_column and self.target_column in df.columns:
+                            target_data = df[self.target_column].values
+                            info["target_tensor"] = torch.tensor(target_data, dtype=self.dtype)
+                            info["target_index"] = df.columns.get_loc(self.target_column)
+                        
+                        # Stocker les indices des colonnes features
+                        info["feature_indices"] = [df.columns.get_loc(col) for col in feature_cols]
+                        info["column_names"] = feature_cols
+                    except Exception as e:
+                        logger.error(f"Erreur lors du chargement du fichier Parquet: {e}")
+                        info["error"] = str(e)
+            else:
+                # En mode lazy loading, on ne charge pas les données entièrement mais on récupère les métadonnées
+                if ext == ".csv":
+                    try:
+                        # Lire les premières lignes pour obtenir la structure
+                        df_sample = pd.read_csv(data, nrows=5)
                         info["columns"] = list(df_sample.columns)
-                        info["length"] = len(df_sample)
+                        
+                        # Obtenir le nombre total de lignes
+                        with open(data, "r") as f:
+                            info["length"] = sum(1 for _ in f) - 1  # -1 pour l'en-tête
+                            
+                        # Déterminer les indices des colonnes features
+                        if self.feature_columns is not None:
+                            feature_cols = [col for col in self.feature_columns if col in df_sample.columns]
+                        else:
+                            feature_cols = list(df_sample.columns)
+                            if self.target_column in feature_cols:
+                                feature_cols.remove(self.target_column)
+                        
+                        info["feature_indices"] = [df_sample.columns.get_loc(col) for col in feature_cols if col in df_sample.columns]
+                        info["column_names"] = feature_cols
+                        
+                        # Enregistrer l'indice de la colonne cible
+                        if self.target_column and self.target_column in df_sample.columns:
+                            info["target_index"] = df_sample.columns.get_loc(self.target_column)
                     except Exception as e:
-                        logger.warning(
-                            f"Erreur lors de la lecture du fichier Parquet: {e}"
-                        )
-                        info["length"] = 1000
-
-            elif ext in [".h5", ".hdf5"]:
-                if HAVE_HDF5:
+                        logger.warning(f"Erreur lors de la lecture du fichier CSV: {e}")
+                        info["length"] = 1000  # Valeur par défaut
+                
+                elif ext == ".parquet" and HAVE_PYARROW:
                     try:
-                        with h5py.File(data, "r") as f:
-                            # H5 peut avoir plusieurs datasets
-                            dset_name = list(f.keys())[0]
-                            dset = f[dset_name]
-                            info["length"] = dset.shape[0]
-                            info["columns"] = list(range(dset.shape[1]))
-                    except Exception as e:
-                        logger.warning(
-                            f"Erreur lors de la lecture du fichier HDF5: {e}"
-                        )
-                        info["length"] = 1000
-                else:
-                    try:
-                        # Utiliser pandas sans charger toutes les données
-                        df_sample = pd.read_hdf(data, start=0, stop=5)
+                        # Lire les métadonnées du fichier parquet
+                        parquet_metadata = pq.read_metadata(data)
+                        info["length"] = parquet_metadata.num_rows
+                        
+                        # Lire l'en-tête pour obtenir les noms de colonnes (version simplifiée)
+                        # Ne pas utiliser nrows avec read_table car ce n'est pas supporté par toutes les versions
+                        df_sample = pq.read_table(data).to_pandas().head(5)
                         info["columns"] = list(df_sample.columns)
-                        info["length"] = len(df_sample)
+                        
+                        # Déterminer les indices des colonnes features
+                        if self.feature_columns is not None:
+                            feature_cols = [col for col in self.feature_columns if col in df_sample.columns]
+                        else:
+                            feature_cols = list(df_sample.columns)
+                            if self.target_column in feature_cols:
+                                feature_cols.remove(self.target_column)
+                        
+                        info["feature_indices"] = [df_sample.columns.get_loc(col) for col in feature_cols if col in df_sample.columns]
+                        info["column_names"] = feature_cols
+                        
+                        # Enregistrer l'indice de la colonne cible
+                        if self.target_column and self.target_column in df_sample.columns:
+                            info["target_index"] = df_sample.columns.get_loc(self.target_column)
                     except Exception as e:
-                        logger.warning(
-                            f"Erreur lors de la lecture du fichier HDF5: {e}"
-                        )
-                        info["length"] = 1000
+                        logger.warning(f"Erreur lors de la lecture des métadonnées Parquet: {e}")
+                        info["length"] = 1000  # Valeur par défaut
 
+        # Stocker les informations de colonnes pour référence future
+        if "column_names" not in info and info["columns"] is not None:
+            info["column_names"] = info["columns"]
+            
+        # Vérifier que les données ont été correctement chargées
+        if not self.lazy_loading and "data_tensor" not in info:
+            logger.warning("Les données n'ont pas été correctement chargées")
+            
         return info
 
     def _init_chunks(self):
-        """Initialise les chunks pour le chargement paresseux."""
-        if not self.lazy_loading:
-            return
+        """Initialise les chunks pour le lazy loading."""
+        # Déterminer la taille du dataset
+        if isinstance(self.data_source, pd.DataFrame):
+            data_length = len(self.data_source)
+        elif isinstance(self.data_source, np.ndarray):
+            data_length = len(self.data_source)
+        elif isinstance(self.data_source, torch.Tensor):
+            data_length = len(self.data_source)
+        elif isinstance(self.data_source, str) and os.path.exists(self.data_source):
+            # Estimer la taille à partir du fichier ou autres métadonnées
+            if self.data_info and "length" in self.data_info:
+                data_length = self.data_info["length"]
+            else:
+                # Charger les métadonnées du fichier pour obtenir la taille
+                ext = os.path.splitext(self.data_source)[1].lower()
+                if ext == ".csv":
+                    # Pour les fichiers CSV, compter les lignes rapidement
+                    with open(self.data_source, "r") as f:
+                        data_length = sum(1 for _ in f) - 1  # -1 pour l'en-tête
+                elif ext == ".parquet" and HAVE_PYARROW:
+                    # Pour les fichiers Parquet, utiliser les métadonnées
+                    data_length = pq.read_metadata(self.data_source).num_rows
+                elif ext in [".h5", ".hdf5"] and HAVE_HDF5:
+                    # Pour les fichiers HDF5, utiliser h5py
+                    with h5py.File(self.data_source, "r") as f:
+                        dset_name = list(f.keys())[0]
+                        data_length = len(f[dset_name])
+                else:
+                    # Fallback: charger le fichier
+                    logger.warning(
+                        f"Impossible de déterminer la taille du fichier {self.data_source} "
+                        f"sans le charger entièrement. Cela peut prendre du temps."
+                    )
+                    try:
+                        temp_data = pd.read_csv(self.data_source)
+                        data_length = len(temp_data)
+                        del temp_data  # Libérer la mémoire
+                    except Exception as e:
+                        logger.error(f"Erreur lors de la lecture du fichier: {e}")
+                        # Valeur par défaut pour éviter une erreur
+                        data_length = 1000
+        else:
+            # Valeur par défaut pour éviter une erreur avec source de données non supportée
+            logger.warning(f"Source de données non supportée: {type(self.data_source)}")
+            data_length = 1000
 
-        # Déterminer la taille des chunks si non spécifiée
+        # Si aucune taille de chunk spécifiée, déterminer automatiquement
         if self.chunk_size is None:
-            # Règle empirique: ~100k points par chunk
-            self.chunk_size = min(100000, self.data_info["length"])
+            # Utiliser une taille de chunk de ~100MB ou 5000 lignes par défaut
+            self.chunk_size = min(5000, max(1000, data_length // 10))
 
-        # Calculer le nombre de chunks nécessaires
-        self.num_chunks = (
-            self.data_info["length"] + self.chunk_size - 1
-        ) // self.chunk_size
+        # Créer les indices de chunks
+        self._chunk_indices = []
+        self._chunk_boundaries = []
+        self._loaded_chunks = {}
 
-        # Créer des informations sur les chunks
-        self.chunks = []
-        for i in range(self.num_chunks):
-            start_idx = i * self.chunk_size
-            end_idx = min(start_idx + self.chunk_size, self.data_info["length"])
-            self.chunks.append(
-                {
-                    "start_idx": start_idx,
-                    "end_idx": end_idx,
-                    "loaded": False,
-                    "features": None,
-                    "targets": None,
-                }
-            )
+        # Diviser les données en chunks seulement si data_length > 0
+        if data_length > 0:
+            for i in range(0, data_length, self.chunk_size):
+                start_idx = i
+                end_idx = min(i + self.chunk_size, data_length)
+                self._chunk_indices.append((start_idx, end_idx))
+                # Calculer les limites pour l'indexation des séquences
+                seq_start = max(0, i - self.sequence_length - self.predict_n_ahead + 1)
+                if i > 0:
+                    seq_start = i  # Pour éviter les chevauchements entre chunks
+                seq_end = end_idx
+                self._chunk_boundaries.append((seq_start, seq_end))
 
-        logger.info(
-            f"Données divisées en {self.num_chunks} chunks de taille ~{self.chunk_size}"
-        )
+        # Stocker le nombre total de chunks
+        self.num_chunks = len(self._chunk_indices)
+        
+        logger.info(f"Données divisées en {self.num_chunks} chunks de taille ~{self.chunk_size}")
 
-    def _precompute_initial_chunks(self):
-        """Précharge les premiers chunks de données pour accès rapide."""
-        if not self.lazy_loading or not self.precompute_features:
+        # Mettre à jour les informations de données
+        if self.data_info is None:
+            self.data_info = {}
+        self.data_info["length"] = data_length
+
+    def _init_prefetch_system(self):
+        """Initialise le système de préchargement asynchrone si activé."""
+        if not self.async_prefetch:
             return
+            
+        # Vérifier si les attributs nécessaires ont été initialisés
+        if not hasattr(self, '_prefetch_lock') or not hasattr(self, '_prefetched_chunks'):
+            # Initialiser les attributs de préchargement s'ils n'existent pas encore
+            self._prefetch_lock = threading.Lock()
+            self._prefetched_chunks = set()
+            self._current_chunk_idx = 0
+            self._prefetch_queue = queue.Queue(maxsize=self.max_prefetch_queue_size)
+            self._stop_prefetch = threading.Event()
+            self._thread_pool = ThreadPoolExecutor(max_workers=2)
+            
+        # Préchargement initial des premiers chunks
+        for i in range(min(self.prefetch_num_chunks, len(self._chunk_indices))):
+            self._prefetch_chunk(i)
+            
+        # Démarrer un thread de surveillance qui gère le préchargement continu
+        def prefetch_monitor_thread():
+            while not self._stop_prefetch.is_set():
+                try:
+                    # Attendre un court moment
+                    self._stop_prefetch.wait(0.1)
+                    
+                    # Vérifier si des chunks supplémentaires doivent être préchargés
+                    with self._prefetch_lock:
+                        for i in range(self._current_chunk_idx, min(self._current_chunk_idx + self.prefetch_num_chunks, 
+                                                                   len(self._chunk_indices))):
+                            if i not in self._prefetched_chunks and not self._prefetch_queue.full():
+                                self._prefetch_chunk(i)
+                except Exception as e:
+                    logger.error(f"Erreur dans le thread de préchargement: {e}")
+                    
+        # Démarrer le thread de surveillance
+        self._prefetch_thread = threading.Thread(target=prefetch_monitor_thread, daemon=True)
+        self._prefetch_thread.start()
 
-        # Précharger le premier chunk
-        self._load_chunk(0)
-
-        # Si on a plusieurs chunks et assez de mémoire, précharger aussi le deuxième
-        if self.num_chunks > 1 and self.chunks[0]["features"] is not None:
-            # Estimer la taille mémoire du premier chunk
-            chunk_mem = (
-                self.chunks[0]["features"].element_size()
-                * self.chunks[0]["features"].nelement()
-            )
-            # Si moins de ~500MB, charger le deuxième chunk aussi
-            if chunk_mem < 500 * 1024 * 1024:  # 500MB
-                self._load_chunk(1)
+    def _prefetch_chunk(self, chunk_idx):
+        """Précharge un chunk de données de manière asynchrone.
+        
+        Args:
+            chunk_idx: Index du chunk à précharger
+        """
+        if not self.async_prefetch or chunk_idx in self._prefetched_chunks:
+            return
+            
+        with self._prefetch_lock:
+            if chunk_idx in self._prefetched_chunks:
+                return
+                
+            self._prefetched_chunks.add(chunk_idx)
+        
+        # Soumettre la tâche de chargement au thread pool
+        future = self._thread_pool.submit(self._load_chunk, chunk_idx)
+        
+        # Callback pour ajouter le résultat à la file d'attente une fois chargé
+        def done_callback(fut):
+            try:
+                chunk_result = fut.result()
+                self._prefetch_queue.put((chunk_idx, chunk_result))
+            except Exception as e:
+                logger.error(f"Erreur lors du préchargement du chunk {chunk_idx}: {e}")
+                with self._prefetch_lock:
+                    if chunk_idx in self._prefetched_chunks:
+                        self._prefetched_chunks.remove(chunk_idx)
+                
+        future.add_done_callback(done_callback)
 
     def _load_chunk(self, chunk_idx: int):
         """
-        Charge un chunk spécifique de données.
-
+        Charge un chunk de données en mémoire.
+        
         Args:
             chunk_idx: Index du chunk à charger
+            
+        Returns:
+            Les données et cibles du chunk chargé
         """
-        if chunk_idx >= len(self.chunks) or self.chunks[chunk_idx]["loaded"]:
-            return
-
-        chunk = self.chunks[chunk_idx]
-        start_idx = chunk["start_idx"]
-        end_idx = chunk["end_idx"]
-
-        if self.data_info["type"] == "file":
-            # Charger le chunk depuis le fichier
-            path = self.data_info["path"]
-            ext = os.path.splitext(path)[1].lower()
-
+        start_idx, end_idx = self._chunk_indices[chunk_idx]
+        
+        # Charger et prétraiter les données du chunk
+        if isinstance(self.data_source, pd.DataFrame):
+            chunk_data = self.data_source.iloc[start_idx:end_idx]
+            
+            # Convertir les colonnes object/string en float si possible ou les supprimer
+            for col in chunk_data.select_dtypes(include=['object']).columns:
+                try:
+                    chunk_data[col] = pd.to_numeric(chunk_data[col], errors='coerce')
+                except:
+                    logger.warning(f"Impossible de convertir la colonne {col} en numérique, elle sera supprimée")
+                    chunk_data = chunk_data.drop(columns=[col])
+                    
+            # S'assurer que toutes les données sont numériques
+            chunk_data = chunk_data.select_dtypes(include=['number'])
+            
+            # Vérifier si feature_indices est spécifié
+            if self.feature_indices is not None:
+                # Extraire les colonnes d'intérêt en utilisant les indices numériques
+                column_indices = [i for i in self.feature_indices if i < chunk_data.shape[1]]
+                if column_indices:
+                    feature_data = chunk_data.iloc[:, column_indices].values
+                else:
+                    feature_data = chunk_data.values
+            else:
+                feature_data = chunk_data.values
+                
+            # Convertir en tenseur PyTorch
+            chunk_tensor = torch.tensor(feature_data, dtype=self.dtype)
+            
+            if self.target_column is not None and self.is_train:
+                if isinstance(self.target_column, list):
+                    # Vérifier si toutes les colonnes cibles existent
+                    available_targets = [col for col in self.target_column if col in chunk_data.columns]
+                    if not available_targets:
+                        logger.warning(f"Aucune des colonnes cibles {self.target_column} n'existe dans les données")
+                        chunk_targets = None
+                    else:
+                        # Cibles multiples
+                        chunk_targets = torch.tensor(
+                            chunk_data[available_targets].values, dtype=self.dtype
+                        )
+                else:
+                    # Vérifier si la colonne cible existe
+                    if isinstance(self.target_column, str) and self.target_column not in chunk_data.columns:
+                        logger.warning(f"Colonne cible {self.target_column} introuvable dans les données")
+                        chunk_targets = None
+                    elif isinstance(self.target_column, int) and self.target_column >= chunk_data.shape[1]:
+                        logger.warning(f"Indice cible {self.target_column} hors limites")
+                        chunk_targets = None
+                    else:
+                        # Cible unique
+                        if isinstance(self.target_column, str):
+                            target_values = chunk_data[self.target_column].values
+                        else:  # int
+                            target_values = chunk_data.iloc[:, self.target_column].values
+                            
+                        chunk_targets = torch.tensor(target_values, dtype=self.dtype)
+            else:
+                chunk_targets = None
+        
+        elif isinstance(self.data_source, np.ndarray):
+            # Vérifier si le tableau contient des types object
+            chunk_data = self.data_source[start_idx:end_idx]
+            
+            # Traitement pour les tableaux contenant des objets
+            if 'object' in str(chunk_data.dtype):
+                # Essayer de convertir les colonnes objet en numérique
+                numeric_data = np.zeros((chunk_data.shape[0], chunk_data.shape[1]), dtype=np.float32)
+                
+                for i in range(chunk_data.shape[1]):
+                    try:
+                        numeric_data[:, i] = pd.to_numeric(chunk_data[:, i], errors='coerce')
+                    except:
+                        # En cas d'échec, initialiser à NaN
+                        numeric_data[:, i] = np.nan
+                
+                # Remplacer les NaN par des zéros
+                numeric_data = np.nan_to_num(numeric_data, nan=0.0)
+                chunk_data = numeric_data
+            
+            # Extraire les features si les indices sont spécifiés
+            if self.feature_indices is not None:
+                # S'assurer que les indices sont valides
+                valid_indices = [i for i in self.feature_indices if i < chunk_data.shape[1]]
+                if valid_indices:
+                    feature_data = chunk_data[:, valid_indices]
+                else:
+                    feature_data = chunk_data
+            else:
+                feature_data = chunk_data
+                
+            # Convertir en tenseur PyTorch
+            chunk_tensor = torch.tensor(feature_data, dtype=self.dtype)
+            
+            if self.target_index is not None and self.is_train:
+                if isinstance(self.target_index, list):
+                    # Cibles multiples
+                    valid_indices = [i for i in self.target_index if i < chunk_data.shape[1]]
+                    if valid_indices:
+                        chunk_targets = torch.tensor(chunk_data[:, valid_indices], dtype=self.dtype)
+                    else:
+                        chunk_targets = None
+                else:
+                    # Cible unique
+                    if 0 <= self.target_index < chunk_data.shape[1]:
+                        chunk_targets = torch.tensor(chunk_data[:, self.target_index], dtype=self.dtype)
+                    else:
+                        chunk_targets = None
+            else:
+                chunk_targets = None
+                
+        elif isinstance(self.data_source, torch.Tensor):
+            # Traitement pour tenseur PyTorch
+            chunk_data = self.data_source[start_idx:end_idx]
+            
+            # Extraire les features si les indices sont spécifiés
+            if self.feature_indices is not None:
+                # S'assurer que les indices sont valides pour ce tenseur
+                valid_indices = [i for i in self.feature_indices if i < chunk_data.shape[1]]
+                if valid_indices:
+                    chunk_tensor = chunk_data[:, valid_indices].to(dtype=self.dtype)
+                else:
+                    chunk_tensor = chunk_data.to(dtype=self.dtype)
+            else:
+                chunk_tensor = chunk_data.to(dtype=self.dtype)
+            
+            if self.target_index is not None and self.is_train:
+                if isinstance(self.target_index, list):
+                    # Cibles multiples
+                    valid_indices = [i for i in self.target_index if i < chunk_data.shape[1]]
+                    if valid_indices:
+                        chunk_targets = chunk_data[:, valid_indices].to(dtype=self.dtype)
+                    else:
+                        chunk_targets = None
+                else:
+                    # Cible unique
+                    if 0 <= self.target_index < chunk_data.shape[1]:
+                        chunk_targets = chunk_data[:, self.target_index].to(dtype=self.dtype)
+                    else:
+                        chunk_targets = None
+            else:
+                chunk_targets = None
+        
+        elif isinstance(self.data_source, str) and os.path.exists(self.data_source):
+            # Charger le chunk depuis un fichier
+            ext = os.path.splitext(self.data_source)[1].lower()
+            
             try:
                 if ext == ".csv":
-                    # Utiliser skiprows et nrows pour sélectionner seulement le chunk
-                    df_chunk = pd.read_csv(
-                        path,
-                        skiprows=range(1, start_idx + 1),
-                        nrows=end_idx - start_idx,
-                    )
-
-                elif ext == ".parquet":
-                    if HAVE_PYARROW:
-                        table = pq.read_table(path, start_idx, end_idx - start_idx)
-                        df_chunk = table.to_pandas()
-                    else:
-                        df_chunk = pd.read_parquet(path, engine="auto")
-                        df_chunk = df_chunk.iloc[start_idx:end_idx]
-
-                elif ext in [".h5", ".hdf5"]:
-                    if HAVE_HDF5:
-                        with h5py.File(path, "r") as f:
-                            dset_name = list(f.keys())[0]
-                            dset = f[dset_name]
-                            df_chunk = pd.DataFrame(dset[start_idx:end_idx])
-                    else:
-                        df_chunk = pd.read_hdf(path, start=start_idx, stop=end_idx)
-
-                # Traiter le DataFrame comme dans _load_and_preprocess_data
-                if self.feature_columns is not None:
-                    features_df = df_chunk[self.feature_columns]
+                    # Charger le chunk depuis un CSV
+                    chunk_data = pd.read_csv(self.data_source, skiprows=range(1, start_idx + 1), nrows=end_idx - start_idx)
+                elif ext == ".parquet" and HAVE_PYARROW:
+                    # Charger le chunk depuis un Parquet
+                    try:
+                        # Utiliser read_table pour lire le fichier parquet complet puis sélectionner le chunk
+                        table = pq.read_table(self.data_source)
+                        # Convertir en DataFrame et sélectionner la plage d'indices
+                        chunk_data = table.to_pandas().iloc[start_idx:end_idx]
+                    except Exception as e:
+                        logger.error(f"Erreur lors de la lecture du fichier Parquet: {e}")
+                        # Fallback: créer un DataFrame vide comme fallback
+                        chunk_data = pd.DataFrame()
+                elif ext in [".h5", ".hdf5"] and HAVE_HDF5:
+                    # Charger le chunk depuis un HDF5
+                    with h5py.File(self.data_source, "r") as f:
+                        dset_name = list(f.keys())[0]
+                        chunk_data = pd.DataFrame(f[dset_name][start_idx:end_idx])
                 else:
-                    numeric_cols = df_chunk.select_dtypes(
-                        include=[np.number]
-                    ).columns.tolist()
-                    if self.target_column in numeric_cols and self.is_train:
-                        numeric_cols.remove(self.target_column)
-                    features_df = df_chunk[numeric_cols]
-
-                features = torch.tensor(features_df.values, dtype=self.dtype)
-
-                # Charger les cibles si nécessaire
-                targets = None
-                if self.is_train and self.target_column is not None:
-                    if self.target_column in df_chunk.columns:
-                        targets = torch.tensor(
-                            df_chunk[self.target_column].values, dtype=self.dtype
-                        )
-
-                # Stocker dans le chunk
-                self.chunks[chunk_idx]["features"] = features
-                self.chunks[chunk_idx]["targets"] = targets
-                self.chunks[chunk_idx]["loaded"] = True
-
+                    raise ValueError(f"Format de fichier non supporté: {ext}")
+                    
+                # Convertir les colonnes object/string en float si possible ou les supprimer
+                for col in chunk_data.select_dtypes(include=['object']).columns:
+                    try:
+                        chunk_data[col] = pd.to_numeric(chunk_data[col], errors='coerce')
+                    except:
+                        logger.warning(f"Impossible de convertir la colonne {col} en numérique, elle sera supprimée")
+                        chunk_data = chunk_data.drop(columns=[col])
+                        
+                # S'assurer que toutes les données sont numériques
+                chunk_data = chunk_data.select_dtypes(include=['number'])
+                
+                # Vérifier si le DataFrame est vide après les conversions
+                if chunk_data.empty:
+                    raise ValueError("Aucune donnée numérique valide dans le chunk")
+                
+                # Extraire les features si feature_indices est spécifié
+                if self.feature_indices is not None:
+                    # S'assurer que les indices sont valides
+                    valid_indices = [i for i in self.feature_indices if i < chunk_data.shape[1]]
+                    if valid_indices:
+                        feature_data = chunk_data.iloc[:, valid_indices].values
+                    else:
+                        feature_data = chunk_data.values
+                else:
+                    feature_data = chunk_data.values
+                
+                # Convertir en tenseur PyTorch
+                chunk_tensor = torch.tensor(feature_data, dtype=self.dtype)
+                
+                if self.target_column is not None and self.is_train:
+                    if isinstance(self.target_column, list):
+                        # Vérifier si toutes les colonnes cibles existent
+                        available_targets = [col for col in self.target_column if col in chunk_data.columns]
+                        if not available_targets:
+                            logger.warning(f"Aucune des colonnes cibles {self.target_column} n'existe dans les données")
+                            chunk_targets = None
+                        else:
+                            # Cibles multiples
+                            chunk_targets = torch.tensor(
+                                chunk_data[available_targets].values, dtype=self.dtype
+                            )
+                    else:
+                        # Vérifier si la colonne cible existe
+                        if isinstance(self.target_column, str) and self.target_column not in chunk_data.columns:
+                            logger.warning(f"Colonne cible {self.target_column} introuvable dans les données")
+                            chunk_targets = None
+                        elif isinstance(self.target_column, int) and self.target_column >= chunk_data.shape[1]:
+                            logger.warning(f"Indice cible {self.target_column} hors limites")
+                            chunk_targets = None
+                        else:
+                            # Cible unique - extraire en tant que vecteur 1D
+                            if isinstance(self.target_column, str):
+                                target_values = chunk_data[self.target_column].values
+                            else:  # int
+                                target_values = chunk_data.iloc[:, self.target_column].values
+                                
+                            chunk_targets = torch.tensor(target_values, dtype=self.dtype)
+                else:
+                    chunk_targets = None
             except Exception as e:
-                logger.error(f"Erreur lors du chargement du chunk {chunk_idx}: {e}")
-
-        elif self.data_info["type"] in ["dataframe", "ndarray", "tensor"]:
-            # Pour les données déjà en mémoire, on extrait simplement le sous-ensemble
-            data_subset = (
-                self.data_source.iloc[start_idx:end_idx]
-                if self.data_info["type"] == "dataframe"
-                else self.data_source[start_idx:end_idx]
-            )
-            features, targets = self._load_and_preprocess_data(data_subset)
-
-            # Stocker dans le chunk
-            self.chunks[chunk_idx]["features"] = features
-            self.chunks[chunk_idx]["targets"] = targets
-            self.chunks[chunk_idx]["loaded"] = True
-
+                logger.error(f"Erreur lors du chargement du chunk depuis le fichier: {e}")
+                # Créer un tenseur vide comme fallback
+                chunk_tensor = torch.zeros((end_idx - start_idx, 5), dtype=self.dtype)
+                chunk_targets = None
+        else:
+            raise TypeError(f"Type de données non pris en charge: {type(self.data_source)}")
+        
+        # S'assurer que les cibles sont des scalaires si c'est un tenseur 1D
+        if chunk_targets is not None and chunk_targets.dim() == 1:
+            chunk_targets = chunk_targets.unsqueeze(-1)
+        
+        return (chunk_tensor, chunk_targets)
+        
     def _get_data_from_chunks(
         self, idx: int
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         """
-        Récupère les données d'un point spécifique depuis les chunks.
-
+        Récupère les données et cibles à partir des chunks.
+        
         Args:
-            idx: Index global du point de données
-
+            idx: Index global dans le dataset
+            
         Returns:
-            Tenseurs de features et cible pour l'index spécifié
+            Tuple (données, cibles)
         """
-        # Déterminer quel chunk contient l'index
-        chunk_idx = idx // self.chunk_size
-        if chunk_idx >= len(self.chunks):
-            raise IndexError(f"Index {idx} hors limites pour {len(self.chunks)} chunks")
-
-        # Charger le chunk s'il n'est pas déjà chargé
-        if not self.chunks[chunk_idx]["loaded"]:
-            self._load_chunk(chunk_idx)
-
-        # Calculer l'index relatif dans le chunk
-        local_idx = idx - self.chunks[chunk_idx]["start_idx"]
-
-        # Vérifier si nous avons assez de données pour la séquence
-        if local_idx + self.sequence_length > len(self.chunks[chunk_idx]["features"]):
-            # La séquence s'étend sur deux chunks
-            start_features = self.chunks[chunk_idx]["features"][local_idx:]
-
-            # Charger le chunk suivant si nécessaire et s'il existe
-            remaining_seq_len = self.sequence_length - len(start_features)
-            if chunk_idx + 1 < len(self.chunks):
-                if not self.chunks[chunk_idx + 1]["loaded"]:
-                    self._load_chunk(chunk_idx + 1)
-
-                # Obtenir le reste de la séquence du chunk suivant
-                if remaining_seq_len <= len(self.chunks[chunk_idx + 1]["features"]):
-                    end_features = self.chunks[chunk_idx + 1]["features"][
-                        :remaining_seq_len
-                    ]
-                    sequence = torch.cat([start_features, end_features], dim=0)
+        # Trouver quel chunk contient cet index
+        chunk_idx = next(
+            (i for i, (start, end) in enumerate(self._chunk_boundaries) 
+             if start <= idx < end),
+            None,
+        )
+        
+        if chunk_idx is None:
+            raise IndexError(f"Index {idx} en dehors des limites du dataset")
+            
+        # Calculer l'index local dans le chunk
+        local_idx = idx - self._chunk_boundaries[chunk_idx][0]
+        
+        # Mettre à jour l'indice du chunk actuel pour le préchargement
+        if self.async_prefetch and chunk_idx != self._current_chunk_idx:
+            with self._prefetch_lock:
+                self._current_chunk_idx = chunk_idx
+        
+        # Récupérer ou charger le chunk principal
+        if chunk_idx not in self._loaded_chunks:
+            self._loaded_chunks[chunk_idx] = self._load_chunk(chunk_idx)
+        chunk_tensor, chunk_targets = self._loaded_chunks[chunk_idx]
+        
+        # Construire la séquence
+        seq_length = self.sequence_length
+        ahead = self.predict_n_ahead
+        
+        # Vérifier si la séquence entre dans le chunk actuel
+        if local_idx + seq_length <= len(chunk_tensor):
+            # La séquence tient dans le chunk actuel
+            x = chunk_tensor[local_idx:local_idx + seq_length]
+            
+            # Extraire la cible si disponible
+            if chunk_targets is not None and self.is_train:
+                target_idx = local_idx + seq_length - 1 + ahead
+                if target_idx < len(chunk_targets):
+                    y = chunk_targets[target_idx]
                 else:
-                    # Pas assez de données, remplir avec des zéros
-                    padding = torch.zeros(
-                        (
-                            remaining_seq_len
-                            - len(self.chunks[chunk_idx + 1]["features"]),
-                        )
-                        + self.chunks[chunk_idx + 1]["features"].shape[1:],
-                        dtype=self.dtype,
-                    )
-                    end_features = torch.cat(
-                        [self.chunks[chunk_idx + 1]["features"], padding], dim=0
-                    )
-                    sequence = torch.cat([start_features, end_features], dim=0)
-            else:
-                # Pas de chunk suivant, remplir avec des zéros
-                padding = torch.zeros(
-                    (remaining_seq_len,) + self.chunks[chunk_idx]["features"].shape[1:],
-                    dtype=self.dtype,
-                )
-                sequence = torch.cat([start_features, padding], dim=0)
-        else:
-            # La séquence est contenue dans un seul chunk
-            sequence = self.chunks[chunk_idx]["features"][
-                local_idx : local_idx + self.sequence_length
-            ]
-
-        # Pour la cible, on doit vérifier si elle est dans le même chunk ou le suivant
-        target = None
-        if self.is_train:
-            target_idx = local_idx + self.sequence_length + self.predict_n_ahead - 1
-
-            # Vérifier si la cible est dans le même chunk
-            if target_idx < len(self.chunks[chunk_idx]["targets"]):
-                target = self.chunks[chunk_idx]["targets"][target_idx]
-            else:
-                # La cible est dans le chunk suivant
-                next_chunk_idx = chunk_idx + 1
-                if next_chunk_idx < len(self.chunks):
-                    if not self.chunks[next_chunk_idx]["loaded"]:
-                        self._load_chunk(next_chunk_idx)
-
-                    # Calculer l'index dans le chunk suivant
-                    next_local_idx = target_idx - (
-                        len(self.chunks[chunk_idx]["targets"])
-                    )
-
-                    # S'assurer que l'index est valide
-                    if (
-                        0
-                        <= next_local_idx
-                        < len(self.chunks[next_chunk_idx]["targets"])
-                    ):
-                        target = self.chunks[next_chunk_idx]["targets"][next_local_idx]
+                    # La cible est dans le chunk suivant
+                    next_chunk_idx = chunk_idx + 1
+                    if next_chunk_idx < len(self._chunk_indices):
+                        # Précharger le chunk suivant si nécessaire
+                        if next_chunk_idx not in self._loaded_chunks:
+                            self._loaded_chunks[next_chunk_idx] = self._load_chunk(next_chunk_idx)
+                        
+                        # Déterminer l'index relatif dans le chunk suivant
+                        next_chunk_tensor, next_chunk_targets = self._loaded_chunks[next_chunk_idx]
+                        next_local_idx = target_idx - len(chunk_tensor)
+                        
+                        if next_local_idx < len(next_chunk_targets):
+                            y = next_chunk_targets[next_local_idx]
+                        else:
+                            y = None
                     else:
-                        # Index hors limites
-                        target = torch.zeros(1, dtype=self.dtype)
-                else:
-                    # Pas de chunk suivant
-                    target = torch.zeros(1, dtype=self.dtype)
-
-        return sequence, target
-
-    def _load_and_preprocess_data(
-        self, data: Union[pd.DataFrame, np.ndarray, str, torch.Tensor]
-    ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
-        """
-        Charge et prétraite les données selon différents formats d'entrée.
-
-        Args:
-            data: Données à charger et prétraiter
-
-        Returns:
-            Tuple avec features et cibles (ou None pour les cibles en mode prédiction)
-        """
-        features = None
-        targets = None
-
-        # Chargement selon le type
-        if isinstance(data, str) and os.path.exists(data):
-            # Déterminer le format du fichier par l'extension
-            ext = os.path.splitext(data)[1].lower()
-            if ext == ".csv":
-                df = pd.read_csv(data, index_col=0, parse_dates=True)
-            elif ext == ".parquet":
-                if not HAVE_PYARROW:
-                    logger.warning(
-                        "PyArrow non disponible - essai avec pandas.read_parquet directement. "
-                        "Pour de meilleures performances, installez pyarrow."
-                    )
-                df = pd.read_parquet(data)
-            elif ext in [".h5", ".hdf5"]:
-                if not HAVE_HDF5:
-                    logger.warning(
-                        "h5py non disponible - essai avec pandas.read_hdf directement. "
-                        "Pour de meilleures performances, installez h5py."
-                    )
-                df = pd.read_hdf(data)
+                        y = None
             else:
-                raise ValueError(f"Format de fichier non supporté: {ext}")
-
-            data = df  # Continuer le traitement comme un DataFrame
-
-        # Traitement basé sur le type de données maintenant chargé
-        if isinstance(data, pd.DataFrame):
-            # Sélection des colonnes pour les features
-            if self.feature_columns is not None:
-                features_df = data[self.feature_columns]
-            else:
-                # Utilise toutes les colonnes numériques par défaut
-                numeric_cols = data.select_dtypes(include=[np.number]).columns.tolist()
-                if self.target_column in numeric_cols and self.is_train:
-                    numeric_cols.remove(self.target_column)
-                features_df = data[numeric_cols]
-
-            # Conversion en tenseur PyTorch de manière efficace
-            features = torch.tensor(features_df.values, dtype=self.dtype)
-
-            # Cibles si en mode entraînement
-            if self.is_train and self.target_column is not None:
-                if self.target_column in data.columns:
-                    targets = torch.tensor(
-                        data[self.target_column].values, dtype=self.dtype
-                    )
-                else:
-                    raise ValueError(
-                        f"Colonne cible {self.target_column} introuvable dans le DataFrame"
-                    )
-
-        elif isinstance(data, np.ndarray):
-            # Conversion directe en tenseur
-            features = torch.tensor(data, dtype=self.dtype)
-            # Pour ndarray, on suppose que la dernière colonne est la cible si nécessaire
-            if self.is_train and data.shape[1] > 1:
-                targets = torch.tensor(data[:, -1], dtype=self.dtype)
-                features = torch.tensor(data[:, :-1], dtype=self.dtype)
-
-        elif isinstance(data, torch.Tensor):
-            # Utilisation directe du tenseur
-            features = data.to(dtype=self.dtype)
-            # Pour tensor, même logique que ndarray
-            if self.is_train and data.size(1) > 1:
-                targets = data[:, -1].to(dtype=self.dtype)
-                features = data[:, :-1].to(dtype=self.dtype)
-
+                y = None
         else:
-            raise TypeError(f"Type de données non supporté: {type(data)}")
-
-        return features, targets
+            # La séquence s'étend au-delà du chunk actuel
+            start_chunk_data = chunk_tensor[local_idx:]
+            
+            # Déterminer combien de données restantes sont nécessaires
+            remaining_length = seq_length - len(start_chunk_data)
+            
+            # Charger le chunk suivant si nécessaire
+            next_chunk_idx = chunk_idx + 1
+            if next_chunk_idx < len(self._chunk_indices):
+                if next_chunk_idx not in self._loaded_chunks:
+                    self._loaded_chunks[next_chunk_idx] = self._load_chunk(next_chunk_idx)
+                next_chunk_tensor, next_chunk_targets = self._loaded_chunks[next_chunk_idx]
+                
+                # Extraire les données restantes du chunk suivant
+                if remaining_length <= len(next_chunk_tensor):
+                    end_chunk_data = next_chunk_tensor[:remaining_length]
+                    
+                    # Concaténer les deux parties
+                    x = torch.cat([start_chunk_data, end_chunk_data], dim=0)
+                    
+                    # Pour la cible, elle sera toujours dans le chunk suivant
+                    if next_chunk_targets is not None and self.is_train:
+                        target_idx = seq_length - len(start_chunk_data) - 1 + ahead
+                        if target_idx < len(next_chunk_targets):
+                            y = next_chunk_targets[target_idx]
+                        else:
+                            y = None
+                    else:
+                        y = None
+                else:
+                    # Même le chunk suivant ne contient pas assez de données
+                    # Dans ce cas, on complète avec des zéros
+                    padding_size = remaining_length - len(next_chunk_tensor)
+                    padding = torch.zeros((padding_size,) + next_chunk_tensor.shape[1:], dtype=next_chunk_tensor.dtype)
+                    
+                    end_chunk_data = torch.cat([next_chunk_tensor, padding], dim=0)
+                    x = torch.cat([start_chunk_data, end_chunk_data], dim=0)
+                    y = None
+            else:
+                # Il n'y a pas de chunk suivant, on complète avec des zéros
+                padding = torch.zeros((remaining_length,) + chunk_tensor.shape[1:], dtype=chunk_tensor.dtype)
+                x = torch.cat([start_chunk_data, padding], dim=0)
+                y = None
+            
+        return x, y
 
     def __len__(self) -> int:
         """Retourne le nombre d'exemples dans le dataset."""
@@ -761,64 +1187,132 @@ class FinancialDataset(Dataset):
     def _get_sequence_cached(
         self, idx: int
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
-        """Récupère une séquence avec mise en cache LRU."""
-        if idx in self.sequence_cache:
-            return self.sequence_cache[idx]
-
-        # Si le cache est plein, supprimer l'élément le moins récemment utilisé
-        if len(self.sequence_cache) >= self.cache_size:
-            # Simple LRU: supprimer le premier élément (le plus ancien)
-            self.sequence_cache.pop(next(iter(self.sequence_cache)))
-
-        # En mode lazy loading, récupérer depuis les chunks
+        """
+        Récupère une séquence depuis le cache ou la génère.
+        
+        Args:
+            idx: Index de la séquence
+            
+        Returns:
+            Tuple (séquence, cible)
+        """
+        # Vérifier si la séquence est dans le cache
+        if idx in self._sequence_cache:
+            return self._sequence_cache[idx]
+            
+        # Sinon, générer la séquence
         if self.lazy_loading:
-            sequence, target = self._get_data_from_chunks(idx)
+            # Mode lazy loading, utiliser les chunks
+            try:
+                x, y = self._get_data_from_chunks(idx)
+            except Exception as e:
+                logger.error(f"Erreur lors de la récupération des données du chunk pour idx={idx}: {e}")
+                raise
         else:
-            # Extraire la séquence de features
-            seq_start = idx
-            seq_end = idx + self.sequence_length
-            sequence = self.features[seq_start:seq_end]
-
-            # En mode entrainement, récupérer la cible
-            if self.is_train:
-                target_idx = seq_end + self.predict_n_ahead - 1
-                if target_idx < len(self.targets):
-                    target = self.targets[target_idx]
+            # Mode chargement complet, extraire directement du tenseur
+            if self.data_tensor is None:
+                raise RuntimeError("Les données n'ont pas été chargées correctement")
+                
+            # Extraire la séquence
+            start_idx = idx
+            end_idx = idx + self.sequence_length
+            
+            # Vérifier les limites
+            if end_idx > len(self.data_tensor):
+                raise IndexError(f"Index {idx} hors limites pour la longueur des données {len(self.data_tensor)}")
+                
+            x = self.data_tensor[start_idx:end_idx]
+            
+            # Extraire la cible si disponible
+            if self.target_tensor is not None and self.is_train:
+                target_idx = end_idx - 1 + self.predict_n_ahead
+                if target_idx < len(self.target_tensor):
+                    y = self.target_tensor[target_idx]
                 else:
-                    # Cas où la cible serait hors limites
-                    target = torch.zeros(1, dtype=self.dtype)
+                    y = None
             else:
-                target = None
-
-        # Mettre en cache
-        self.sequence_cache[idx] = (sequence, target)
-        return sequence, target
+                y = None
+                
+        # Stocker dans le cache avant les transformations
+        # Maintenir la taille du cache limitée
+        if len(self._sequence_cache) >= self._cache_size:
+            # Supprimer l'élément le plus ancien si nous utilisons un cache simple
+            if not HAVE_LRU_CACHE:
+                if self._cache_keys:
+                    oldest_key = self._cache_keys.pop(0)
+                    if oldest_key in self._sequence_cache:
+                        del self._sequence_cache[oldest_key]
+            else:
+                # Si LRU_CACHE est disponible, il gérera automatiquement la taille
+                # Mais nous devons quand même limiter manuellement
+                keys_to_remove = list(self._sequence_cache.keys())[:len(self._sequence_cache) - self._cache_size + 1]
+                for k in keys_to_remove:
+                    del self._sequence_cache[k]
+                    
+        # Ajouter la nouvelle séquence au cache
+        self._sequence_cache[idx] = (x, y)
+        
+        # Ajouter la clé à la liste des clés pour le suivi LRU simple
+        if not HAVE_LRU_CACHE:
+            self._cache_keys.append(idx)
+            
+        return x, y
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         """
-        Récupère un exemple (séquence + cible) à l'index spécifié.
-
+        Récupère un exemple du dataset à partir de son index.
+        
         Args:
             idx: Index de l'exemple à récupérer
-
+            
         Returns:
-            Tuple contenant (séquence de features, valeur cible)
+            Tuple contenant (séquence, cible) où cible peut être None en mode prédiction
         """
-        # Récupérer la séquence (avec cache si disponible)
-        sequence, target = self._get_sequence_cached(idx)
-
-        # Appliquer les transformations si définies
-        if self.transform:
-            sequence = self.transform(sequence)
-
-        if self.target_transform and target is not None:
-            target = self.target_transform(target)
-
-        # Optimiser la mémoire périodiquement si le gestionnaire est activé
+        # Vérifier les limites
+        if idx < 0 or idx >= len(self):
+            raise IndexError(f"Index {idx} hors limites pour dataset de taille {len(self)}")
+            
+        # Vérifier si le gestionnaire de mémoire doit optimiser
         if self.memory_manager:
             self.memory_manager.check_and_optimize()
-
-        return sequence, target
+            
+        # Récupérer la séquence et la cible sans transformation
+        sequence, target = self._get_sequence_cached(idx)
+        
+        # Appliquer les transformations si spécifiées
+        if self.transform is not None:
+            sequence_transformed = self.transform(sequence)
+        else:
+            sequence_transformed = sequence
+            
+        if target is not None and self.target_transform is not None:
+            target_transformed = self.target_transform(target)
+        else:
+            target_transformed = target
+            
+        # S'assurer que target n'est jamais None pour éviter les erreurs de collate dans DataLoader
+        if target_transformed is None:
+            # Créer un tenseur vide compatible avec la forme attendue
+            if sequence_transformed.dim() > 1:
+                # Si la séquence a plus d'une dimension, créer un tenseur cible avec la même première dimension
+                target_transformed = torch.zeros(1, dtype=sequence_transformed.dtype, device=sequence_transformed.device)
+            else:
+                # Sinon, créer un scalaire
+                target_transformed = torch.zeros([], dtype=sequence_transformed.dtype, device=sequence_transformed.device)
+        elif target_transformed.dim() > 0:
+            # Si la cible a plus d'une dimension, la convertir en scalaire pour le test
+            target_transformed = target_transformed.squeeze()
+            # S'assurer qu'on a un scalaire si c'est une cible unique
+            if target_transformed.dim() == 0:
+                # Parfait, c'est un scalaire
+                pass
+            else:
+                # Si c'est un tenseur avec une seule valeur, le convertir en scalaire
+                if target_transformed.numel() == 1:
+                    target_transformed = target_transformed.item()
+                    target_transformed = torch.tensor(target_transformed, dtype=sequence_transformed.dtype, device=sequence_transformed.device)
+                
+        return sequence_transformed, target_transformed
 
 
 # Fonction LRU cache pour le prétraitement des features
@@ -903,67 +1397,125 @@ def get_financial_dataloader(
     drop_last: bool = False,
     worker_init_fn: Optional[Callable] = None,
     optimize_memory: bool = True,
+    persistent_workers: bool = True,    # Garder les workers en vie entre les époques
+    auto_threading: bool = True,        # Nouvelle option pour optimiser automatiquement les workers
 ) -> DataLoader:
     """
     Crée un DataLoader optimisé pour les données financières.
-
+    
     Args:
-        dataset: Instance de FinancialDataset à utiliser
+        dataset: Instance de FinancialDataset
         batch_size: Taille des batchs
         shuffle: Si True, mélange les données à chaque époque
-        num_workers: Nombre de processus pour le chargement parallèle
-        prefetch_factor: Nombre de batchs à précharger par worker (None si num_workers=0)
-        pin_memory: Si True, copie les tenseurs en mémoire page-locked pour transfert GPU plus rapide
-        drop_last: Si True, élimine le dernier batch incomplet
+        num_workers: Nombre de processus de chargement (-1 pour auto-détection)
+        prefetch_factor: Nombre de batchs à précharger par worker (si num_workers > 0)
+        pin_memory: Si True, épingle la mémoire pour transfert plus rapide vers GPU
+        drop_last: Si True, supprime le dernier batch s'il est incomplet
         worker_init_fn: Fonction d'initialisation personnalisée pour les workers
-        optimize_memory: Si True, active l'optimisation automatique de la mémoire
-
+        optimize_memory: Si True, optimise l'utilisation de la mémoire pendant le chargement
+        persistent_workers: Si True, garde les workers en vie entre les époques
+        auto_threading: Si True, utilise ThreadingOptimizer pour la configuration optimale
+        
     Returns:
         DataLoader optimisé
     """
-    # Vérifier si num_workers doit être ajusté selon le système
-    if num_workers > 0 and os.name == "nt":  # Windows
-        # Sur Windows, les processus sont plus coûteux en ressources
-        num_workers = min(num_workers, os.cpu_count() or 4)
-
-    # Définir une fonction partielle pour l'initialisation des workers qui utilise la fonction globale
+    # Si auto_threading est activé et l'optimiseur de threading est disponible, 
+    # obtenir la configuration optimale
+    if auto_threading and HAVE_THREADING_OPTIMIZER and num_workers == -1:
+        try:
+            # Créer l'optimiseur de threading
+            threading_optimizer = ThreadingOptimizer()
+            
+            # Obtenir la taille approximative du dataset
+            dataset_size = len(dataset)
+            
+            # Obtenir la configuration optimale pour le DataLoader
+            config = threading_optimizer.get_dataloader_config(
+                data_size=dataset_size,
+                batch_size=batch_size,
+                persistent_workers=persistent_workers
+            )
+            
+            # Appliquer la configuration optimale
+            num_workers = config['num_workers']
+            prefetch_factor = config['prefetch_factor']
+            pin_memory = config['pin_memory']
+            persistent_workers = config['persistent_workers']
+            
+            logger.info(f"Configuration DataLoader auto-optimisée: num_workers={num_workers}, "
+                      f"prefetch_factor={prefetch_factor}, persistent_workers={persistent_workers}")
+        except Exception as e:
+            logger.warning(f"Erreur lors de l'auto-optimisation du threading: {e}. Utilisation des valeurs par défaut.")
+    elif num_workers == -1:
+        # Auto-détection simple du nombre de workers si ThreadingOptimizer n'est pas disponible
+        import multiprocessing
+        num_workers = multiprocessing.cpu_count() 
+        logger.info(f"Auto-détection du nombre de workers: {num_workers}")
+        
+    # Limiter le nombre de workers en fonction de la taille du dataset
+    if len(dataset) < batch_size * 10 and num_workers > 2:
+        adjusted_workers = min(2, num_workers)
+        logger.info(f"Dataset petit, réduction du nombre de workers de {num_workers} à {adjusted_workers}")
+        num_workers = adjusted_workers
+        
+    # Worker init function for memory optimization
+    if worker_init_fn is None and optimize_memory:
+        worker_init_fn = memory_optimized_worker_init
+    elif worker_init_fn is not None and optimize_memory:
+        # Wrap the user-provided function with our memory optimization
+        original_fn = worker_init_fn
+        worker_init_fn = lambda x: memory_optimized_worker_init(x, original_fn)
+        
+    # Create a GarbageCollectionDataLoader if optimize_memory, else standard DataLoader
     if optimize_memory:
-        worker_init_fn_to_use = partial(
-            memory_optimized_worker_init, original_worker_init_fn=worker_init_fn
-        )
+        if num_workers > 0:
+            loader_kwargs = {
+                "dataset": dataset,
+                "batch_size": batch_size,
+                "shuffle": shuffle,
+                "num_workers": num_workers,
+                "pin_memory": pin_memory,
+                "drop_last": drop_last,
+                "prefetch_factor": prefetch_factor,
+                "worker_init_fn": worker_init_fn,
+                "persistent_workers": persistent_workers if num_workers > 0 else False,
+            }
+        else:
+            # No need for prefetch_factor or persistent_workers when num_workers=0
+            loader_kwargs = {
+                "dataset": dataset,
+                "batch_size": batch_size,
+                "shuffle": shuffle,
+                "num_workers": 0,
+                "pin_memory": pin_memory,
+                "drop_last": drop_last,
+                "worker_init_fn": worker_init_fn,
+            }
+            
+        return GarbageCollectionDataLoader(**loader_kwargs)
     else:
-        worker_init_fn_to_use = worker_init_fn
-
-    # Paramètres du DataLoader selon la version de PyTorch
-    loader_kwargs = {
-        "batch_size": batch_size,
-        "shuffle": shuffle,
-        "num_workers": num_workers,
-        "pin_memory": pin_memory and torch.cuda.is_available(),
-        "drop_last": drop_last,
-        "worker_init_fn": worker_init_fn_to_use,
-    }
-
-    # Ajouter prefetch_factor et persistent_workers si la version de PyTorch le supporte
-    # et seulement si num_workers > 0
-    if (
-        hasattr(DataLoader, "__init__")
-        and "prefetch_factor" in DataLoader.__init__.__code__.co_varnames
-        and num_workers > 0
-        and prefetch_factor is not None
-    ):
-        loader_kwargs["prefetch_factor"] = prefetch_factor
-        loader_kwargs["persistent_workers"] = True
-
-    # Créer le DataLoader avec les options d'optimisation
-    dataloader = DataLoader(dataset, **loader_kwargs)
-
-    logger.info(
-        f"DataLoader financier créé: batch_size={batch_size}, "
-        f"num_workers={num_workers}"
-    )
-
-    return dataloader
+        if num_workers > 0:
+            return DataLoader(
+                dataset,
+                batch_size=batch_size,
+                shuffle=shuffle,
+                num_workers=num_workers,
+                pin_memory=pin_memory,
+                drop_last=drop_last,
+                prefetch_factor=prefetch_factor,
+                worker_init_fn=worker_init_fn,
+                persistent_workers=persistent_workers,
+            )
+        else:
+            return DataLoader(
+                dataset,
+                batch_size=batch_size,
+                shuffle=shuffle,
+                num_workers=0,
+                pin_memory=pin_memory,
+                drop_last=drop_last,
+                worker_init_fn=worker_init_fn,
+            )
 
 
 class GarbageCollectionDataLoader(DataLoader):

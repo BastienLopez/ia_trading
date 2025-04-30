@@ -6,6 +6,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+import pytest
 
 import torch
 
@@ -187,6 +188,7 @@ class TestFinancialDataset(unittest.TestCase):
 
         self.assertGreater(batch_count, 0)
 
+    @pytest.mark.slow
     def test_dataloader_multi_workers(self):
         """Tester le DataLoader avec plusieurs workers."""
         # Réduire le nombre de workers pour les tests (éviter problèmes sur CI)
