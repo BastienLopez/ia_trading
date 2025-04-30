@@ -21,11 +21,11 @@
 - [x] **Minimiser le CPU-bound** : identifier les étapes où ton CPU est trop sollicité et profiler (cProfile, Py-Spy).
 - [x] **Privilégier le pré-chargement des données** en amont pour éviter les temps d'attente (prefetching, asynchronous data loading).
 - [x] **Multithreading/multiprocessing optimisé** (ex: augmenter `num_workers` pour le DataLoader).
-- [ ] **Compression de fichiers et lecture rapide** (ex: utiliser `zstd` pour de gros fichiers).
-- [ ] **Optimisation pour Intel** :
-  - [ ] Activer les optimisations Intel MKL
-  - [ ] Utiliser `torch.set_num_threads()` pour contrôler le parallélisme
-  - [ ] Configurer `OMP_NUM_THREADS` pour OpenMP
+- [x] **Compression de fichiers et lecture rapide** (ex: utiliser `zstd` pour de gros fichiers).
+- [x] **Optimisation pour Intel** :
+  - [x] Activer les optimisations Intel MKL
+  - [x] Utiliser `torch.set_num_threads()` pour contrôler le parallélisme
+  - [x] Configurer `OMP_NUM_THREADS` pour OpenMP
 
 ---
 
