@@ -171,19 +171,21 @@ class TestEnhancedMarketDataPreprocessor(unittest.TestCase):
         """Teste la division des données."""
         # Préparation des données
         cleaned_data = self.preprocessor.clean_market_data(self.test_data)
-        
+
         # S'assurer que toutes les valeurs sont finies avant la division
         for col in cleaned_data.columns:
             # Ne pas convertir les colonnes de texte en float
-            if cleaned_data[col].dtype == 'object' or pd.api.types.is_string_dtype(cleaned_data[col]):
+            if cleaned_data[col].dtype == "object" or pd.api.types.is_string_dtype(
+                cleaned_data[col]
+            ):
                 continue
-                
+
             # Remplacer les valeurs infinies ou NaN uniquement pour les colonnes numériques
             cleaned_data[col] = np.nan_to_num(
-                cleaned_data[col].to_numpy(dtype=np.float64), 
-                nan=0.0, 
-                posinf=1e6, 
-                neginf=-1e6
+                cleaned_data[col].to_numpy(dtype=np.float64),
+                nan=0.0,
+                posinf=1e6,
+                neginf=-1e6,
             )
 
         # Division des données
@@ -202,23 +204,24 @@ class TestEnhancedMarketDataPreprocessor(unittest.TestCase):
             try:
                 # Copier les données de test pour éviter les modifications en place
                 test_data_copy = self.test_data.copy()
-                
+
                 # Remplacer les valeurs problématiques uniquement pour les colonnes numériques
                 for col in test_data_copy.columns:
                     # Vérifier si la colonne est de type numérique
-                    if test_data_copy[col].dtype == 'object' or pd.api.types.is_string_dtype(test_data_copy[col]):
+                    if test_data_copy[
+                        col
+                    ].dtype == "object" or pd.api.types.is_string_dtype(
+                        test_data_copy[col]
+                    ):
                         continue
-                        
+
                     # Convertir en tableau NumPy pour éviter les avertissements pandas
                     col_values = test_data_copy[col].to_numpy(dtype=np.float64)
                     # Remplacer les valeurs infinies ou NaN
                     test_data_copy[col] = np.nan_to_num(
-                        col_values,
-                        nan=0.0,
-                        posinf=1e6,
-                        neginf=-1e6
+                        col_values, nan=0.0, posinf=1e6, neginf=-1e6
                     )
-                
+
                 # Essayer d'abord avec un DataFrame
                 processed_data = self.preprocessor.preprocess_market_data(
                     test_data_copy

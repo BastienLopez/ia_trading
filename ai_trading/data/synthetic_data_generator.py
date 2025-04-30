@@ -69,17 +69,17 @@ def generate_synthetic_market_data(
     log_returns = np.log1p(price_changes_f32)
     cumulative_returns = np.cumsum(log_returns)
     close_prices = start_price * np.exp(cumulative_returns)
-    
+
     # Vérifier les valeurs avant la conversion
     close_prices = np.clip(close_prices, np.finfo(dtype).min, np.finfo(dtype).max)
-    
+
     # Reconvertir en float16 si nécessaire après le calcul
     try:
-        close_prices = close_prices.astype(dtype, casting='safe')
+        close_prices = close_prices.astype(dtype, casting="safe")
     except TypeError:
         # Si le casting sécurisé échoue, utiliser une approche plus conservative
         close_prices = np.clip(close_prices, -65000, 65000).astype(dtype)
-        
+
     close_prices = np.maximum(close_prices, start_price * min_price_ratio)
 
     # Application de la dépréciation
@@ -164,7 +164,9 @@ def generate_synthetic_market_data(
     df["depreciation_factor"] = np.clip(depreciation_factor, 0, 1).astype(dtype)
     df["price_ratio"] = np.clip(df["close"] / start_price, 0, 65000).astype(dtype)
     df["volume_ratio"] = (
-        np.clip(df["volume"] / base_volume, 0, 65000).astype(dtype) if include_volume else 0
+        np.clip(df["volume"] / base_volume, 0, 65000).astype(dtype)
+        if include_volume
+        else 0
     )
 
     logger.info(f"Données synthétiques générées avec succès: {len(df)} points")

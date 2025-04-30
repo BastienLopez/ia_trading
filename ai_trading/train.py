@@ -1,3 +1,4 @@
+import gc  # Pour la gestion du garbage collection
 import os
 import sys
 from pathlib import Path
@@ -20,6 +21,26 @@ INFO_RETOUR_DIR = Path(__file__).parent / "info_retour"
 INFO_RETOUR_DIR.mkdir(exist_ok=True)
 
 
+def optimize_memory():
+    """
+    Optimise l'utilisation de la mémoire en forçant le garbage collection
+    et en vidant le cache CUDA si disponible.
+    """
+    # Forcer le garbage collection Python
+    collected = gc.collect()
+    logger.debug(f"Objets collectés par GC: {collected}")
+
+    # Libérer le cache CUDA si disponible
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            logger.debug("Cache CUDA vidé")
+    except ImportError:
+        logger.debug("PyTorch non disponible, pas de nettoyage CUDA")
+
+
 def main():
     """
     Fonction principale pour entraîner l'agent RL.
@@ -27,6 +48,17 @@ def main():
     logger.info("Démarrage de l'entraînement de l'agent RL")
 
     try:
+        # Optimisation mémoire au début
+        optimize_memory()
+
+        # Activer les optimisations RTX 3070 si disponible
+        try:
+            from ai_trading.utils.gpu_rtx_optimizer import setup_rtx_optimization
+
+            setup_rtx_optimization()
+        except ImportError:
+            logger.warning("Module gpu_rtx_optimizer non disponible")
+
         # Créer une instance du système de trading RL avec une configuration par défaut
         trading_system = RLTradingSystem(
             config={
@@ -44,6 +76,9 @@ def main():
             end_date="2023-01-01",
             timeframe="1d",
         )
+
+        # Libérer la mémoire après chargement des données
+        optimize_memory()
 
         # Créer l'environnement si non existant
         if not hasattr(trading_system, "_env"):
@@ -68,6 +103,9 @@ def main():
         else:
             agent = trading_system._agent
 
+        # Libérer la mémoire avant l'entraînement
+        optimize_memory()
+
         # Entraîner l'agent
         trading_system.train(
             episodes=50,
@@ -75,10 +113,16 @@ def main():
             save_path=str(INFO_RETOUR_DIR / "models" / "dqn_agent"),
         )
 
+        # Libérer la mémoire après l'entraînement
+        optimize_memory()
+
         # Évaluer l'agent
         results = trading_system.evaluate(episodes=10)
 
         logger.info(f"Résultats de l'évaluation: {results}")
+
+        # Nettoyage final de la mémoire
+        optimize_memory()
 
     except Exception as e:
         logger.error(f"Une erreur s'est produite: {str(e)}")

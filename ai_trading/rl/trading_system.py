@@ -4,12 +4,18 @@ Module pour le système de trading basé sur l'apprentissage par renforcement.
 
 import logging
 import os
-from typing import Dict, List, Tuple
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
+import pandas as pd
 import torch
 import torch.nn as nn
+from torch.utils.data import DataLoader
+from tqdm import tqdm
 
+from ai_trading.optim.optimizers import Adam
+from ai_trading.optim.schedulers import get_cosine_schedule_with_warmup
 from ai_trading.rl.data_integration import RLDataIntegrator
 from ai_trading.rl.models.temporal_transformer import FinancialTemporalTransformer
 from ai_trading.rl.trading_environment import TradingEnvironment
@@ -42,6 +48,12 @@ class RLTradingSystem:
         self._transformer = None
         self.logger = logging.getLogger(__name__)
         self.data_integrator = RLDataIntegrator()
+
+        # Ajout du répertoire de modèles
+        from ai_trading.config import MODELS_DIR
+
+        self.models_dir = MODELS_DIR / "transformers"
+        os.makedirs(self.models_dir, exist_ok=True)
 
     def create_agent(self, agent_type="dqn", state_size=None, action_size=3, **kwargs):
         """
@@ -510,8 +522,8 @@ class RLTradingSystem:
 
     def train_transformer(
         self,
-        data: torch.Tensor,
-        targets: torch.Tensor,
+        data: Union[torch.Tensor, pd.DataFrame, str],
+        targets: Optional[torch.Tensor] = None,
         epochs: int = 100,
         batch_size: int = 32,
         learning_rate: float = 0.0001,
@@ -519,51 +531,229 @@ class RLTradingSystem:
         warmup_steps: int = 1000,
         gradient_clip: float = 1.0,
         validation_split: float = 0.2,
+        num_workers: int = 4,
+        prefetch_factor: int = 2,
+        sequence_length: int = 50,
+        pin_memory: bool = True,
     ) -> Dict[str, List[float]]:
         """
-        Entraîne le modèle Transformer avec des hyperparamètres optimisés.
+        Entraîne le transformer sur des données financières avec DataLoader optimisé.
 
         Args:
-            data: Données d'entraînement
-            targets: Cibles d'entraînement
+            data: Données d'entrée (DataFrame, ndarray, path ou tensor)
+            targets: Valeurs cibles (peut être None si incluses dans data)
             epochs: Nombre d'époques d'entraînement
             batch_size: Taille des batchs
-            learning_rate: Taux d'apprentissage initial
-            weight_decay: Coefficient de régularisation L2
-            warmup_steps: Nombre d'étapes de warmup
+            learning_rate: Taux d'apprentissage
+            weight_decay: Régularisation L2
+            warmup_steps: Nombre d'étapes pour le warmup du learning rate
             gradient_clip: Valeur maximale pour le gradient clipping
             validation_split: Proportion des données pour la validation
+            num_workers: Nombre de workers pour le chargement des données
+            prefetch_factor: Nombre de batchs à précharger par worker
+            sequence_length: Longueur des séquences temporelles
+            pin_memory: Si True, utilise la mémoire pin pour le transfert vers GPU
 
         Returns:
-            Dictionnaire contenant les historiques des pertes
+            Historique d'entraînement
         """
-        if self._transformer is None:
-            raise ValueError("Le modèle Transformer n'est pas initialisé")
+        from ai_trading.data.financial_dataset import (
+            FinancialDataset,
+            get_financial_dataloader,
+        )
 
-        optimizer = torch.optim.AdamW(
+        history = {"train_loss": [], "val_loss": []}
+        device = next(self._transformer.parameters()).device
+
+        # Configurer l'optimiseur et le scheduler
+        optimizer = Adam(
             self._transformer.parameters(), lr=learning_rate, weight_decay=weight_decay
         )
-
-        # Scheduler avec warmup
-        scheduler = torch.optim.lr_scheduler.LambdaLR(
-            optimizer, lambda step: min(step / warmup_steps, 1.0)
+        scheduler = get_cosine_schedule_with_warmup(
+            optimizer,
+            num_warmup_steps=warmup_steps,
+            num_training_steps=epochs * 1000,  # Estimation approximative
         )
-
         criterion = nn.MSELoss()
 
-        # Historique des pertes
-        history = {"train_loss": [], "val_loss": []}
+        # Préparer les données selon leur type
+        if isinstance(data, pd.DataFrame):
+            # Diviser les données en train/val directement à partir du DataFrame
+            dataset_size = len(data)
+            indices = list(range(dataset_size))
+            split = int(np.floor(validation_split * dataset_size))
 
-        # Préparation des données
-        dataset_size = len(data)
-        indices = list(range(dataset_size))
-        split = int(np.floor(validation_split * dataset_size))
+            # Mélanger les indices
+            np.random.shuffle(indices)
+            train_indices, val_indices = indices[split:], indices[:split]
 
-        train_indices, val_indices = indices[split:], indices[:split]
-        train_data = data[train_indices]
-        train_targets = targets[train_indices]
-        val_data = data[val_indices]
-        val_targets = targets[val_indices]
+            # Créer les datasets d'entraînement et de validation
+            feature_columns = (
+                None  # Utiliser toutes les colonnes numériques disponibles
+            )
+            target_column = (
+                None if targets is not None else "close"
+            )  # Par défaut utiliser close
+
+            train_dataset = FinancialDataset(
+                data.iloc[train_indices],
+                sequence_length=sequence_length,
+                target_column=target_column,
+                feature_columns=feature_columns,
+                is_train=True,
+                device=device,
+                use_shared_memory=num_workers > 0,
+                dtype=torch.float32,
+            )
+
+            val_dataset = FinancialDataset(
+                data.iloc[val_indices],
+                sequence_length=sequence_length,
+                target_column=target_column,
+                feature_columns=feature_columns,
+                is_train=True,
+                device=device,
+                use_shared_memory=num_workers > 0,
+                dtype=torch.float32,
+            )
+
+        elif isinstance(data, (str, Path)) and os.path.exists(data):
+            # Diviser les données en entraînement/validation en utilisant des indices
+            full_dataset = FinancialDataset(
+                data,
+                sequence_length=sequence_length,
+                is_train=True,
+                device=device,
+                use_shared_memory=num_workers > 0,
+                dtype=torch.float32,
+            )
+
+            dataset_size = len(full_dataset)
+            indices = list(range(dataset_size))
+            split = int(np.floor(validation_split * dataset_size))
+
+            # Mélanger les indices
+            np.random.shuffle(indices)
+            train_indices, val_indices = indices[split:], indices[:split]
+
+            # Utiliser SubsetRandomSampler pour créer les datasets
+            from torch.utils.data import SubsetRandomSampler
+
+            train_sampler = SubsetRandomSampler(train_indices)
+            val_sampler = SubsetRandomSampler(val_indices)
+
+            # Nous utiliserons les samplers directement dans le DataLoader
+            train_dataset = full_dataset
+            val_dataset = full_dataset
+
+            # Créer les DataLoaders avec les samplers
+            train_loader = DataLoader(
+                train_dataset,
+                batch_size=batch_size,
+                sampler=train_sampler,
+                num_workers=num_workers,
+                prefetch_factor=prefetch_factor if num_workers > 0 else 2,
+                pin_memory=pin_memory and torch.cuda.is_available(),
+                persistent_workers=num_workers > 0,
+            )
+
+            val_loader = DataLoader(
+                val_dataset,
+                batch_size=batch_size,
+                sampler=val_sampler,
+                num_workers=num_workers,
+                prefetch_factor=prefetch_factor if num_workers > 0 else 2,
+                pin_memory=pin_memory and torch.cuda.is_available(),
+                persistent_workers=num_workers > 0,
+            )
+
+        else:  # torch.Tensor ou np.ndarray
+            if isinstance(data, np.ndarray):
+                data = torch.tensor(data, dtype=torch.float32)
+
+            # Diviser les données en deux ensembles
+            dataset_size = len(data)
+            indices = list(range(dataset_size))
+            split = int(np.floor(validation_split * dataset_size))
+
+            # Mélanger les indices
+            np.random.shuffle(indices)
+            train_indices, val_indices = indices[split:], indices[:split]
+
+            # Si targets est fourni, diviser également
+            if targets is not None:
+                if isinstance(targets, np.ndarray):
+                    targets = torch.tensor(targets, dtype=torch.float32)
+
+                train_data = data[train_indices]
+                train_targets = targets[train_indices]
+                val_data = data[val_indices]
+                val_targets = targets[val_indices]
+
+                # Créer les datasets
+                train_dataset = FinancialDataset(
+                    train_data,
+                    sequence_length=sequence_length,
+                    is_train=True,
+                    device=device,
+                    use_shared_memory=num_workers > 0,
+                    dtype=torch.float32,
+                )
+
+                val_dataset = FinancialDataset(
+                    val_data,
+                    sequence_length=sequence_length,
+                    is_train=True,
+                    device=device,
+                    use_shared_memory=num_workers > 0,
+                    dtype=torch.float32,
+                )
+            else:
+                # Si targets n'est pas fourni, diviser uniquement les données
+                train_dataset = FinancialDataset(
+                    data[train_indices],
+                    sequence_length=sequence_length,
+                    is_train=True,
+                    device=device,
+                    use_shared_memory=num_workers > 0,
+                    dtype=torch.float32,
+                )
+
+                val_dataset = FinancialDataset(
+                    data[val_indices],
+                    sequence_length=sequence_length,
+                    is_train=True,
+                    device=device,
+                    use_shared_memory=num_workers > 0,
+                    dtype=torch.float32,
+                )
+
+        # Créer les DataLoaders si ce n'est pas déjà fait
+        if "train_loader" not in locals():
+            train_loader = get_financial_dataloader(
+                train_dataset,
+                batch_size=batch_size,
+                shuffle=True,
+                num_workers=num_workers,
+                prefetch_factor=prefetch_factor,
+                pin_memory=pin_memory and torch.cuda.is_available(),
+                drop_last=False,
+            )
+
+            val_loader = get_financial_dataloader(
+                val_dataset,
+                batch_size=batch_size,
+                shuffle=False,
+                num_workers=num_workers,
+                prefetch_factor=prefetch_factor,
+                pin_memory=pin_memory and torch.cuda.is_available(),
+                drop_last=False,
+            )
+
+        self.logger.info(
+            f"Début de l'entraînement sur {len(train_loader)} batchs d'entraînement et "
+            f"{len(val_loader)} batchs de validation pour {epochs} époques"
+        )
 
         best_val_loss = float("inf")
         patience = 10
@@ -574,16 +764,28 @@ class RLTradingSystem:
             self._transformer.train()
             train_losses = []
 
-            # Entraînement par batch
-            for i in range(0, len(train_data), batch_size):
-                batch_data = train_data[i : i + batch_size]
-                batch_targets = train_targets[i : i + batch_size]
+            # Barre de progression pour l'entraînement
+            train_loop = tqdm(train_loader, desc=f"Époque {epoch+1}/{epochs} [Train]")
+            for batch_data in train_loop:
+                # Extraire les features et targets
+                features, batch_targets = batch_data
+                features = features.to(device)
+                batch_targets = batch_targets.to(device)
 
                 optimizer.zero_grad()
-                outputs, _ = self._transformer(batch_data)
-                loss = criterion(outputs, batch_targets)
+                outputs, _ = self._transformer(features)
 
+                # Adapter la forme si nécessaire
+                if outputs.shape != batch_targets.shape:
+                    if outputs.dim() > batch_targets.dim():
+                        batch_targets = batch_targets.unsqueeze(-1)
+                    elif outputs.dim() < batch_targets.dim():
+                        outputs = outputs.unsqueeze(-1)
+
+                loss = criterion(outputs, batch_targets)
                 loss.backward()
+
+                # Gradient clipping
                 torch.nn.utils.clip_grad_norm_(
                     self._transformer.parameters(), gradient_clip
                 )
@@ -592,19 +794,33 @@ class RLTradingSystem:
                 scheduler.step()
 
                 train_losses.append(loss.item())
+                train_loop.set_postfix(loss=loss.item())
 
             # Mode évaluation
             self._transformer.eval()
             val_losses = []
 
+            # Barre de progression pour la validation
+            val_loop = tqdm(val_loader, desc=f"Époque {epoch+1}/{epochs} [Val]")
             with torch.no_grad():
-                for i in range(0, len(val_data), batch_size):
-                    batch_data = val_data[i : i + batch_size]
-                    batch_targets = val_targets[i : i + batch_size]
+                for batch_data in val_loop:
+                    # Extraire les features et targets
+                    features, batch_targets = batch_data
+                    features = features.to(device)
+                    batch_targets = batch_targets.to(device)
 
-                    outputs, _ = self._transformer(batch_data)
+                    outputs, _ = self._transformer(features)
+
+                    # Adapter la forme si nécessaire
+                    if outputs.shape != batch_targets.shape:
+                        if outputs.dim() > batch_targets.dim():
+                            batch_targets = batch_targets.unsqueeze(-1)
+                        elif outputs.dim() < batch_targets.dim():
+                            outputs = outputs.unsqueeze(-1)
+
                     val_loss = criterion(outputs, batch_targets)
                     val_losses.append(val_loss.item())
+                    val_loop.set_postfix(loss=val_loss.item())
 
             # Calcul des moyennes
             avg_train_loss = np.mean(train_losses)
@@ -617,15 +833,24 @@ class RLTradingSystem:
             if avg_val_loss < best_val_loss:
                 best_val_loss = avg_val_loss
                 patience_counter = 0
+
+                # Sauvegarder le meilleur modèle
+                best_model_path = os.path.join(
+                    self.models_dir, f"transformer_best_epoch_{epoch+1}.pt"
+                )
+                torch.save(self._transformer.state_dict(), best_model_path)
+                self.logger.info(
+                    f"Meilleur modèle sauvegardé avec Val Loss: {avg_val_loss:.4f}"
+                )
             else:
                 patience_counter += 1
 
             if patience_counter >= patience:
-                print(f"Early stopping à l'époque {epoch + 1}")
+                self.logger.info(f"Early stopping à l'époque {epoch+1}")
                 break
 
-            print(
-                f"Époque {epoch + 1}/{epochs} - "
+            self.logger.info(
+                f"Époque {epoch+1}/{epochs} - "
                 f"Loss: {avg_train_loss:.4f} - "
                 f"Val Loss: {avg_val_loss:.4f}"
             )

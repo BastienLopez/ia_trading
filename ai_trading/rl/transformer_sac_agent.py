@@ -92,7 +92,7 @@ class TransformerSACAgent:
         self.ff_dim = ff_dim
         self.num_transformer_blocks = num_transformer_blocks
         self.rnn_units = rnn_units
-        
+
         # Ajuster le taux de dropout si un seul layer est utilisé pour éviter les warnings
         # Pour les modèles RNN (GRU, LSTM), le dropout ne devrait pas être utilisé avec un seul layer
         self.num_rnn_layers = 2  # Utiliser au moins 2 couches par défaut
@@ -393,36 +393,49 @@ class TransformerSACAgent:
         # S'assurer que les tenseurs ont la même taille avant d'utiliser F.mse_loss
         if target_q.dim() != current_q1.dim() or target_q.shape != current_q1.shape:
             # Vérifier les formes exactes pour un meilleur debug
-            logger.debug(f"target_q.shape: {target_q.shape}, current_q1.shape: {current_q1.shape}")
-            
+            logger.debug(
+                f"target_q.shape: {target_q.shape}, current_q1.shape: {current_q1.shape}"
+            )
+
             # Adapter target_q à la forme de current_q1
             if target_q.dim() == 3 and target_q.shape[2] == 1 and current_q1.dim() == 2:
                 # Réduire la dimension target_q: [batch, seq, 1] -> [batch, seq]
                 target_q = target_q.squeeze(-1)
-            elif target_q.dim() == 2 and current_q1.dim() == 3 and current_q1.shape[2] == 1:
+            elif (
+                target_q.dim() == 2
+                and current_q1.dim() == 3
+                and current_q1.shape[2] == 1
+            ):
                 # Augmenter la dimension target_q: [batch, seq] -> [batch, seq, 1]
                 target_q = target_q.unsqueeze(-1)
-            
+
             # Vérification finale et création d'une copie de la forme exacte si nécessaire
             if target_q.shape != current_q1.shape:
                 # Créer un nouveau tenseur avec la forme exacte et copier les valeurs
                 target_q_reshaped = torch.zeros_like(current_q1)
-                
+
                 # Déterminer les dimensions communes pour la copie
-                common_dims = [min(target_q.shape[i], current_q1.shape[i]) for i in range(min(len(target_q.shape), len(current_q1.shape)))]
-                
+                common_dims = [
+                    min(target_q.shape[i], current_q1.shape[i])
+                    for i in range(min(len(target_q.shape), len(current_q1.shape)))
+                ]
+
                 # Créer des slices pour la copie
                 target_slices = tuple(slice(0, dim) for dim in common_dims)
                 q1_slices = tuple(slice(0, dim) for dim in common_dims)
-                
+
                 # Copier les valeurs dans le tenseur redimensionné
                 if len(common_dims) == 2:
-                    target_q_reshaped[q1_slices[0], q1_slices[1]] = target_q[target_slices[0], target_slices[1]]
+                    target_q_reshaped[q1_slices[0], q1_slices[1]] = target_q[
+                        target_slices[0], target_slices[1]
+                    ]
                 elif len(common_dims) == 3:
-                    target_q_reshaped[q1_slices[0], q1_slices[1], q1_slices[2]] = target_q[target_slices[0], target_slices[1], target_slices[2]]
-                
+                    target_q_reshaped[q1_slices[0], q1_slices[1], q1_slices[2]] = (
+                        target_q[target_slices[0], target_slices[1], target_slices[2]]
+                    )
+
                 target_q = target_q_reshaped
-                
+
         # Utiliser MSE loss en s'assurant que les formes correspondent
         critic_loss = F.mse_loss(current_q1, target_q) + F.mse_loss(
             current_q2, target_q

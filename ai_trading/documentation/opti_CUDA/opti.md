@@ -1,19 +1,19 @@
 ### 1. Optimisation mémoire CPU / RAM
 - [x] Utilise **float16** au lieu de float32 pour stocker les poids et calculer (quand la précision le permet).
 - [x] **`torch.compile()`** (PyTorch 2.0+) pour compiler et accélérer automatiquement ton modèle.
-- [ ] **DataLoader optimisé** :
-  - [ ] `num_workers > 0` (parallélise le chargement des batchs)
-  - [ ] `prefetch_factor` ajusté pour éviter les temps morts
-  - [ ] Dataset en **mémoire partagée** (RAM) ou en format léger (parquet, HDF5)
-- [ ] **Chargement paresseux** (lazy loading) pour éviter de saturer la RAM au début.
-- [ ] **Minimiser les accès RAM lourds** (pré-cacher des features prétraitées si besoin).
-- [ ] **Garbage Collection** :
-  - [ ] `torch.cuda.empty_cache()` régulièrement
-  - [ ] `gc.collect()` pour libérer la RAM
-- [ ] **Optimisation spécifique pour RTX 3070** :
-  - [ ] Utiliser `torch.cuda.amp` pour le mixed precision
-  - [ ] Configurer `PYTORCH_CUDA_ALLOC_CONF` pour une meilleure gestion mémoire
-  - [ ] Activer `PYTORCH_CUDA_USE_TENSOR_CORES` pour les Tensor Cores
+- [x] **DataLoader optimisé** :
+  - [x] `num_workers > 0` (parallélise le chargement des batchs)
+  - [x] `prefetch_factor` ajusté pour éviter les temps morts
+  - [x] Dataset en **mémoire partagée** (RAM) ou en format léger (parquet, HDF5)
+- [x] **Chargement paresseux** (lazy loading) pour éviter de saturer la RAM au début.
+- [x] **Minimiser les accès RAM lourds** (pré-cacher des features prétraitées si besoin).
+- [x] **Garbage Collection** :
+  - [x] `torch.cuda.empty_cache()` régulièrement
+  - [x] `gc.collect()` pour libérer la RAM
+- [x] **Optimisation spécifique pour RTX 3070** :
+  - [x] Utiliser `torch.cuda.amp` pour le mixed precision
+  - [x] Configurer `PYTORCH_CUDA_ALLOC_CONF` pour une meilleure gestion mémoire
+  - [x] Activer `PYTORCH_CUDA_USE_TENSOR_CORES` pour les Tensor Cores
 
 ---
 
@@ -38,10 +38,10 @@
   - [ ] Sauver en asynchrone si possible pour ne pas bloquer le calcul.
 - [ ] **Model Sharding / ZeRO** (DeepSpeed, FairScale) : utile si ton modèle est trop gros pour une seule carte.
 - [ ] **Utiliser Tensor Cores** quand possible (bien aligner les tailles de batch pour en profiter).
-- [ ] **Optimisations spécifiques RTX 3070** :
-  - [ ] Batch size multiples de 8 pour les Tensor Cores
-  - [ ] Utiliser `torch.backends.cudnn.benchmark = True`
-  - [ ] Activer `torch.backends.cuda.matmul.allow_tf32 = True`
+- [x] **Optimisations spécifiques RTX 3070** :
+  - [x] Batch size multiples de 8 pour les Tensor Cores
+  - [x] Utiliser `torch.backends.cudnn.benchmark = True`
+  - [x] Activer `torch.backends.cuda.matmul.allow_tf32 = True`
 
 ---
 

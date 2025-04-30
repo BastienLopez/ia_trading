@@ -56,9 +56,18 @@ class DistillationLoss(nn.Module):
         hard_loss = self.mse_loss(student_preds, targets)
 
         # Normaliser les prédictions pour la perte KL (les deux modèles prédisent des valeurs continues)
-        # On ajoute une dimension pour simuler une distribution
-        s_logits = F.log_softmax(student_preds / self.temperature, dim=0)
-        t_logits = F.softmax(teacher_preds / self.temperature, dim=0)
+        # Déterminer la dimension appropriée pour le softmax
+        softmax_dim = 1 if student_preds.dim() > 1 else 0
+
+        # Ajouter une dimension si nécessaire pour le cas des tenseurs 1D
+        if student_preds.dim() == 1:
+            student_preds = student_preds.unsqueeze(1)
+            teacher_preds = teacher_preds.unsqueeze(1)
+            softmax_dim = 1
+
+        # Appliquer softmax avec la dimension appropriée
+        s_logits = F.log_softmax(student_preds / self.temperature, dim=softmax_dim)
+        t_logits = F.softmax(teacher_preds / self.temperature, dim=softmax_dim)
 
         # Perte souple de distillation
         soft_loss = self.kl_div_loss(s_logits, t_logits) * (self.temperature**2)
@@ -72,6 +81,18 @@ class DistillationLoss(nn.Module):
 
             # Pour chaque couche, calculer la perte de distillation d'attention
             for s_attn, t_attn in zip(student_attention, teacher_attention):
+                # Vérifier et ajuster les dimensions des tenseurs d'attention
+                if s_attn.dim() != t_attn.dim():
+                    # Ajuster les dimensions si nécessaire
+                    if s_attn.dim() < t_attn.dim():
+                        # Ajouter des dimensions à s_attn
+                        while s_attn.dim() < t_attn.dim():
+                            s_attn = s_attn.unsqueeze(-1)
+                    else:
+                        # Ajouter des dimensions à t_attn
+                        while t_attn.dim() < s_attn.dim():
+                            t_attn = t_attn.unsqueeze(-1)
+
                 # Normaliser les poids d'attention avec softmax
                 s_attn_norm = F.log_softmax(s_attn / self.temperature, dim=-1)
                 t_attn_norm = F.softmax(t_attn / self.temperature, dim=-1)
@@ -158,7 +179,21 @@ class DistilledFinancialTransformer(nn.Module):
             - Prédictions du modèle étudiant
             - Poids d'attention du modèle étudiant
         """
-        return self.student(src, src_mask, src_key_padding_mask)
+        # Vérifier le format de l'entrée et ajuster si nécessaire
+        if len(src.shape) == 4:  # [batch, seq_len, autre_dim, features]
+            batch_size, seq_len, other_dim, input_dim = src.shape
+            # Aplatir les dimensions temporelles
+            src = src.reshape(batch_size, seq_len * other_dim, input_dim)
+            print(
+                f"Redimensionnement de l'entrée: {batch_size}x{seq_len}x{other_dim}x{input_dim} -> {batch_size}x{seq_len * other_dim}x{input_dim}"
+            )
+
+        # Prédiction du modèle étudiant
+        student_output, student_attention = self.student(
+            src, src_mask, src_key_padding_mask
+        )
+
+        return student_output, student_attention
 
     def distill_knowledge(
         self,
@@ -188,10 +223,34 @@ class DistilledFinancialTransformer(nn.Module):
 
         # Générer les prédictions de l'enseignant (sans calcul de gradient)
         with torch.no_grad():
-            teacher_preds, teacher_attention = self.teacher(data)
+            # Vérifier le format de l'entrée et ajuster si nécessaire pour l'enseignant
+            teacher_input = data
+            if len(data.shape) == 4:  # [batch, seq_len, autre_dim, features]
+                batch_size, seq_len, other_dim, input_dim = data.shape
+                # Aplatir les dimensions temporelles
+                teacher_input = data.reshape(batch_size, seq_len * other_dim, input_dim)
+
+            teacher_preds, teacher_attention = self.teacher(teacher_input)
+
+            # S'assurer que les poids d'attention de l'enseignant ont le bon format pour la comparaison
+            # avec ceux de l'étudiant (qui a moins de couches)
+            if self.distill_attention:
+                num_student_layers = len(self.student.transformer_blocks)
+                teacher_attention = teacher_attention[:num_student_layers]
 
         # Générer les prédictions de l'étudiant
         student_preds, student_attention = self.student(data)
+
+        # S'assurer que les prédictions ont les mêmes dimensions
+        if student_preds.dim() != teacher_preds.dim():
+            if student_preds.dim() > teacher_preds.dim():
+                teacher_preds = teacher_preds.view_as(student_preds)
+            else:
+                student_preds = student_preds.view_as(teacher_preds)
+
+        # S'assurer que les cibles ont les mêmes dimensions que les prédictions
+        if targets.dim() != student_preds.dim():
+            targets = targets.view_as(student_preds)
 
         # Initialiser la fonction de perte de distillation
         distill_loss_fn = DistillationLoss(alpha=alpha, temperature=temperature)
