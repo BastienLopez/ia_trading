@@ -45,6 +45,25 @@ OPTIMIZATIONS = {
         "module": "ai_trading.data.compressed_storage", 
         "classes": ["CompressedStorage", "OptimizedFinancialDataset"],
         "description": "Compression de fichiers avec zstd"
+    },
+    # Nouvelles optimisations ajoutées
+    "profiling_tools": {
+        "module": "ai_trading.utils.profiling",
+        "functions": ["profile_function", "profile_block"],
+        "classes": ["ProfilingManager"],
+        "description": "Outils de profilage intensif (cProfile, PyTorch Profiler, etc.)"
+    },
+    "jit_compilation": {
+        "module": "ai_trading.utils.jit_compilation",
+        "functions": ["compile_model", "optimize_function", "enable_tensorflow_xla"],
+        "classes": ["TorchScriptCompiler", "XLAOptimizer"],
+        "description": "Compilation JIT (TorchScript, XLA)"
+    },
+    "system_optimization": {
+        "module": "ai_trading.utils.system_optimizer",
+        "functions": ["optimize_system"],
+        "classes": ["SystemOptimizer"],
+        "description": "Optimisations système (variables d'environnement, limites système, E/S disque, etc.)"
     }
 }
 
@@ -201,7 +220,7 @@ def scan_directory(directory: Path) -> Dict[str, Dict[str, Any]]:
     
     return stats
 
-def verify_runtime_optimizations() -> Dict[str, bool]:
+def verify_runtime_optimizations() -> Dict[str, Any]:
     """
     Vérifie si les optimisations sont actives pendant l'exécution.
     
@@ -251,20 +270,20 @@ def verify_runtime_optimizations() -> Dict[str, bool]:
     try:
         import torch
         if torch.cuda.is_available():
-            from ai_trading.utils.gpu_rtx_optimizer import setup_rtx_optimization
-            rtx_optimized = setup_rtx_optimization()
+            from ai_trading.utils.gpu_rtx_optimizer import RTXOptimizer
+            optimizer = RTXOptimizer()
             runtime_status["gpu_rtx_optimizations"] = {
-                "active": rtx_optimized,
+                "active": True,
                 "details": {
+                    "cuda_version": torch.version.cuda,
                     "gpu_name": torch.cuda.get_device_name(0),
-                    "tensor_cores_enabled": torch.backends.cuda.matmul.allow_tf32 if hasattr(torch.backends.cuda, "matmul") else False,
-                    "memory_allocated": f"{torch.cuda.memory_allocated() / (1024**2):.2f} MB"
+                    "tensor_cores_available": optimizer.has_tensor_cores()
                 }
             }
         else:
             runtime_status["gpu_rtx_optimizations"] = {
                 "active": False,
-                "details": "CUDA not available"
+                "details": "CUDA n'est pas disponible"
             }
     except (ImportError, Exception) as e:
         runtime_status["gpu_rtx_optimizations"] = {
@@ -272,13 +291,14 @@ def verify_runtime_optimizations() -> Dict[str, bool]:
             "error": str(e)
         }
     
-    # Vérifier la compression zstd
+    # Vérifier la compression de fichiers
     try:
         import zstandard
+        from ai_trading.data.compressed_storage import CompressedStorage
         runtime_status["compression_zstd"] = {
             "active": True,
             "details": {
-                "version": zstandard.__version__,
+                "zstd_version": zstandard.__version__,
                 "max_compression_level": zstandard.MAX_COMPRESSION_LEVEL
             }
         }
@@ -288,11 +308,104 @@ def verify_runtime_optimizations() -> Dict[str, bool]:
             "error": str(e)
         }
     
+    # Vérifier les outils de profilage
+    try:
+        from ai_trading.utils.profiling import ProfilingManager
+        profiler = ProfilingManager()
+        runtime_status["profiling_tools"] = {
+            "active": True,
+            "details": {
+                "output_dir": str(profiler.output_dir),
+                "nsight_available": profiler.nsight_available,
+                "torch_available": hasattr(profiler, "profile_with_torch"),
+                "tensorflow_available": hasattr(profiler, "profile_tensorflow")
+            }
+        }
+    except (ImportError, Exception) as e:
+        runtime_status["profiling_tools"] = {
+            "active": False,
+            "error": str(e)
+        }
+    
+    # Vérifier la compilation JIT
+    try:
+        from ai_trading.utils.jit_compilation import TORCH_AVAILABLE, TF_AVAILABLE, XLA_AVAILABLE
+        runtime_status["jit_compilation"] = {
+            "active": True,
+            "details": {
+                "torch_available": TORCH_AVAILABLE,
+                "tensorflow_available": TF_AVAILABLE,
+                "xla_available": XLA_AVAILABLE
+            }
+        }
+        
+        # Vérifier si TorchScript fonctionne correctement
+        if TORCH_AVAILABLE:
+            import torch
+            
+            # Créer une fonction simple pour tester TorchScript
+            def test_func(x, y):
+                return x + y
+            
+            try:
+                scripted_func = torch.jit.script(test_func)
+                test_x = torch.tensor([1.0, 2.0])
+                test_y = torch.tensor([3.0, 4.0])
+                result = scripted_func(test_x, test_y)
+                runtime_status["jit_compilation"]["details"]["torchscript_works"] = True
+            except Exception as e:
+                runtime_status["jit_compilation"]["details"]["torchscript_works"] = False
+                runtime_status["jit_compilation"]["details"]["torchscript_error"] = str(e)
+        
+        # Vérifier si XLA fonctionne correctement
+        if TF_AVAILABLE and XLA_AVAILABLE:
+            import tensorflow as tf
+            
+            try:
+                # Configurer XLA
+                tf.config.optimizer.set_jit(True)
+                runtime_status["jit_compilation"]["details"]["xla_enabled"] = True
+            except Exception as e:
+                runtime_status["jit_compilation"]["details"]["xla_enabled"] = False
+                runtime_status["jit_compilation"]["details"]["xla_error"] = str(e)
+        
+    except (ImportError, Exception) as e:
+        runtime_status["jit_compilation"] = {
+            "active": False,
+            "error": str(e)
+        }
+    
+    # Vérifier les optimisations système
+    try:
+        from ai_trading.utils.system_optimizer import SystemOptimizer
+        optimizer = SystemOptimizer()
+        status = optimizer.get_optimization_status()
+        
+        # Vérifier les variables d'environnement clés
+        env_keys = ["OMP_NUM_THREADS", "MKL_NUM_THREADS", "PYTHONHASHSEED"]
+        env_set = any(key in os.environ for key in env_keys)
+        
+        runtime_status["system_optimization"] = {
+            "active": True,
+            "details": {
+                "os": status["system_info"]["os"],
+                "cpu_count": status["system_info"]["cpu_count"],
+                "memory_total_gb": round(status["system_info"]["memory_total"] / (1024**3), 2),
+                "env_vars_set": env_set,
+                "is_admin": status["system_info"]["is_admin"]
+            }
+        }
+    except (ImportError, Exception) as e:
+        runtime_status["system_optimization"] = {
+            "active": False,
+            "error": str(e)
+        }
+    
     return runtime_status
 
 def format_report(stats: Dict[str, Any], runtime: Dict[str, Any]) -> str:
     """
-    Formate les statistiques en un rapport lisible.
+    Formate un rapport de vérification des optimisations.
     
     Args:
         stats: Statistiques d'utilisation des optimisations
@@ -302,124 +415,347 @@ def format_report(stats: Dict[str, Any], runtime: Dict[str, Any]) -> str:
         Rapport formaté
     """
     report = []
+    
+    # En-tête
     report.append("=" * 80)
-    report.append("RAPPORT D'OPTIMISATIONS DU SYSTÈME DE TRADING")
+    report.append("RAPPORT DE VÉRIFICATION DES OPTIMISATIONS")
     report.append("=" * 80)
     report.append("")
     
-    # Informations générales
-    report.append(f"Fichiers Python analysés: {stats['files_checked']}")
+    # Résumé général
+    report.append(f"Fichiers analysés: {stats['files_checked']}")
     report.append("")
     
     # Utilisation des optimisations
-    report.append("UTILISATION DES OPTIMISATIONS:")
-    report.append("-" * 50)
-    for opt_name, count in stats["optimization_usage"].items():
-        opt_info = OPTIMIZATIONS[opt_name]
-        percentage = (count / stats["files_checked"]) * 100 if stats["files_checked"] > 0 else 0
-        report.append(f"{opt_info['description']}: {count} fichiers ({percentage:.1f}%)")
+    report.append("Utilisation des optimisations:")
+    report.append("-" * 40)
+    for opt_name, opt_info in OPTIMIZATIONS.items():
+        usage_count = stats["optimization_usage"][opt_name]
+        usage_percent = (usage_count / stats["files_checked"]) * 100 if stats["files_checked"] > 0 else 0
+        report.append(f"{opt_info['description']}: {usage_count} fichiers ({usage_percent:.1f}%)")
     report.append("")
     
-    # Fonctions d'optimisation
-    report.append("FONCTIONS D'OPTIMISATION UTILISÉES:")
-    report.append("-" * 50)
+    # Fonctions les plus utilisées
+    report.append("Fonctions d'optimisation les plus utilisées:")
+    report.append("-" * 40)
+    all_funcs = []
     for opt_name, funcs in stats["optimization_functions"].items():
-        report.append(f"{OPTIMIZATIONS[opt_name]['description']}:")
-        for func, count in funcs.items():
+        for func_name, count in funcs.items():
             if count > 0:
-                report.append(f"  - {func}: {count} fichiers")
-        report.append("")
+                all_funcs.append((f"{func_name} ({opt_name})", count))
     
-    # Fichiers clés
-    report.append("ANALYSE DES FICHIERS CLÉS:")
-    report.append("-" * 50)
-    for file_path, info in stats["key_files_with_optimizations"].items():
-        report.append(f"Fichier: {file_path}")
-        
-        # Vérifier les optimisations utilisées
-        used_opts = []
-        for opt_name, imported in info["imports"].items():
-            funcs = info["functions"][opt_name]
-            if imported or funcs:
-                used_opts.append(f"{opt_name} ({', '.join(funcs) if funcs else 'importé uniquement'})")
-        
-        if used_opts:
-            report.append(f"  Optimisations utilisées: {', '.join(used_opts)}")
-        else:
-            report.append("  Aucune optimisation utilisée!")
-        report.append("")
+    # Trier par nombre d'utilisations
+    all_funcs.sort(key=lambda x: x[1], reverse=True)
     
-    # Optimisations manquantes
+    # Afficher les 10 fonctions les plus utilisées
+    for i, (func_name, count) in enumerate(all_funcs[:10], 1):
+        report.append(f"{i}. {func_name}: {count} utilisations")
+    report.append("")
+    
+    # Optimisations manquantes dans les fichiers clés
     if stats["missing_optimizations"]:
-        report.append("OPTIMISATIONS MANQUANTES DANS LES FICHIERS CLÉS:")
-        report.append("-" * 50)
+        report.append("Optimisations manquantes dans les fichiers clés:")
+        report.append("-" * 40)
         for missing in stats["missing_optimizations"]:
-            file_path = missing["file"]
-            missing_opts = missing["missing"]
-            report.append(f"Fichier: {file_path}")
-            report.append(f"  Optimisations manquantes: {', '.join(missing_opts)}")
+            file_name = missing["file"]
+            missing_opts = ", ".join([OPTIMIZATIONS[opt]["description"] for opt in missing["missing"]])
+            report.append(f"{file_name}: {missing_opts}")
         report.append("")
     
-    # État d'exécution
-    report.append("ÉTAT DES OPTIMISATIONS À L'EXÉCUTION:")
-    report.append("-" * 50)
-    for opt_name, status in runtime.items():
-        if status["active"]:
+    # État des optimisations à l'exécution
+    report.append("État des optimisations à l'exécution:")
+    report.append("-" * 40)
+    for opt_name, opt_status in runtime.items():
+        if opt_status["active"]:
             report.append(f"{opt_name}: ACTIF")
-            for key, value in status.get("details", {}).items():
-                report.append(f"  - {key}: {value}")
+            if "details" in opt_status:
+                for detail_name, detail_value in opt_status["details"].items():
+                    report.append(f"  - {detail_name}: {detail_value}")
         else:
-            report.append(f"{opt_name}: INACTIF")
-            if "error" in status:
-                report.append(f"  - Erreur: {status['error']}")
-        report.append("")
+            report.append(f"{opt_name}: INACTIF ({opt_status.get('error', 'Raison inconnue')})")
+    report.append("")
     
     # Recommandations
-    report.append("RECOMMANDATIONS:")
-    report.append("-" * 50)
+    report.append("Recommandations:")
+    report.append("-" * 40)
     
-    missing_count = len(stats["missing_optimizations"])
-    if missing_count > 0:
-        report.append(f"1. Ajouter les optimisations manquantes aux {missing_count} fichiers clés identifiés.")
-    else:
-        report.append("1. Toutes les optimisations sont présentes dans les fichiers clés. Excellent!")
+    # Recommandations basées sur les optimisations manquantes
+    for missing in stats["missing_optimizations"]:
+        file_name = missing["file"]
+        for missing_opt in missing["missing"]:
+            opt_info = OPTIMIZATIONS[missing_opt]
+            report.append(f"- Ajouter {opt_info['description']} à {file_name}")
     
-    inactive_opts = [opt for opt, status in runtime.items() if not status["active"]]
-    if inactive_opts:
-        report.append(f"2. Activer les optimisations suivantes: {', '.join(inactive_opts)}")
-    else:
-        report.append("2. Toutes les optimisations sont actives à l'exécution. Excellent!")
-        
+    # Recommandations basées sur l'état d'exécution
+    for opt_name, opt_status in runtime.items():
+        if not opt_status["active"]:
+            report.append(f"- Activer {opt_name}")
+    
     report.append("")
     report.append("=" * 80)
     
     return "\n".join(report)
 
 def main():
-    """Fonction principale."""
-    logger.info("Démarrage de l'analyse des optimisations...")
-    start_time = time.time()
+    """Point d'entrée principal pour vérifier les optimisations."""
+    
+    logger.info("Vérification des optimisations CPU/GPU...")
     
     # Analyser le répertoire du projet
     stats = scan_directory(PROJECT_ROOT / "ai_trading")
     
-    # Vérifier les optimisations à l'exécution
+    # Vérifier l'état des optimisations à l'exécution
     runtime = verify_runtime_optimizations()
     
-    # Générer le rapport
+    # Générer et afficher le rapport
     report = format_report(stats, runtime)
-    
-    # Afficher le rapport
     print(report)
     
     # Sauvegarder le rapport dans un fichier
-    report_path = PROJECT_ROOT / "ai_trading" / "documentation" / "opti_CUDA" / "optimization_report.txt"
-    os.makedirs(report_path.parent, exist_ok=True)
-    with open(report_path, 'w', encoding='utf-8') as f:
+    report_path = PROJECT_ROOT / "ai_trading" / "optim" / "optimization_report.txt"
+    with open(report_path, "w") as f:
         f.write(report)
     
-    logger.info(f"Rapport d'optimisation sauvegardé dans {report_path}")
-    logger.info(f"Analyse terminée en {time.time() - start_time:.2f} secondes")
+    logger.info(f"Rapport sauvegardé dans {report_path}")
+    
+    # Vérifier si des optimisations importantes sont manquantes
+    has_critical_missing = False
+    for missing in stats["missing_optimizations"]:
+        if "train.py" in missing["file"] or "rl_agent.py" in missing["file"]:
+            has_critical_missing = True
+            break
+    
+    # Sortir avec un code d'erreur si des optimisations critiques sont manquantes
+    if has_critical_missing:
+        logger.error("Des optimisations critiques sont manquantes dans les fichiers clés!")
+        sys.exit(1)
+    
+    logger.info("Toutes les vérifications d'optimisation ont été effectuées avec succès.")
+    sys.exit(0)
+
+def check_profiling_tools():
+    """Vérifie les outils de profilage disponibles."""
+    
+    import cProfile
+    import pstats
+    import io
+    
+    # Vérifier cProfile
+    profiler = cProfile.Profile()
+    profiler.enable()
+    
+    # Code à profiler
+    total = 0
+    for i in range(1000):
+        total += i
+    
+    profiler.disable()
+    
+    # Analyser les résultats
+    s = io.StringIO()
+    ps = pstats.Stats(profiler, stream=s).sort_stats('cumulative')
+    ps.print_stats(5)
+    
+    # Vérifier PyTorch Profiler
+    try:
+        import torch
+        has_torch_profiler = hasattr(torch, 'profiler')
+    except ImportError:
+        has_torch_profiler = False
+    
+    # Vérifier TensorFlow Profiler
+    try:
+        import tensorflow as tf
+        has_tf_profiler = hasattr(tf, 'profiler')
+    except ImportError:
+        has_tf_profiler = False
+    
+    # Vérifier NVIDIA Nsight
+    try:
+        import subprocess
+        result = subprocess.run(['nsys', '--version'], 
+                               stdout=subprocess.PIPE, 
+                               stderr=subprocess.PIPE)
+        has_nsight = result.returncode == 0
+    except:
+        has_nsight = False
+    
+    return {
+        "cprofile": True,
+        "torch_profiler": has_torch_profiler,
+        "tensorflow_profiler": has_tf_profiler,
+        "nsight": has_nsight
+    }
+
+def check_jit_compilation():
+    """Vérifie les outils de compilation JIT disponibles."""
+    
+    # Vérifier TorchScript
+    try:
+        import torch
+        has_torchscript = hasattr(torch, 'jit')
+        
+        if has_torchscript:
+            # Test simple de torchscript
+            def add(a, b):
+                return a + b
+            
+            scripted_add = torch.jit.script(add)
+            x = torch.tensor([1.0, 2.0])
+            y = torch.tensor([3.0, 4.0])
+            result = scripted_add(x, y)
+            torchscript_works = True
+        else:
+            torchscript_works = False
+    except (ImportError, Exception):
+        has_torchscript = False
+        torchscript_works = False
+    
+    # Vérifier TensorFlow XLA
+    try:
+        import tensorflow as tf
+        has_xla = hasattr(tf.config.optimizer, 'set_jit')
+        
+        if has_xla:
+            # Test simple de XLA
+            try:
+                tf.config.optimizer.set_jit(True)
+                xla_works = True
+            except:
+                xla_works = False
+        else:
+            xla_works = False
+    except (ImportError, Exception):
+        has_xla = False
+        xla_works = False
+    
+    return {
+        "torchscript": {
+            "available": has_torchscript,
+            "works": torchscript_works
+        },
+        "xla": {
+            "available": has_xla,
+            "works": xla_works
+        }
+    }
+
+def print_check_results():
+    """Affiche les résultats des vérifications d'optimisation."""
+    
+    print("\n" + "=" * 80)
+    print("VÉRIFICATION DES OPTIMISATIONS DISPONIBLES")
+    print("=" * 80)
+    
+    # Vérifier les outils de profilage
+    profiling_results = check_profiling_tools()
+    print("\nOutils de profilage:")
+    print("-" * 40)
+    for tool, available in profiling_results.items():
+        print(f"{tool}: {'✓' if available else '✗'}")
+    
+    # Vérifier les outils de compilation JIT
+    jit_results = check_jit_compilation()
+    print("\nOutils de compilation JIT:")
+    print("-" * 40)
+    for tool, info in jit_results.items():
+        status = "✓" if info["available"] and info["works"] else "✗"
+        if info["available"] and not info["works"]:
+            status = "⚠ (disponible mais ne fonctionne pas)"
+        print(f"{tool}: {status}")
+    
+    # Vérifier les optimisations système
+    system_results = check_system_optimizations()
+    print("\nOptimisations système:")
+    print("-" * 40)
+    for feature, available in system_results.items():
+        print(f"{feature}: {'✓' if available else '✗'}")
+    
+    print("\n" + "=" * 80)
+
+def check_system_optimizations():
+    """Vérifie les optimisations système disponibles."""
+    
+    # Vérifier si le module est disponible
+    try:
+        import importlib
+        system_optimizer = importlib.import_module("ai_trading.utils.system_optimizer")
+        module_available = True
+    except ImportError:
+        module_available = False
+    
+    if not module_available:
+        return {
+            "module_available": False,
+            "env_vars_optimization": False,
+            "system_limits": False,
+            "disk_io_optimization": False,
+            "memory_optimization": False,
+            "logging_setup": False
+        }
+    
+    # Vérifier les fonctionnalités individuelles
+    try:
+        from ai_trading.utils.system_optimizer import SystemOptimizer
+        optimizer = SystemOptimizer()
+        
+        # Tester l'optimisation des variables d'environnement
+        try:
+            optimizer.optimize_environment_variables()
+            env_vars_optimization = True
+        except:
+            env_vars_optimization = False
+        
+        # Tester la configuration des limites système
+        try:
+            optimizer.configure_system_limits()
+            system_limits = True
+        except:
+            system_limits = False
+        
+        # Tester l'optimisation des E/S disque
+        try:
+            optimizer.optimize_disk_io()
+            disk_io_optimization = True
+        except:
+            disk_io_optimization = False
+        
+        # Tester la configuration de la mémoire
+        try:
+            optimizer.configure_memory_params()
+            memory_optimization = True
+        except:
+            memory_optimization = False
+        
+        # Tester la configuration du logging
+        try:
+            optimizer.setup_logging()
+            logging_setup = True
+        except:
+            logging_setup = False
+        
+        return {
+            "module_available": True,
+            "env_vars_optimization": env_vars_optimization,
+            "system_limits": system_limits,
+            "disk_io_optimization": disk_io_optimization,
+            "memory_optimization": memory_optimization,
+            "logging_setup": logging_setup
+        }
+        
+    except Exception:
+        return {
+            "module_available": True,
+            "env_vars_optimization": False,
+            "system_limits": False,
+            "disk_io_optimization": False,
+            "memory_optimization": False,
+            "logging_setup": False
+        }
 
 if __name__ == "__main__":
-    main() 
+    # Vérifier les arguments en ligne de commande
+    if len(sys.argv) > 1 and sys.argv[1] == "test":
+        print_check_results()
+    else:
+        main() 

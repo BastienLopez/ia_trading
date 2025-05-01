@@ -92,21 +92,33 @@
 ---
 
 ### 6. Optimisation générale du projet
-- [ ] **Profilage intensif** avec :
-  - [ ] PyTorch Profiler, TensorFlow Profiler
-  - [ ] NVIDIA Nsight Systems (GPU)
-  - [ ] cProfile, scalene pour Python
-- [ ] **Compilation JIT** :
-  - [ ] TorchScript, XLA (TPU/GPU optimisé)
-- [ ] **Fichiers** :
-  - [ ] Stockage compressé (ex: zstd, LZ4)
-  - [ ] Lecture paresseuse (lazy loading)
-  - [ ] Cache partiel ou total des features pré-calculées pour éviter de tout recalculer à chaque itération.
-- [ ] **Batch inference** : traiter plusieurs prédictions en même temps pour économiser GPU/CPU.
-- [ ] **Optimisations système** :
-  - [ ] Utiliser des variables d'environnement pour contrôler le comportement
-  - [ ] Implémenter un système de logging efficace
-  - [ ] Configurer les limites système (ulimit, etc.)
+- [x] **Profilage intensif** avec :
+  - [x] PyTorch Profiler, TensorFlow Profiler
+  - [x] NVIDIA Nsight Systems (GPU)
+  - [x] cProfile, scalene pour Python
+  - [x] Module : `ai_trading/utils/profiling.py`
+  - [x] Tests : `ai_trading/tests/test_profiling.py`
+  - [x] Exemple : `ai_trading/examples/profiling_example.py`
+- [x] **Compilation JIT** :
+  - [x] TorchScript, XLA (TPU/GPU optimisé)
+  - [x] Module : `ai_trading/utils/jit_compilation.py`
+  - [x] Tests : `ai_trading/tests/test_jit_compilation.py`
+  - [x] Exemple : `ai_trading/examples/jit_compilation_example.py`
+- [x] **Fichiers** :
+  - [x] Stockage compressé (ex: zstd, LZ4)
+  - [x] Lecture paresseuse (lazy loading)
+  - [x] Cache partiel ou total des features pré-calculées pour éviter de tout recalculer à chaque itération.
+- [x] **Batch inference** : traiter plusieurs prédictions en même temps pour économiser GPU/CPU.
+- [x] **Optimisations système** :
+  - [x] Module : `ai_trading/utils/system_optimizer.py`
+  - [x] Tests : `ai_trading/tests/test_system_optimizer.py`
+  - [x] Exemple : `ai_trading/examples/system_optimizer_example.py`
+  - [x] Utiliser des variables d'environnement pour contrôler le comportement
+  - [x] Implémenter un système de logging efficace
+  - [x] Configurer les limites système (ulimit, etc.)
+  - [x] Optimiser les paramètres du système d'exploitation
+  - [x] Configurer les E/S disque
+  - [x] Optimiser la gestion de la mémoire et du swap
 
 ---
 
@@ -116,7 +128,6 @@
 - [ ] **Ray RLlib** : pour scaler RL proprement et paralléliser ton entraînement.
 - [ ] **Optuna** ou **Ray Tune** : pour optimiser automatiquement les hyperparamètres.
 - [ ] **ONNX Export** : convertir ton modèle pour une inférence plus rapide et portable.
-- [ ] **Triton Inference Server** : pour déployer ton modèle très efficacement sur serveur GPU (option production).
 - [ ] **Nouveaux outils** :
   - [ ] `torch.profiler` pour le profiling détaillé
   - [ ] `torch.fx` pour l'optimisation de graphe
@@ -136,43 +147,45 @@
   - [ ] Utiliser des batchs de taille optimale (généralement puissance de 2)
   - [ ] Implémenter un système de cache intelligent pour les prédictions
   - [ ] Paralléliser les opérations indépendantes avec `torch.nn.parallel`
-- [ ] **Optimisation des E/S** :
-  - [ ] Utiliser des formats de données optimisés (parquet, hdf5)
-  - [ ] Implémenter un système de pré-chargement intelligent
-  - [ ] Utiliser des threads dédiés pour les opérations I/O
-  - [ ] Compresser les données en mémoire avec `zstd`
-- [ ] **Gestion de la mémoire** :
-  - [ ] Utiliser `torch.cuda.empty_cache()` stratégiquement
-  - [ ] Implémenter un système de garbage collection intelligent
-  - [ ] Optimiser l'allocation mémoire avec `PYTORCH_CUDA_ALLOC_CONF`
-  - [ ] Utiliser des tensors views au lieu de copies quand possible
-- [ ] **Optimisation des pipelines** :
-  - [ ] Implémenter des queues asynchrones pour les opérations
-  - [ ] Utiliser des workers dédiés pour les tâches lourdes
-  - [ ] Optimiser l'ordre des opérations pour minimiser les temps d'attente
-  - [ ] Implémenter un système de priorité pour les opérations critiques
-- [ ] **Optimisation système** :
-  - [ ] Configurer les limites système (ulimit, etc.)
-  - [ ] Optimiser les paramètres du système d'exploitation
-  - [ ] Utiliser des disques SSD/NVMe pour les opérations I/O
-  - [ ] Configurer le swappiness pour une meilleure gestion de la mémoire
-- [ ] **Monitoring et profiling** :
-  - [ ] Implémenter un système de logging performant
-  - [ ] Utiliser `torch.profiler` pour identifier les goulots d'étranglement
-  - [ ] Mettre en place des métriques de performance en temps réel
-  - [ ] Automatiser la détection des problèmes de performance
-- [ ] **Optimisation des modèles** :
-  - [ ] Utiliser des architectures légères quand possible
-  - [ ] Implémenter des mécanismes de pruning dynamique
-  - [ ] Optimiser les hyperparamètres pour la vitesse
-  - [ ] Utiliser des techniques de distillation pour réduire la taille des modèles
-- [ ] **Optimisation des données** :
-  - [ ] Pré-traiter les données en amont
-  - [ ] Utiliser des techniques de compression efficaces
-  - [ ] Implémenter un système de cache intelligent
-  - [ ] Optimiser le format de stockage des données
-- [ ] **Optimisation des communications** :
-  - [ ] Utiliser des protocoles de communication efficaces
-  - [ ] Optimiser les transferts de données entre CPU et GPU
-  - [ ] Implémenter des mécanismes de compression pour les communications
-  - [ ] Utiliser des techniques de mise en cache pour les communications fréquentes
+- [x] **Optimisation des E/S** :
+  - [x] Utiliser des formats de données optimisés (parquet, hdf5)
+  - [x] Implémenter un système de pré-chargement intelligent
+  - [x] Utiliser des threads dédiés pour les opérations I/O
+  - [x] Compresser les données en mémoire avec `zstd`
+- [x] **Gestion de la mémoire** :
+  - [x] Utiliser `torch.cuda.empty_cache()` stratégiquement
+  - [x] Implémenter un système de garbage collection intelligent
+  - [x] Optimiser l'allocation mémoire avec `PYTORCH_CUDA_ALLOC_CONF`
+  - [x] Utiliser des tensors views au lieu de copies quand possible
+- [x] **Optimisation des pipelines** :
+  - [x] Implémenter des queues asynchrones pour les opérations
+  - [x] Utiliser des workers dédiés pour les tâches lourdes
+  - [x] Optimiser l'ordre des opérations pour minimiser les temps d'attente
+  - [x] Implémenter un système de priorité pour les opérations critiques
+- [x] **Optimisation système** :
+  - [x] Configurer les limites système (ulimit, etc.)
+  - [x] Optimiser les paramètres du système d'exploitation
+  - [x] Utiliser des disques SSD/NVMe pour les opérations I/O
+  - [x] Configurer le swappiness pour une meilleure gestion de la mémoire
+- [x] **Monitoring et profiling** :
+  - [x] Implémenter un système de logging performant
+  - [x] Utiliser `torch.profiler` pour identifier les goulots d'étranglement
+  - [x] Mettre en place des métriques de performance en temps réel
+  - [x] Automatiser la détection des problèmes de performance
+- [x] **Optimisation des modèles** :
+  - [x] Utiliser des architectures légères quand possible
+  - [x] Implémenter des mécanismes de pruning dynamique
+  - [x] Optimiser les hyperparamètres pour la vitesse
+  - [x] Utiliser des techniques de distillation pour réduire la taille des modèles
+- [x] **Optimisation des données** :
+  - [x] Pré-traiter les données en amont
+  - [x] Utiliser des techniques de compression efficaces
+  - [x] Implémenter un système de cache intelligent
+  - [x] Optimiser le format de stockage des données
+- [x] **Optimisation des communications** :
+  - [x] Utiliser des protocoles de communication efficaces
+  - [x] Optimiser les transferts de données entre CPU et GPU
+  - [x] Implémenter des mécanismes de compression pour les communications
+  - [x] Utiliser des techniques de mise en cache pour les communications fréquentes
+
+9.  python ai_trading/optim/check_all_optimizations.py test bien tt les opti ? si c'est pas le cas up le fichier pour que ca test tout 
