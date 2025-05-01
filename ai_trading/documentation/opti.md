@@ -10,10 +10,7 @@
 - [x] **Garbage Collection** :
   - [x] `torch.cuda.empty_cache()` régulièrement
   - [x] `gc.collect()` pour libérer la RAM
-- [x] **Optimisation spécifique pour RTX 3070** :
-  - [x] Utiliser `torch.cuda.amp` pour le mixed precision
-  - [x] Configurer `PYTORCH_CUDA_ALLOC_CONF` pour une meilleure gestion mémoire
-  - [x] Activer `PYTORCH_CUDA_USE_TENSOR_CORES` pour les Tensor Cores
+- [x] **Optimisation spécifique CPU** : [Intel MKL](https://pytorch.org/tutorials/recipes/recipes/tuning_guide.html), [oneDNN](https://github.com/oneapi-src/oneDNN)
 
 ---
 
@@ -30,19 +27,33 @@
 ---
 
 ### 3. Optimisation GPU
-- [ ] **Mixed Precision Training** (`torch.cuda.amp`) : tu gagnes 2× de mémoire et accélères 1,5× sur GPU moderne (Ampere+).
-- [ ] **Gradient Accumulation** : réduit la taille des batchs tout en simulant de gros batchs.
-- [ ] **Model offloading CPU/GPU** intelligent si ta VRAM est limitée (via Huggingface Accelerate, DeepSpeed...).
-- [ ] **Efficient Checkpointing** :
-  - [ ] Sauver uniquement les poids, pas tout l'optimiseur.
-  - [ ] Sauver en asynchrone si possible pour ne pas bloquer le calcul.
-- [ ] **Model Sharding / ZeRO** (DeepSpeed, FairScale) : utile si ton modèle est trop gros pour une seule carte.
-- [ ] **Utiliser Tensor Cores** quand possible (bien aligner les tailles de batch pour en profiter).
-- [x] **Optimisations spécifiques RTX 3070** :
-  - [x] Batch size multiples de 8 pour les Tensor Cores
-  - [x] Utiliser `torch.backends.cudnn.benchmark = True`
-  - [x] Activer `torch.backends.cuda.matmul.allow_tf32 = True`
-
+- [x] **Gradient Accumulation** pour simuler des batchs plus grands (divise en mini-batchs)
+  - [x] Module : `ai_trading/utils/gradient_accumulation.py`
+  - [x] Exemple : `ai_trading/examples/gradient_accumulation_example.py`
+- [x] **Mixed Precision Training** (float16 ou bfloat16 pour calculs GPU, float32 pour weights update)
+  - [x] Module : `ai_trading/utils/mixed_precision.py`
+  - [x] Exemple : `ai_trading/examples/mixed_precision_example.py`
+- [x] **Model Offloading CPU/GPU** intelligent si ta VRAM est limitée (via Huggingface Accelerate, DeepSpeed...).
+  - [x] Module : `ai_trading/utils/model_offloading.py`
+  - [x] Exemple : `ai_trading/examples/model_offloading_example.py`
+- [x] **Efficient Checkpointing** :
+  - [x] Module : `ai_trading/utils/efficient_checkpointing.py`
+  - [x] Exemple : `ai_trading/examples/efficient_checkpointing_example.py`
+  - [x] Sauvegarde asynchrone (thread séparé pendant l'entraînement)
+  - [x] Sauvegarde des poids uniquement (éviter de stocker l'état de l'optimiseur)
+  - [x] Rotation automatique des checkpoints (garder seulement les N plus récents)
+  - [x] Compression des checkpoints
+- [x] **Activation Checkpointing** (libère la mémoire des couches précédentes, recalcule au backward)
+- [x] **Optimisation spécifique GPU** (cuDNN benchmarking, noyaux optimisés, profiler)
+- [x] **Parallélisme de données multi-GPU** (DDP = DistributedDataParallel)
+  - [x] Module : `ai_trading/utils/distributed_training.py`
+  - [x] Exemple : `ai_trading/examples/distributed_training_example.py`
+  - [x] Accélération quasi-linéaire avec le nombre de GPUs
+  - [x] Synchronisation automatique des poids entre GPUs
+  - [x] Compatible avec Mixed Precision
+  - [x] Fallback automatique sur single-GPU si nécessaire
+- [x] **Model Sharding / ZeRO** (DeepSpeed, FairScale) : utile si ton modèle est trop gros pour une seule carte.
+- [x] **Utiliser Tensor Cores** quand possible (bien aligner les tailles de batch pour en profiter).
 ---
 
 ### 4. Optimisation sur l'architecture IA elle-même
@@ -91,7 +102,7 @@
 
 ### 7. Outils/méthodes qui peuvent t'aider
 - [ ] **DeepSpeed** : optimisation mémoire énorme pour du RL lourd ou LLMs.
-- [ ] **Huggingface Accelerate** : pour gérer multi-GPU, mixed precision très simplement.
+- [x] **Huggingface Accelerate** : pour gérer multi-GPU, mixed precision très simplement.
 - [ ] **Ray RLlib** : pour scaler RL proprement et paralléliser ton entraînement.
 - [ ] **Optuna** ou **Ray Tune** : pour optimiser automatiquement les hyperparamètres.
 - [ ] **ONNX Export** : convertir ton modèle pour une inférence plus rapide et portable.
