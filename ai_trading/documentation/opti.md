@@ -54,30 +54,40 @@
   - [x] Fallback automatique sur single-GPU si nécessaire
 - [x] **Model Sharding / ZeRO** (DeepSpeed, FairScale) : utile si ton modèle est trop gros pour une seule carte.
 - [x] **Utiliser Tensor Cores** quand possible (bien aligner les tailles de batch pour en profiter).
+
 ---
 
 ### 4. Optimisation sur l'architecture IA elle-même
-- [ ] **Pruning** (élagage de neurones inutiles) après entraînement.
-- [ ] **Quantization** (réduction de la précision, ex: INT8 inference) après entraînement.
-- [ ] **Knowledge Distillation** : entraîne un modèle plus petit basé sur ton gros modèle.
-- [ ] **Low-Rank Adaptation (LoRA)** pour fine-tuning plus léger et plus rapide.
-- [ ] **Early Stopping** sur les phases d'entraînement pour éviter d'aller trop loin inutilement.
-- [ ] **Architecture optimisée** :
-  - [ ] Utiliser des couches efficaces (ex: `nn.Linear` au lieu de `nn.Conv2d` quand possible)
-  - [ ] Implémenter des mécanismes d'attention légers
-  - [ ] Utiliser des activations optimisées (ex: GELU au lieu de ReLU)
+- [x] **Pruning** (élagage de neurones inutiles) après entraînement.
+- [x] **Quantization** (réduction de la précision, ex: INT8 inference) après entraînement.
+- [x] **Knowledge Distillation** : entraîne un modèle plus petit basé sur ton gros modèle.
+- [x] **Low-Rank Adaptation (LoRA)** pour fine-tuning plus léger et plus rapide.
+- [x] **Early Stopping** sur les phases d'entraînement pour éviter d'aller trop loin inutilement.
 
 ---
 
-### 5. Optimisation sur la gestion RL (Reinforcement Learning)
-- [ ] **Replay Buffer** sur disque rapide (SSD NVMe) si le buffer est trop volumineux.
-- [ ] **Prioritized Experience Replay** : réduire la taille utile du buffer sans perdre en qualité.
-- [ ] **Frame stacking/compression** : réduire le volume de données par état historique.
-- [ ] **Policy lag** : découpler la fréquence d'update du modèle vs collecte d'expérience pour réduire la latence CPU/GPU.
-- [ ] **Optimisations spécifiques** :
-  - [ ] Utiliser des batchs de taille variable
-  - [ ] Implémenter un système de cache pour les états fréquents
-  - [ ] Paralléliser la collecte d'expériences
+### 5. Optimisation de l'entraînement RL
+- [x] **Disk Replay Buffer** : Implémenté dans `ai_trading/rl/disk_replay_buffer.py`
+  - [x] Tests : `ai_trading/tests/test_disk_replay_buffer.py`
+  - [x] Exemple : `ai_trading/examples/disk_replay_demo.py`
+- [x] **Enhanced Prioritized Replay** : Implémenté dans `ai_trading/rl/prioritized_replay.py`
+  - [x] Tests : `ai_trading/tests/test_prioritized_replay.py`
+  - [x] Exemple : `ai_trading/examples/prioritized_replay_demo.py`
+- [x] **Frame stacking/compression** : Implémenté dans `ai_trading/rl/frame_compression.py`
+  - [x] Tests : `ai_trading/tests/test_frame_compression.py`
+  - [x] Exemple : `ai_trading/examples/frame_compression_demo.py`
+- [x] **Policy lag** : Implémenté dans `ai_trading/rl/policy_lag.py`
+  - [x] Tests : `ai_trading/tests/test_policy_lag.py`
+  - [x] Exemple : `ai_trading/examples/policy_lag_demo.py`
+- [x] **Variable Batch Size** : Implémenté dans `ai_trading/rl/variable_batch.py`
+  - [x] Tests : `ai_trading/tests/test_variable_batch.py`
+  - [x] Exemple : `ai_trading/examples/variable_batch_demo.py`
+- [x] **State Cache** : Implémenté dans `ai_trading/rl/state_cache.py`
+  - [x] Tests : `ai_trading/tests/test_state_cache.py`
+  - [x] Exemple : `ai_trading/examples/state_cache_demo.py`
+- [x] **Optimisations spécifiques** :
+  - [x] **Distributed Experience Collection** pour collecter des données depuis plusieurs instances.
+  - [x] **HOGWILD!** pour l'entraînement parallèle sans verrous.
 
 ---
 
