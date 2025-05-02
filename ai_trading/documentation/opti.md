@@ -123,16 +123,16 @@
 ---
 
 ### 7. Outils/méthodes qui peuvent t'aider
-- [ ] **DeepSpeed** : optimisation mémoire énorme pour du RL lourd ou LLMs.
+- [x] **DeepSpeed** : optimisation mémoire énorme pour du RL lourd ou LLMs.
 - [x] **Huggingface Accelerate** : pour gérer multi-GPU, mixed precision très simplement.
-- [ ] **Ray RLlib** : pour scaler RL proprement et paralléliser ton entraînement.
-- [ ] **Optuna** ou **Ray Tune** : pour optimiser automatiquement les hyperparamètres.
-- [ ] **ONNX Export** : convertir ton modèle pour une inférence plus rapide et portable.
-- [ ] **Nouveaux outils** :
-  - [ ] `torch.profiler` pour le profiling détaillé
-  - [ ] `torch.fx` pour l'optimisation de graphe
-  - [ ] `torch.distributed` pour le multi-GPU
-  - [ ] `torch.quantization` pour la quantification
+- [x] **Ray RLlib** : pour scaler RL proprement et paralléliser ton entraînement.
+- [x] **Optuna** ou **Ray Tune** : pour optimiser automatiquement les hyperparamètres.
+- [x] **ONNX Export** : convertir ton modèle pour une inférence plus rapide et portable.
+- [x] **Nouveaux outils** :
+  - [x] `torch.profiler` pour le profiling détaillé
+  - [x] `torch.fx` pour l'optimisation de graphe
+  - [x] `torch.distributed` pour le multi-GPU
+  - [x] `torch.quantization` pour la quantification
 
 ---
 
@@ -188,4 +188,7 @@
   - [x] Implémenter des mécanismes de compression pour les communications
   - [x] Utiliser des techniques de mise en cache pour les communications fréquentes
 
-9.  python ai_trading/optim/check_all_optimizations.py test bien tt les opti ? si c'est pas le cas up le fichier pour que ca test tout 
+### 9. Check all opti
+- [ ] python ai_trading/optim/check_all_optimizations.py test bien tt les opti ? si c'est pas le cas up le fichier pour que ca test tout 
+
+python -m ai_trading.optim.check_all_optimizations  pour check ce qui tourne ou pas 

@@ -228,10 +228,28 @@ def _get_model_size(model: nn.Module) -> int:
     """
     total_size = 0
     for name, param in model.state_dict().items():
-        element_size = param.element_size()
-        numel = param.numel()
-        param_size = numel * element_size
-        total_size += param_size
+        try:
+            element_size = param.element_size()
+            numel = param.numel()
+            param_size = numel * element_size
+            total_size += param_size
+        except (AttributeError, RuntimeError):
+            # Pour les paramètres qui ne sont pas des tenseurs standard
+            # ou qui sont des dtypes sans méthode element_size
+            if hasattr(param, 'nbytes'):
+                total_size += param.nbytes
+            elif hasattr(param, 'numel') and hasattr(param, 'dtype'):
+                # Estimation basée sur le type
+                if param.dtype == torch.qint8 or param.dtype == torch.quint8:
+                    total_size += param.numel()  # 1 byte per element
+                elif param.dtype == torch.qint32:
+                    total_size += param.numel() * 4  # 4 bytes per element
+                else:
+                    # Par défaut utiliser 4 bytes
+                    total_size += param.numel() * 4
+            else:
+                # Ignorer les paramètres non mesurables
+                logger.debug(f"Paramètre non mesurable ignoré: {name}")
     return total_size
 
 

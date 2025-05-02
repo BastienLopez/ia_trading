@@ -67,6 +67,12 @@ ai_trading/.env.example
 *.sublime-workspace
 .settings/
 .vs/
+*.iml
+*.iws
+.idea_modules/
+out/
+.history/
+.ionide/
 
 # Jupyter Notebook
 .ipynb_checkpoints
@@ -104,6 +110,7 @@ ai_trading/models/*.h5
 *.joblib
 model_checkpoints/
 saved_models/
+onnx_models/
 
 # Images et graphiques générés
 *.png
@@ -230,22 +237,9 @@ wandb/
 # Ray
 ray_results/
 ray_logs/
-
-# PyCharm et autres IDE JetBrains
-.idea/
-*.iml
-*.iws
-.idea_modules/
-out/
-
-# Visual Studio Code
-.vscode/
-.history/
-.ionide/
-
-# Spyder
-.spyderproject
-.spyproject
+ray_tune_results/
+ray_tune_logs/
+ray_checkpoints/
 
 # Pylint
 .pylintrc
@@ -256,32 +250,10 @@ out/
 # Cython
 *.c
 *.cpp
-*.so
-
-# Distribution / Packaging
-.Python
-env/
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
 
 # Autres
-.history/
 .vim/
 *.pyc
-__pycache__/
 .python-version
 .tool-versions
 .direnv/ 

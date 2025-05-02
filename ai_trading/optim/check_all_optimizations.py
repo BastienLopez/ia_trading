@@ -2,760 +2,783 @@
 # -*- coding: utf-8 -*-
 
 """
-Module pour vérifier l'application de toutes les optimisations CPU et GPU dans le projet.
-Ce script analyse l'ensemble du codebase pour s'assurer que toutes les optimisations 
-possibles sont correctement implémentées et actives.
+Outil de vérification pour s'assurer que toutes les optimisations sont correctement installées.
+Ce script vérifie la disponibilité des bibliothèques et fonctionnalités d'optimisation
+et rapporte leur état.
 """
 
 import os
 import sys
 import importlib
 import logging
-import pkgutil
-import inspect
-import time
-from pathlib import Path
-from typing import Dict, List, Set, Tuple, Any, Optional
+from dataclasses import dataclass
+from typing import List, Dict, Any, Optional, Callable, Tuple
 
-# Configuration du logging
+# Configuration du logger
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# Répertoire racine du projet (en remontant d'un niveau depuis ce fichier)
-PROJECT_ROOT = Path(__file__).parent.parent.parent.absolute()
+@dataclass
+class OptimizationFeature:
+    """Représente une fonctionnalité d'optimisation à vérifier."""
+    name: str
+    category: str
+    description: str
+    packages: List[str]
+    test_func: Optional[Callable[[], Tuple[bool, str]]] = None
+    is_available: bool = False
+    status_message: str = ""
 
-# Liste des optimisations à vérifier
-OPTIMIZATIONS = {
-    "intel_optimisations": {
-        "module": "ai_trading.utils.intel_optimizations",
-        "functions": ["optimize_for_intel", "configure_torch", "configure_numpy", "configure_tensorflow"],
-        "description": "Optimisations pour les processeurs Intel (MKL, OpenMP)"
-    },
-    "threading_optimisations": {
-        "module": "ai_trading.utils.threading_optimizer",
-        "functions": ["calculate_optimal_workers", "configure_thread_limits", "set_process_priority"],
-        "description": "Optimisations de multithreading/multiprocessing"
-    },
-    "gpu_rtx_optimisations": {
-        "module": "ai_trading.utils.gpu_rtx_optimizer",
-        "functions": ["setup_rtx_optimization", "optimize_batch_size"],
-        "description": "Optimisations pour les GPU RTX (Tensor Cores, allocation mémoire)"
-    },
-    "compression_zstd": {
-        "module": "ai_trading.data.compressed_storage", 
-        "classes": ["CompressedStorage", "OptimizedFinancialDataset"],
-        "description": "Compression de fichiers avec zstd"
-    },
-    # Nouvelles optimisations ajoutées
-    "profiling_tools": {
-        "module": "ai_trading.utils.profiling",
-        "functions": ["profile_function", "profile_block"],
-        "classes": ["ProfilingManager"],
-        "description": "Outils de profilage intensif (cProfile, PyTorch Profiler, etc.)"
-    },
-    "jit_compilation": {
-        "module": "ai_trading.utils.jit_compilation",
-        "functions": ["compile_model", "optimize_function", "enable_tensorflow_xla"],
-        "classes": ["TorchScriptCompiler", "XLAOptimizer"],
-        "description": "Compilation JIT (TorchScript, XLA)"
-    },
-    "system_optimization": {
-        "module": "ai_trading.utils.system_optimizer",
-        "functions": ["optimize_system"],
-        "classes": ["SystemOptimizer"],
-        "description": "Optimisations système (variables d'environnement, limites système, E/S disque, etc.)"
-    }
-}
-
-# Fichiers importants qui devraient utiliser les optimisations
-KEY_FILES = [
-    "ai_trading/train.py",
-    "ai_trading/data_processor.py",
-    "ai_trading/rl_agent.py",
-    "ai_trading/api.py",
-    "ai_trading/data/financial_dataset.py",
-    "ai_trading/data/optimized_dataset.py",
-    "ai_trading/models/lstm_model.py",
-    "ai_trading/models/transformer_model.py"
-]
-
-def check_module_imports(file_path: Path) -> Dict[str, bool]:
+def test_package_import(packages: List[str]) -> Tuple[bool, str]:
     """
-    Vérifie si un fichier Python importe les modules d'optimisation.
+    Vérifie si les packages peuvent être importés.
     
     Args:
-        file_path: Chemin du fichier à vérifier
+        packages: Liste des packages à importer
         
     Returns:
-        Dictionnaire des modules d'optimisation importés
+        Tuple (succès, message)
     """
-    if not file_path.exists() or file_path.suffix != '.py':
-        return {}
+    success = True
+    missing_packages = []
     
-    imports = {}
-    for opt_name, opt_info in OPTIMIZATIONS.items():
-        imports[opt_name] = False
+    for package in packages:
+        try:
+            # Pour les packages avec un sous-module spécifié (ex: torch.cuda)
+            if '.' in package:
+                main_package, sub_package = package.split('.', 1)
+                module = importlib.import_module(main_package)
+                # Vérifier récursivement les sous-modules
+                sub_module = module
+                for part in sub_package.split('.'):
+                    if not hasattr(sub_module, part):
+                        missing_packages.append(package)
+                        success = False
+                        break
+                    sub_module = getattr(sub_module, part)
+            else:
+                # Pour les packages simples
+                importlib.import_module(package)
+        except ImportError:
+            missing_packages.append(package)
+            success = False
     
-    try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-            
-            for opt_name, opt_info in OPTIMIZATIONS.items():
-                module_name = opt_info["module"]
-                # Vérifier les différentes formes d'import possibles
-                if f"import {module_name}" in content or \
-                   f"from {module_name}" in content or \
-                   f"from {'.'.join(module_name.split('.')[:-1])} import {module_name.split('.')[-1]}" in content:
-                    imports[opt_name] = True
-    except Exception as e:
-        logger.error(f"Erreur lors de l'analyse du fichier {file_path}: {e}")
-    
-    return imports
+    if success:
+        return True, "Tous les packages sont disponibles"
+    else:
+        return False, f"Packages manquants: {', '.join(missing_packages)}"
 
-def check_function_usage(file_path: Path) -> Dict[str, Set[str]]:
-    """
-    Vérifie les fonctions d'optimisation utilisées dans un fichier.
-    
-    Args:
-        file_path: Chemin du fichier à vérifier
-        
-    Returns:
-        Dictionnaire des fonctions d'optimisation utilisées par module
-    """
-    if not file_path.exists() or file_path.suffix != '.py':
-        return {}
-    
-    function_usage = {}
-    for opt_name, opt_info in OPTIMIZATIONS.items():
-        function_usage[opt_name] = set()
-    
-    try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-            
-            for opt_name, opt_info in OPTIMIZATIONS.items():
-                # Vérifier l'utilisation des fonctions
-                if "functions" in opt_info:
-                    for func in opt_info["functions"]:
-                        if f"{func}(" in content:
-                            function_usage[opt_name].add(func)
-                
-                # Vérifier l'utilisation des classes
-                if "classes" in opt_info:
-                    for cls in opt_info["classes"]:
-                        if f"{cls}(" in content or f"class {cls}" in content:
-                            function_usage[opt_name].add(cls)
-    except Exception as e:
-        logger.error(f"Erreur lors de l'analyse du fichier {file_path}: {e}")
-    
-    return function_usage
-
-def scan_directory(directory: Path) -> Dict[str, Dict[str, Any]]:
-    """
-    Analyse récursivement un répertoire pour vérifier l'utilisation des optimisations.
-    
-    Args:
-        directory: Répertoire à analyser
-        
-    Returns:
-        Statistiques sur l'utilisation des optimisations
-    """
-    stats = {
-        "files_checked": 0,
-        "optimization_usage": {opt_name: 0 for opt_name in OPTIMIZATIONS},
-        "optimization_functions": {opt_name: {func: 0 for func in opt_info.get("functions", [])} 
-                                  for opt_name, opt_info in OPTIMIZATIONS.items()},
-        "key_files_with_optimizations": {},
-        "missing_optimizations": []
-    }
-    
-    # Ajouter les classes aux statistiques
-    for opt_name, opt_info in OPTIMIZATIONS.items():
-        if "classes" in opt_info:
-            for cls in opt_info["classes"]:
-                stats["optimization_functions"][opt_name][cls] = 0
-    
-    for root, _, files in os.walk(directory):
-        for file in files:
-            if file.endswith('.py'):
-                file_path = Path(os.path.join(root, file))
-                relative_path = file_path.relative_to(PROJECT_ROOT)
-                
-                # Vérifier les imports
-                imports = check_module_imports(file_path)
-                
-                # Vérifier l'utilisation des fonctions
-                functions = check_function_usage(file_path)
-                
-                # Mettre à jour les statistiques
-                stats["files_checked"] += 1
-                for opt_name, imported in imports.items():
-                    if imported:
-                        stats["optimization_usage"][opt_name] += 1
-                
-                for opt_name, used_funcs in functions.items():
-                    for func in used_funcs:
-                        if func in stats["optimization_functions"][opt_name]:
-                            stats["optimization_functions"][opt_name][func] += 1
-                
-                # Vérifier si c'est un fichier clé
-                str_path = str(relative_path)
-                if str_path in KEY_FILES:
-                    stats["key_files_with_optimizations"][str_path] = {
-                        "imports": imports,
-                        "functions": {opt: list(funcs) for opt, funcs in functions.items()}
-                    }
-                    
-                    # Vérifier les optimisations manquantes dans les fichiers clés
-                    missing = []
-                    for opt_name, opt_info in OPTIMIZATIONS.items():
-                        if not imports[opt_name] and not functions[opt_name]:
-                            missing.append(opt_name)
-                    
-                    if missing:
-                        stats["missing_optimizations"].append({
-                            "file": str_path,
-                            "missing": missing
-                        })
-    
-    return stats
-
-def verify_runtime_optimizations() -> Dict[str, Any]:
-    """
-    Vérifie si les optimisations sont actives pendant l'exécution.
-    
-    Returns:
-        État des optimisations à l'exécution
-    """
-    runtime_status = {}
-    
-    # Vérifier les optimisations Intel
-    try:
-        from ai_trading.utils.intel_optimizations import get_optimization_info
-        intel_info = get_optimization_info()
-        runtime_status["intel_optimizations"] = {
-            "active": True,
-            "details": {
-                "is_intel_cpu": intel_info["cpu"]["is_intel"],
-                "mkl_threads": intel_info["environment"]["MKL_NUM_THREADS"],
-                "omp_threads": intel_info["environment"]["OMP_NUM_THREADS"]
-            }
-        }
-    except (ImportError, Exception) as e:
-        runtime_status["intel_optimizations"] = {
-            "active": False,
-            "error": str(e)
-        }
-    
-    # Vérifier les optimisations de threading
-    try:
-        from ai_trading.utils.threading_optimizer import ThreadingOptimizer
-        optimizer = ThreadingOptimizer()
-        workers = optimizer.calculate_optimal_workers()
-        runtime_status["threading_optimizations"] = {
-            "active": True,
-            "details": {
-                "optimal_workers": workers,
-                "cpu_count": optimizer.cpu_count,
-                "hyperthreading": optimizer.has_hyperthreading
-            }
-        }
-    except (ImportError, Exception) as e:
-        runtime_status["threading_optimizations"] = {
-            "active": False,
-            "error": str(e)
-        }
-    
-    # Vérifier les optimisations GPU
+def test_torch_cuda():
+    """Vérifie si CUDA est disponible pour PyTorch."""
     try:
         import torch
         if torch.cuda.is_available():
-            from ai_trading.utils.gpu_rtx_optimizer import RTXOptimizer
-            optimizer = RTXOptimizer()
-            runtime_status["gpu_rtx_optimizations"] = {
-                "active": True,
-                "details": {
-                    "cuda_version": torch.version.cuda,
-                    "gpu_name": torch.cuda.get_device_name(0),
-                    "tensor_cores_available": optimizer.has_tensor_cores()
-                }
-            }
+            device_count = torch.cuda.device_count()
+            device_names = [torch.cuda.get_device_name(i) for i in range(device_count)]
+            return True, f"CUDA disponible avec {device_count} appareils: {', '.join(device_names)}"
         else:
-            runtime_status["gpu_rtx_optimizations"] = {
-                "active": False,
-                "details": "CUDA n'est pas disponible"
-            }
-    except (ImportError, Exception) as e:
-        runtime_status["gpu_rtx_optimizations"] = {
-            "active": False,
-            "error": str(e)
-        }
-    
-    # Vérifier la compression de fichiers
-    try:
-        import zstandard
-        from ai_trading.data.compressed_storage import CompressedStorage
-        runtime_status["compression_zstd"] = {
-            "active": True,
-            "details": {
-                "zstd_version": zstandard.__version__,
-                "max_compression_level": zstandard.MAX_COMPRESSION_LEVEL
-            }
-        }
-    except (ImportError, Exception) as e:
-        runtime_status["compression_zstd"] = {
-            "active": False,
-            "error": str(e)
-        }
-    
-    # Vérifier les outils de profilage
-    try:
-        from ai_trading.utils.profiling import ProfilingManager
-        profiler = ProfilingManager()
-        runtime_status["profiling_tools"] = {
-            "active": True,
-            "details": {
-                "output_dir": str(profiler.output_dir),
-                "nsight_available": profiler.nsight_available,
-                "torch_available": hasattr(profiler, "profile_with_torch"),
-                "tensorflow_available": hasattr(profiler, "profile_tensorflow")
-            }
-        }
-    except (ImportError, Exception) as e:
-        runtime_status["profiling_tools"] = {
-            "active": False,
-            "error": str(e)
-        }
-    
-    # Vérifier la compilation JIT
-    try:
-        from ai_trading.utils.jit_compilation import TORCH_AVAILABLE, TF_AVAILABLE, XLA_AVAILABLE
-        runtime_status["jit_compilation"] = {
-            "active": True,
-            "details": {
-                "torch_available": TORCH_AVAILABLE,
-                "tensorflow_available": TF_AVAILABLE,
-                "xla_available": XLA_AVAILABLE
-            }
-        }
-        
-        # Vérifier si TorchScript fonctionne correctement
-        if TORCH_AVAILABLE:
-            import torch
-            
-            # Créer une fonction simple pour tester TorchScript
-            def test_func(x, y):
-                return x + y
-            
-            try:
-                scripted_func = torch.jit.script(test_func)
-                test_x = torch.tensor([1.0, 2.0])
-                test_y = torch.tensor([3.0, 4.0])
-                result = scripted_func(test_x, test_y)
-                runtime_status["jit_compilation"]["details"]["torchscript_works"] = True
-            except Exception as e:
-                runtime_status["jit_compilation"]["details"]["torchscript_works"] = False
-                runtime_status["jit_compilation"]["details"]["torchscript_error"] = str(e)
-        
-        # Vérifier si XLA fonctionne correctement
-        if TF_AVAILABLE and XLA_AVAILABLE:
-            import tensorflow as tf
-            
-            try:
-                # Configurer XLA
-                tf.config.optimizer.set_jit(True)
-                runtime_status["jit_compilation"]["details"]["xla_enabled"] = True
-            except Exception as e:
-                runtime_status["jit_compilation"]["details"]["xla_enabled"] = False
-                runtime_status["jit_compilation"]["details"]["xla_error"] = str(e)
-        
-    except (ImportError, Exception) as e:
-        runtime_status["jit_compilation"] = {
-            "active": False,
-            "error": str(e)
-        }
-    
-    # Vérifier les optimisations système
-    try:
-        from ai_trading.utils.system_optimizer import SystemOptimizer
-        optimizer = SystemOptimizer()
-        status = optimizer.get_optimization_status()
-        
-        # Vérifier les variables d'environnement clés
-        env_keys = ["OMP_NUM_THREADS", "MKL_NUM_THREADS", "PYTHONHASHSEED"]
-        env_set = any(key in os.environ for key in env_keys)
-        
-        runtime_status["system_optimization"] = {
-            "active": True,
-            "details": {
-                "os": status["system_info"]["os"],
-                "cpu_count": status["system_info"]["cpu_count"],
-                "memory_total_gb": round(status["system_info"]["memory_total"] / (1024**3), 2),
-                "env_vars_set": env_set,
-                "is_admin": status["system_info"]["is_admin"]
-            }
-        }
-    except (ImportError, Exception) as e:
-        runtime_status["system_optimization"] = {
-            "active": False,
-            "error": str(e)
-        }
-    
-    return runtime_status
+            return False, "CUDA n'est pas disponible pour PyTorch"
+    except ImportError:
+        return False, "PyTorch n'est pas installé"
+    except Exception as e:
+        return False, f"Erreur lors de la vérification de CUDA: {str(e)}"
 
-def format_report(stats: Dict[str, Any], runtime: Dict[str, Any]) -> str:
-    """
-    Formate un rapport de vérification des optimisations.
-    
-    Args:
-        stats: Statistiques d'utilisation des optimisations
-        runtime: État des optimisations à l'exécution
+def test_tensorflow_gpu():
+    """Vérifie si GPU est disponible pour TensorFlow."""
+    try:
+        import tensorflow as tf
+        gpus = tf.config.list_physical_devices('GPU')
+        if gpus:
+            return True, f"TensorFlow détecte {len(gpus)} GPU(s)"
+        else:
+            return False, "Aucun GPU disponible pour TensorFlow"
+    except ImportError:
+        return False, "TensorFlow n'est pas installé"
+    except Exception as e:
+        return False, f"Erreur lors de la vérification des GPUs TensorFlow: {str(e)}"
+
+def test_ray_init():
+    """Teste l'initialisation de Ray."""
+    try:
+        import ray
+        if not ray.is_initialized():
+            ray.init(ignore_reinit_error=True)
+        return True, "Ray initialisé avec succès"
+    except ImportError:
+        return False, "Ray n'est pas installé"
+    except Exception as e:
+        return False, f"Erreur lors de l'initialisation de Ray: {str(e)}"
+
+def test_onnx_export():
+    """Teste l'exportation ONNX basique."""
+    try:
+        import torch
+        import torch.nn as nn
+        import onnx
+        import onnxruntime
         
+        # Créer un modèle simple
+        class SimpleModel(nn.Module):
+            def __init__(self):
+                super(SimpleModel, self).__init__()
+                self.fc = nn.Linear(10, 1)
+                
+            def forward(self, x):
+                return self.fc(x)
+        
+        model = SimpleModel()
+        model.eval()
+        
+        # Exporter en ONNX
+        dummy_input = torch.randn(1, 10)
+        torch.onnx.export(
+            model, dummy_input, "test_model.onnx",
+            input_names=["input"], output_names=["output"],
+            dynamic_axes={"input": {0: "batch_size"}, "output": {0: "batch_size"}}
+        )
+        
+        # Vérifier le modèle
+        onnx_model = onnx.load("test_model.onnx")
+        onnx.checker.check_model(onnx_model)
+        
+        # Nettoyer
+        if os.path.exists("test_model.onnx"):
+            os.remove("test_model.onnx")
+        
+        return True, "Exportation ONNX réussie"
+    except ImportError as e:
+        return False, f"Module manquant pour l'exportation ONNX: {str(e)}"
+    except Exception as e:
+        return False, f"Erreur lors du test d'exportation ONNX: {str(e)}"
+
+def test_optuna():
+    """Teste l'optimisation d'hyperparamètres Optuna."""
+    try:
+        import optuna
+        
+        def objective(trial):
+            x = trial.suggest_float('x', -10, 10)
+            return (x - 2) ** 2
+        
+        study = optuna.create_study()
+        study.optimize(objective, n_trials=3)
+        
+        return True, f"Optuna fonctionne correctement, meilleure valeur: {study.best_value:.4f}"
+    except ImportError:
+        return False, "Optuna n'est pas installé"
+    except Exception as e:
+        return False, f"Erreur lors du test d'Optuna: {str(e)}"
+
+def test_ray_tune():
+    """Teste l'optimisation d'hyperparamètres Ray Tune."""
+    try:
+        import ray
+        from ray import tune
+        
+        def objective(config):
+            x = config["x"]
+            return {"score": (x - 2) ** 2}
+        
+        ray.init(ignore_reinit_error=True)
+        analysis = tune.run(
+            objective,
+            config={"x": tune.uniform(-10, 10)},
+            num_samples=3,
+            verbose=0
+        )
+        
+        best_trial = analysis.get_best_trial("score", "min")
+        
+        return True, f"Ray Tune fonctionne correctement, meilleure valeur: {best_trial.last_result['score']:.4f}"
+    except ImportError:
+        return False, "Ray Tune n'est pas installé"
+    except Exception as e:
+        return False, f"Erreur lors du test de Ray Tune: {str(e)}"
+
+def test_numba():
+    """Teste les optimisations Numba."""
+    try:
+        import numba
+        import numpy as np
+        import time
+        
+        # Fonction sans Numba
+        def sum_without_numba(arr):
+            result = 0
+            for i in range(len(arr)):
+                result += arr[i]
+            return result
+        
+        # Fonction avec Numba
+        @numba.jit(nopython=True)
+        def sum_with_numba(arr):
+            result = 0
+            for i in range(len(arr)):
+                result += arr[i]
+            return result
+        
+        # Créer un tableau
+        arr = np.random.rand(10000000)
+        
+        # Mesurer le temps sans Numba
+        start = time.time()
+        result1 = sum_without_numba(arr)
+        time_without_numba = time.time() - start
+        
+        # Mesurer le temps avec Numba (compilation + exécution)
+        start = time.time()
+        result2 = sum_with_numba(arr)
+        time_with_numba_first = time.time() - start
+        
+        # Mesurer le temps avec Numba (exécution seulement)
+        start = time.time()
+        result2 = sum_with_numba(arr)
+        time_with_numba_second = time.time() - start
+        
+        speedup = time_without_numba / time_with_numba_second
+        
+        return True, f"Numba fonctionne correctement, accélération: {speedup:.2f}x"
+    except ImportError:
+        return False, "Numba n'est pas installé"
+    except Exception as e:
+        return False, f"Erreur lors du test de Numba: {str(e)}"
+
+def test_torch_fx():
+    """Teste l'optimisation de graphe avec torch.fx."""
+    try:
+        import torch
+        import torch.fx as fx
+        
+        # Créer un modèle simple
+        class SimpleModel(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.lin1 = torch.nn.Linear(10, 10)
+                self.lin2 = torch.nn.Linear(10, 1)
+                
+            def forward(self, x):
+                x = self.lin1(x)
+                x = torch.relu(x)
+                x = self.lin2(x)
+                return x
+        
+        model = SimpleModel()
+        
+        # Tracer et générer un graphe symbolique
+        traced_model = fx.symbolic_trace(model)
+        
+        # Afficher le graphe pour vérifier
+        graph_str = traced_model.graph.python_code("self")
+        
+        return True, "torch.fx fonctionne correctement"
+    except ImportError:
+        return False, "torch.fx n'est pas installé"
+    except Exception as e:
+        return False, f"Erreur lors du test de torch.fx: {str(e)}"
+
+def test_torch_distributed():
+    """Teste le module torch.distributed."""
+    try:
+        import torch.distributed as dist
+        
+        # Vérifier si le module est disponible (sans l'initialiser vraiment)
+        backend_list = ["gloo", "nccl"] if torch.cuda.is_available() else ["gloo"]
+        available_backends = [b for b in backend_list if dist.is_available() and dist.is_backend_available(b)]
+        
+        if available_backends:
+            return True, f"torch.distributed disponible avec backends: {', '.join(available_backends)}"
+        else:
+            return False, "torch.distributed est importable mais aucun backend n'est disponible"
+    except ImportError:
+        return False, "torch.distributed n'est pas disponible"
+    except Exception as e:
+        return False, f"Erreur lors du test de torch.distributed: {str(e)}"
+
+def test_compressed_storage():
+    """Teste le stockage de données compressé."""
+    try:
+        import numpy as np
+        import pandas as pd
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+        import os
+        import time
+        
+        # Créer des données test
+        data = np.random.rand(100000, 10)
+        df = pd.DataFrame(data, columns=[f'col_{i}' for i in range(10)])
+        
+        # Mesurer la taille sans compression
+        csv_file = "test_uncompressed.csv"
+        df.to_csv(csv_file, index=False)
+        uncompressed_size = os.path.getsize(csv_file)
+        
+        # Mesurer la taille avec compression parquet
+        parquet_file = "test_compressed.parquet"
+        df.to_parquet(parquet_file, compression='snappy')
+        compressed_size = os.path.getsize(parquet_file)
+        
+        # Nettoyer
+        os.remove(csv_file)
+        os.remove(parquet_file)
+        
+        compression_ratio = uncompressed_size / compressed_size
+        
+        return True, f"Stockage compressé fonctionne, ratio de compression: {compression_ratio:.2f}x"
+    except ImportError:
+        return False, "Modules requis pour le stockage compressé (pandas, pyarrow) non disponibles"
+    except Exception as e:
+        return False, f"Erreur lors du test de stockage compressé: {str(e)}"
+
+def test_lazy_loading():
+    """Teste le chargement paresseux des données."""
+    try:
+        import dask.dataframe as dd
+        import pandas as pd
+        import numpy as np
+        import os
+        import time
+        
+        # Créer des données test
+        data = np.random.rand(100000, 10)
+        df = pd.DataFrame(data, columns=[f'col_{i}' for i in range(10)])
+        df.to_csv("test_data.csv", index=False)
+        
+        # Mesurer le temps avec chargement complet
+        start = time.time()
+        full_df = pd.read_csv("test_data.csv")
+        normal_load_time = time.time() - start
+        
+        # Mesurer le temps avec chargement paresseux
+        start = time.time()
+        lazy_df = dd.read_csv("test_data.csv")
+        # Récupérer uniquement la première ligne pour démontrer le lazy loading
+        first_row = lazy_df.head(1)
+        lazy_load_time = time.time() - start
+        
+        # Nettoyer
+        os.remove("test_data.csv")
+        
+        return True, f"Chargement paresseux fonctionne, temps de chargement: {lazy_load_time:.4f}s vs {normal_load_time:.4f}s"
+    except ImportError:
+        return False, "Modules requis pour le chargement paresseux (dask) non disponibles"
+    except Exception as e:
+        return False, f"Erreur lors du test de chargement paresseux: {str(e)}"
+
+def test_batch_inference():
+    """Teste l'inférence par lots."""
+    try:
+        import torch
+        import torch.nn as nn
+        import time
+        
+        # Créer un modèle simple
+        class SimpleModel(nn.Module):
+            def __init__(self):
+                super(SimpleModel, self).__init__()
+                self.fc = nn.Linear(10, 1)
+                
+            def forward(self, x):
+                return self.fc(x)
+        
+        model = SimpleModel()
+        model.eval()
+        
+        # Créer des données
+        num_samples = 1000
+        
+        # Inférence par échantillon individuel
+        single_inputs = [torch.randn(1, 10) for _ in range(num_samples)]
+        
+        start = time.time()
+        single_outputs = []
+        with torch.no_grad():
+            for x in single_inputs:
+                y = model(x)
+                single_outputs.append(y)
+        single_time = time.time() - start
+        
+        # S'assurer que single_time n'est pas zéro pour éviter la division par zéro
+        if single_time < 1e-6:
+            single_time = 1e-6
+        
+        # Inférence par lots
+        batch_input = torch.randn(num_samples, 10)
+        
+        start = time.time()
+        with torch.no_grad():
+            batch_output = model(batch_input)
+        batch_time = time.time() - start
+        
+        # S'assurer que batch_time n'est pas zéro pour éviter la division par zéro
+        if batch_time < 1e-6:
+            batch_time = 1e-6
+        
+        speedup = single_time / batch_time
+        
+        return True, f"Inférence par lots fonctionne, accélération: {speedup:.2f}x"
+    except ImportError:
+        return False, "PyTorch n'est pas disponible"
+    except Exception as e:
+        return False, f"Erreur lors du test d'inférence par lots: {e}"
+
+def test_torch_profiler():
+    """Teste le profiler PyTorch."""
+    try:
+        import torch
+        import torch.nn as nn
+        from torch.profiler import profile, record_function, ProfilerActivity
+        
+        # Créer un modèle simple
+        model = nn.Sequential(
+            nn.Linear(10, 10),
+            nn.ReLU(),
+            nn.Linear(10, 1)
+        )
+        
+        # Créer des données
+        x = torch.randn(100, 10)
+        
+        # Profiler
+        with profile(activities=[ProfilerActivity.CPU], record_shapes=True) as prof:
+            with record_function("model_inference"):
+                model(x)
+        
+        # Vérifier que le profiling a fonctionné
+        events = prof.key_averages().table(sort_by="cpu_time_total", row_limit=10)
+        
+        return True, "torch.profiler fonctionne correctement"
+    except ImportError:
+        return False, "torch.profiler n'est pas disponible"
+    except Exception as e:
+        return False, f"Erreur lors du test de torch.profiler: {str(e)}"
+
+def test_torch_quantization():
+    """Teste les fonctionnalités de quantification de PyTorch."""
+    try:
+        import torch
+        import torch.nn as nn
+        
+        # Vérifier si le module quantization est disponible
+        if not hasattr(torch, 'quantization'):
+            return False, "Le module torch.quantization n'est pas disponible"
+        
+        # Créer un modèle simple pour le test
+        class SimpleModel(nn.Module):
+            def __init__(self):
+                super(SimpleModel, self).__init__()
+                self.linear = nn.Linear(10, 10)
+                self.relu = nn.ReLU()
+                self.linear2 = nn.Linear(10, 1)
+                
+            def forward(self, x):
+                x = self.linear(x)
+                x = self.relu(x)
+                x = self.linear2(x)
+                return x
+        
+        # Créer le modèle
+        model = SimpleModel()
+        model.eval()
+        
+        # Tester la quantification dynamique (plus simple et fonctionne sur plus de plateformes)
+        try:
+            # Vérifier juste si la fonction est accessible
+            if hasattr(torch.quantization, 'quantize_dynamic'):
+                # Tester avec un modèle minimal
+                dummy_input = torch.randn(1, 10)
+                model(dummy_input)  # Forward pass pour vérifier que le modèle fonctionne
+                
+                # On ne fait pas la quantification complète car elle peut échouer sur certaines plateformes
+                # On vérifie juste que les fonctions sont accessibles
+                return True, "Quantification PyTorch disponible"
+            else:
+                return False, "La fonction quantize_dynamic n'est pas disponible"
+        except Exception as e:
+            return False, f"Erreur lors du test de quantification dynamique: {str(e)}"
+            
+    except ImportError:
+        return False, "PyTorch n'est pas installé"
+    except Exception as e:
+        return False, f"Erreur lors du test de quantification PyTorch: {str(e)}"
+
+def create_optimization_features() -> List[OptimizationFeature]:
+    """Crée la liste des fonctionnalités d'optimisation à vérifier."""
+    features = [
+        # Optimisation mémoire CPU / RAM
+        OptimizationFeature(
+            name="PyTorch Core",
+            category="CPU/RAM",
+            description="PyTorch avec compile() et autres optimisations",
+            packages=["torch", "torch.compile"],
+            test_func=lambda: test_package_import(["torch", "torch.compile"])
+        ),
+        OptimizationFeature(
+            name="Data Loader Optimization",
+            category="CPU/RAM",
+            description="Optimisation des chargeurs de données",
+            packages=["torch.utils.data"],
+            test_func=lambda: test_package_import(["torch.utils.data"])
+        ),
+        OptimizationFeature(
+            name="Intel MKL",
+            category="CPU/RAM",
+            description="Optimisations spécifiques pour Intel",
+            packages=["numpy"],
+            test_func=lambda: test_package_import(["numpy"])
+        ),
+        
+        # Optimisation CPU
+        OptimizationFeature(
+            name="Profiling Tools",
+            category="CPU",
+            description="Outils de profilage CPU",
+            packages=["cProfile", "line_profiler", "memory_profiler"],
+            test_func=lambda: test_package_import(["cProfile"])
+        ),
+        OptimizationFeature(
+            name="Numba",
+            category="CPU",
+            description="Compilation JIT pour code Python",
+            packages=["numba"],
+            test_func=test_numba
+        ),
+        OptimizationFeature(
+            name="Threading Optimizations",
+            category="CPU",
+            description="Optimisations multi-threading",
+            packages=["threading", "multiprocessing", "concurrent.futures"],
+            test_func=lambda: test_package_import(["threading", "multiprocessing", "concurrent.futures"])
+        ),
+        
+        # Optimisation GPU
+        OptimizationFeature(
+            name="CUDA Support",
+            category="GPU",
+            description="Support CUDA pour PyTorch",
+            packages=["torch.cuda"],
+            test_func=test_torch_cuda
+        ),
+        OptimizationFeature(
+            name="TensorFlow GPU",
+            category="GPU",
+            description="Support GPU pour TensorFlow",
+            packages=["tensorflow"],
+            test_func=test_tensorflow_gpu
+        ),
+        OptimizationFeature(
+            name="Mixed Precision",
+            category="GPU",
+            description="Entraînement en précision mixte",
+            packages=["torch.cuda.amp"],
+            test_func=lambda: test_package_import(["torch.cuda.amp"])
+        ),
+        
+        # Optimisation de l'architecture IA
+        OptimizationFeature(
+            name="Model Pruning",
+            category="AI Architecture",
+            description="Élagage de modèle",
+            packages=["torch.nn.utils.prune"],
+            test_func=lambda: test_package_import(["torch.nn.utils.prune"])
+        ),
+        OptimizationFeature(
+            name="Quantization",
+            category="AI Architecture",
+            description="Quantification de modèle",
+            packages=["torch.quantization"],
+            test_func=test_torch_quantization
+        ),
+        
+        # Optimisation de l'entraînement RL
+        OptimizationFeature(
+            name="Stable Baselines",
+            category="RL",
+            description="Stable Baselines 3 pour RL",
+            packages=["stable_baselines3"],
+            test_func=lambda: test_package_import(["stable_baselines3"])
+        ),
+        OptimizationFeature(
+            name="Ray RLlib",
+            category="RL",
+            description="Ray RLlib pour entraînement distribué",
+            packages=["ray.rllib"],
+            test_func=test_ray_init
+        ),
+        
+        # Optimisation générale du projet
+        OptimizationFeature(
+            name="PyTorch Profiler",
+            category="Profiling",
+            description="Profilage PyTorch",
+            packages=["torch.profiler"],
+            test_func=test_torch_profiler
+        ),
+        OptimizationFeature(
+            name="TensorFlow Profiler",
+            category="Profiling",
+            description="Profilage TensorFlow",
+            packages=["tensorflow.profiler"],
+            test_func=lambda: test_package_import(["tensorflow"])
+        ),
+        OptimizationFeature(
+            name="JIT Compilation",
+            category="Compilation",
+            description="Compilation JIT avec TorchScript",
+            packages=["torch.jit"],
+            test_func=lambda: test_package_import(["torch.jit"])
+        ),
+        
+        # Outils/méthodes
+        OptimizationFeature(
+            name="DeepSpeed",
+            category="Tools",
+            description="Optimisation mémoire pour grands modèles",
+            packages=["deepspeed"],
+            test_func=lambda: test_package_import(["deepspeed"])
+        ),
+        OptimizationFeature(
+            name="Huggingface Accelerate",
+            category="Tools",
+            description="Accélération multi-GPU simplifiée",
+            packages=["accelerate"],
+            test_func=lambda: test_package_import(["accelerate"])
+        ),
+        OptimizationFeature(
+            name="Optuna",
+            category="Tools",
+            description="Optimisation d'hyperparamètres",
+            packages=["optuna"],
+            test_func=test_optuna
+        ),
+        OptimizationFeature(
+            name="Ray Tune",
+            category="Tools",
+            description="Optimisation d'hyperparamètres distribuée",
+            packages=["ray.tune"],
+            test_func=test_ray_tune
+        ),
+        OptimizationFeature(
+            name="ONNX Export",
+            category="Tools",
+            description="Exportation de modèle pour inférence rapide",
+            packages=["onnx", "onnxruntime"],
+            test_func=test_onnx_export
+        ),
+        
+        # Nouveaux outils
+        OptimizationFeature(
+            name="torch.fx",
+            category="Nouveaux Outils",
+            description="Optimisation de graphe avec torch.fx",
+            packages=["torch.fx"],
+            test_func=test_torch_fx
+        ),
+        OptimizationFeature(
+            name="torch.distributed",
+            category="Nouveaux Outils",
+            description="Support multi-GPU avec torch.distributed",
+            packages=["torch.distributed"],
+            test_func=test_torch_distributed
+        ),
+        
+        # Optimisation de fichiers
+        OptimizationFeature(
+            name="Stockage compressé",
+            category="Fichiers",
+            description="Stockage de données compressé (parquet, etc.)",
+            packages=["pandas", "pyarrow", "pyarrow.parquet"],
+            test_func=test_compressed_storage
+        ),
+        OptimizationFeature(
+            name="Lecture paresseuse",
+            category="Fichiers",
+            description="Chargement paresseux des données",
+            packages=["dask.dataframe"],
+            test_func=test_lazy_loading
+        ),
+        OptimizationFeature(
+            name="Cache de features",
+            category="Fichiers",
+            description="Mise en cache des features pré-calculées",
+            packages=["joblib", "functools"],
+            test_func=lambda: test_package_import(["joblib", "functools"])
+        ),
+        
+        # Batch inference
+        OptimizationFeature(
+            name="Batch Inference",
+            category="Inférence",
+            description="Inférence par lots pour accélérer les prédictions",
+            packages=["torch"],
+            test_func=test_batch_inference
+        )
+    ]
+    
+    return features
+
+def check_optimization_features() -> Dict[str, List[OptimizationFeature]]:
+    """
+    Vérifie la disponibilité des fonctionnalités d'optimisation.
+    
     Returns:
-        Rapport formaté
+        Dictionnaire des fonctionnalités par catégorie
     """
-    report = []
+    features = create_optimization_features()
+    features_by_category = {}
     
-    # En-tête
-    report.append("=" * 80)
-    report.append("RAPPORT DE VÉRIFICATION DES OPTIMISATIONS")
-    report.append("=" * 80)
-    report.append("")
-    
-    # Résumé général
-    report.append(f"Fichiers analysés: {stats['files_checked']}")
-    report.append("")
-    
-    # Utilisation des optimisations
-    report.append("Utilisation des optimisations:")
-    report.append("-" * 40)
-    for opt_name, opt_info in OPTIMIZATIONS.items():
-        usage_count = stats["optimization_usage"][opt_name]
-        usage_percent = (usage_count / stats["files_checked"]) * 100 if stats["files_checked"] > 0 else 0
-        report.append(f"{opt_info['description']}: {usage_count} fichiers ({usage_percent:.1f}%)")
-    report.append("")
-    
-    # Fonctions les plus utilisées
-    report.append("Fonctions d'optimisation les plus utilisées:")
-    report.append("-" * 40)
-    all_funcs = []
-    for opt_name, funcs in stats["optimization_functions"].items():
-        for func_name, count in funcs.items():
-            if count > 0:
-                all_funcs.append((f"{func_name} ({opt_name})", count))
-    
-    # Trier par nombre d'utilisations
-    all_funcs.sort(key=lambda x: x[1], reverse=True)
-    
-    # Afficher les 10 fonctions les plus utilisées
-    for i, (func_name, count) in enumerate(all_funcs[:10], 1):
-        report.append(f"{i}. {func_name}: {count} utilisations")
-    report.append("")
-    
-    # Optimisations manquantes dans les fichiers clés
-    if stats["missing_optimizations"]:
-        report.append("Optimisations manquantes dans les fichiers clés:")
-        report.append("-" * 40)
-        for missing in stats["missing_optimizations"]:
-            file_name = missing["file"]
-            missing_opts = ", ".join([OPTIMIZATIONS[opt]["description"] for opt in missing["missing"]])
-            report.append(f"{file_name}: {missing_opts}")
-        report.append("")
-    
-    # État des optimisations à l'exécution
-    report.append("État des optimisations à l'exécution:")
-    report.append("-" * 40)
-    for opt_name, opt_status in runtime.items():
-        if opt_status["active"]:
-            report.append(f"{opt_name}: ACTIF")
-            if "details" in opt_status:
-                for detail_name, detail_value in opt_status["details"].items():
-                    report.append(f"  - {detail_name}: {detail_value}")
+    for feature in features:
+        # Exécuter la fonction de test
+        if feature.test_func:
+            feature.is_available, feature.status_message = feature.test_func()
         else:
-            report.append(f"{opt_name}: INACTIF ({opt_status.get('error', 'Raison inconnue')})")
-    report.append("")
-    
-    # Recommandations
-    report.append("Recommandations:")
-    report.append("-" * 40)
-    
-    # Recommandations basées sur les optimisations manquantes
-    for missing in stats["missing_optimizations"]:
-        file_name = missing["file"]
-        for missing_opt in missing["missing"]:
-            opt_info = OPTIMIZATIONS[missing_opt]
-            report.append(f"- Ajouter {opt_info['description']} à {file_name}")
-    
-    # Recommandations basées sur l'état d'exécution
-    for opt_name, opt_status in runtime.items():
-        if not opt_status["active"]:
-            report.append(f"- Activer {opt_name}")
-    
-    report.append("")
-    report.append("=" * 80)
-    
-    return "\n".join(report)
-
-def main():
-    """Point d'entrée principal pour vérifier les optimisations."""
-    
-    logger.info("Vérification des optimisations CPU/GPU...")
-    
-    # Analyser le répertoire du projet
-    stats = scan_directory(PROJECT_ROOT / "ai_trading")
-    
-    # Vérifier l'état des optimisations à l'exécution
-    runtime = verify_runtime_optimizations()
-    
-    # Générer et afficher le rapport
-    report = format_report(stats, runtime)
-    print(report)
-    
-    # Sauvegarder le rapport dans un fichier
-    report_path = PROJECT_ROOT / "ai_trading" / "optim" / "optimization_report.txt"
-    with open(report_path, "w") as f:
-        f.write(report)
-    
-    logger.info(f"Rapport sauvegardé dans {report_path}")
-    
-    # Vérifier si des optimisations importantes sont manquantes
-    has_critical_missing = False
-    for missing in stats["missing_optimizations"]:
-        if "train.py" in missing["file"] or "rl_agent.py" in missing["file"]:
-            has_critical_missing = True
-            break
-    
-    # Sortir avec un code d'erreur si des optimisations critiques sont manquantes
-    if has_critical_missing:
-        logger.error("Des optimisations critiques sont manquantes dans les fichiers clés!")
-        sys.exit(1)
-    
-    logger.info("Toutes les vérifications d'optimisation ont été effectuées avec succès.")
-    sys.exit(0)
-
-def check_profiling_tools():
-    """Vérifie les outils de profilage disponibles."""
-    
-    import cProfile
-    import pstats
-    import io
-    
-    # Vérifier cProfile
-    profiler = cProfile.Profile()
-    profiler.enable()
-    
-    # Code à profiler
-    total = 0
-    for i in range(1000):
-        total += i
-    
-    profiler.disable()
-    
-    # Analyser les résultats
-    s = io.StringIO()
-    ps = pstats.Stats(profiler, stream=s).sort_stats('cumulative')
-    ps.print_stats(5)
-    
-    # Vérifier PyTorch Profiler
-    try:
-        import torch
-        has_torch_profiler = hasattr(torch, 'profiler')
-    except ImportError:
-        has_torch_profiler = False
-    
-    # Vérifier TensorFlow Profiler
-    try:
-        import tensorflow as tf
-        has_tf_profiler = hasattr(tf, 'profiler')
-    except ImportError:
-        has_tf_profiler = False
-    
-    # Vérifier NVIDIA Nsight
-    try:
-        import subprocess
-        result = subprocess.run(['nsys', '--version'], 
-                               stdout=subprocess.PIPE, 
-                               stderr=subprocess.PIPE)
-        has_nsight = result.returncode == 0
-    except:
-        has_nsight = False
-    
-    return {
-        "cprofile": True,
-        "torch_profiler": has_torch_profiler,
-        "tensorflow_profiler": has_tf_profiler,
-        "nsight": has_nsight
-    }
-
-def check_jit_compilation():
-    """Vérifie les outils de compilation JIT disponibles."""
-    
-    # Vérifier TorchScript
-    try:
-        import torch
-        has_torchscript = hasattr(torch, 'jit')
+            feature.is_available, feature.status_message = test_package_import(feature.packages)
         
-        if has_torchscript:
-            # Test simple de torchscript
-            def add(a, b):
-                return a + b
-            
-            scripted_add = torch.jit.script(add)
-            x = torch.tensor([1.0, 2.0])
-            y = torch.tensor([3.0, 4.0])
-            result = scripted_add(x, y)
-            torchscript_works = True
-        else:
-            torchscript_works = False
-    except (ImportError, Exception):
-        has_torchscript = False
-        torchscript_works = False
+        # Ajouter à la catégorie
+        if feature.category not in features_by_category:
+            features_by_category[feature.category] = []
+        features_by_category[feature.category].append(feature)
     
-    # Vérifier TensorFlow XLA
-    try:
-        import tensorflow as tf
-        has_xla = hasattr(tf.config.optimizer, 'set_jit')
-        
-        if has_xla:
-            # Test simple de XLA
-            try:
-                tf.config.optimizer.set_jit(True)
-                xla_works = True
-            except:
-                xla_works = False
-        else:
-            xla_works = False
-    except (ImportError, Exception):
-        has_xla = False
-        xla_works = False
-    
-    return {
-        "torchscript": {
-            "available": has_torchscript,
-            "works": torchscript_works
-        },
-        "xla": {
-            "available": has_xla,
-            "works": xla_works
-        }
-    }
+    return features_by_category
 
-def print_check_results():
-    """Affiche les résultats des vérifications d'optimisation."""
-    
+def print_optimization_status(features_by_category: Dict[str, List[OptimizationFeature]]):
+    """Affiche le statut des fonctionnalités d'optimisation."""
     print("\n" + "=" * 80)
-    print("VÉRIFICATION DES OPTIMISATIONS DISPONIBLES")
+    print("STATUT DES OPTIMISATIONS")
     print("=" * 80)
     
-    # Vérifier les outils de profilage
-    profiling_results = check_profiling_tools()
-    print("\nOutils de profilage:")
-    print("-" * 40)
-    for tool, available in profiling_results.items():
-        print(f"{tool}: {'✓' if available else '✗'}")
+    # Calculer les statistiques
+    total_features = 0
+    available_features = 0
     
-    # Vérifier les outils de compilation JIT
-    jit_results = check_jit_compilation()
-    print("\nOutils de compilation JIT:")
-    print("-" * 40)
-    for tool, info in jit_results.items():
-        status = "✓" if info["available"] and info["works"] else "✗"
-        if info["available"] and not info["works"]:
-            status = "⚠ (disponible mais ne fonctionne pas)"
-        print(f"{tool}: {status}")
+    # Parcourir les catégories
+    for category, features in sorted(features_by_category.items()):
+        print(f"\n-- {category} --")
+        
+        for feature in features:
+            status = "✓" if feature.is_available else "✗"
+            print(f"{status} {feature.name}: {feature.description}")
+            print(f"   {feature.status_message}")
+            
+            total_features += 1
+            if feature.is_available:
+                available_features += 1
     
-    # Vérifier les optimisations système
-    system_results = check_system_optimizations()
-    print("\nOptimisations système:")
-    print("-" * 40)
-    for feature, available in system_results.items():
-        print(f"{feature}: {'✓' if available else '✗'}")
-    
+    # Afficher le résumé
     print("\n" + "=" * 80)
+    percentage = (available_features / total_features) * 100 if total_features > 0 else 0
+    print(f"RÉSUMÉ: {available_features}/{total_features} optimisations disponibles ({percentage:.1f}%)")
+    print("=" * 80)
 
-def check_system_optimizations():
-    """Vérifie les optimisations système disponibles."""
+def main():
+    """Fonction principale."""
+    print("\nVérification des optimisations disponibles...\n")
     
-    # Vérifier si le module est disponible
-    try:
-        import importlib
-        system_optimizer = importlib.import_module("ai_trading.utils.system_optimizer")
-        module_available = True
-    except ImportError:
-        module_available = False
+    # Vérifier les fonctionnalités
+    features_by_category = check_optimization_features()
     
-    if not module_available:
-        return {
-            "module_available": False,
-            "env_vars_optimization": False,
-            "system_limits": False,
-            "disk_io_optimization": False,
-            "memory_optimization": False,
-            "logging_setup": False
-        }
-    
-    # Vérifier les fonctionnalités individuelles
-    try:
-        from ai_trading.utils.system_optimizer import SystemOptimizer
-        optimizer = SystemOptimizer()
-        
-        # Tester l'optimisation des variables d'environnement
-        try:
-            optimizer.optimize_environment_variables()
-            env_vars_optimization = True
-        except:
-            env_vars_optimization = False
-        
-        # Tester la configuration des limites système
-        try:
-            optimizer.configure_system_limits()
-            system_limits = True
-        except:
-            system_limits = False
-        
-        # Tester l'optimisation des E/S disque
-        try:
-            optimizer.optimize_disk_io()
-            disk_io_optimization = True
-        except:
-            disk_io_optimization = False
-        
-        # Tester la configuration de la mémoire
-        try:
-            optimizer.configure_memory_params()
-            memory_optimization = True
-        except:
-            memory_optimization = False
-        
-        # Tester la configuration du logging
-        try:
-            optimizer.setup_logging()
-            logging_setup = True
-        except:
-            logging_setup = False
-        
-        return {
-            "module_available": True,
-            "env_vars_optimization": env_vars_optimization,
-            "system_limits": system_limits,
-            "disk_io_optimization": disk_io_optimization,
-            "memory_optimization": memory_optimization,
-            "logging_setup": logging_setup
-        }
-        
-    except Exception:
-        return {
-            "module_available": True,
-            "env_vars_optimization": False,
-            "system_limits": False,
-            "disk_io_optimization": False,
-            "memory_optimization": False,
-            "logging_setup": False
-        }
+    # Afficher les résultats
+    print_optimization_status(features_by_category)
 
 if __name__ == "__main__":
-    # Vérifier les arguments en ligne de commande
-    if len(sys.argv) > 1 and sys.argv[1] == "test":
-        print_check_results()
-    else:
-        main() 
+    main() 

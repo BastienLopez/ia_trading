@@ -32,7 +32,7 @@ from ai_trading.data.lazy_loading import (
 
 class TestLazyFileReader(unittest.TestCase):
     """Tests pour la classe LazyFileReader."""
-    
+
     def setUp(self):
         """Initialiser les éléments nécessaires pour chaque test."""
         # Créer un répertoire temporaire
@@ -155,7 +155,7 @@ class TestLazyDataset(unittest.TestCase):
         
         # Transformation simple
         self.transform = lambda x: x * 2
-    
+
     def tearDown(self):
         """Nettoyer après chaque test."""
         # Supprimer le répertoire temporaire
@@ -267,7 +267,7 @@ class TestCachedTransform(unittest.TestCase):
         new_tensor = torch.randn(5, 3)
         result3 = test_transform(new_tensor)
         self.assertEqual(call_count, 2)  # Le compteur doit augmenter
-    
+
     def test_cached_feature_transform(self):
         """Tester la classe CachedFeatureTransform."""
         # Créer une instance de CachedFeatureTransform

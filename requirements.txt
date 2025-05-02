@@ -1,5 +1,5 @@
 # Bibliothèques d'analyse de données
-numpy>=1.19.5
+numpy>=1.23.5,<2.0.0
 pandas>=1.4.0
 matplotlib>=3.5.0
 seaborn>=0.12.2
@@ -25,6 +25,27 @@ torch>=2.2.0
 optuna>=2.10.0
 packaging>=23.0
 jax>=0.4.14
+ray[rllib,tune]==2.45.0
+
+# Optimisations CPU/GPU
+psutil>=7.0.0
+pyarrow>=15.0.0
+h5py>=3.10.0
+threadpoolctl>=3.1.0
+pympler>=1.0.1
+py-spy>=0.3.14
+line_profiler>=4.1.1
+numba>=0.61.0
+bottleneck>=1.4.0
+memory_profiler>=0.61.0
+fastparquet>=2024.0.0
+
+# Exportation et optimisation de modèles
+onnx>=1.15.0
+onnxruntime>=1.16.0
+tf2onnx>=1.15.0
+hyperopt>=0.2.7
+bayesian-optimization>=1.4.3
 
 # API et collecte de données
 requests>=2.31.0
@@ -82,5 +103,4 @@ pillow>=10.0.0
 # ML avancé
 xgboost==1.7.6
 lightgbm==4.1.0
-
 arch>=5.0.0
