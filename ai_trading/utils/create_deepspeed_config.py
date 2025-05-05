@@ -69,6 +69,7 @@ def create_deepspeed_config(output_path=None, custom_params=None):
     
     # Chemin de sortie par défaut
     if not output_path:
+        # Utiliser le chemin racine du projet pour info_retour
         config_dir = Path("ai_trading/info_retour/config/deepspeed")
         config_dir.mkdir(parents=True, exist_ok=True)
         output_path = config_dir / "ds_config_default.json"

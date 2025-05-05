@@ -2,6 +2,7 @@
 
 # Dossiers à supprimer car vides ou inutiles
 $emptyDirsToRemove = @(
+    "ai_trading/ai_trading",     # Structure redondante
     "ai_trading/environments",   # Dossier vide
     "ai_trading/agents",         # Dossier vide, remplacé par ai_trading/rl/agents
     "ai_trading/config",         # Dossier vide, remplacé par ai_trading/config.py

@@ -2,7 +2,7 @@
 
 # Liste des dossiers à supprimer
 $dirsToRemove = @(
-    "ai_trading/ai_trading",         # Sous-dossier redondant
+    # "ai_trading/ai_trading",         # Sous-dossier redondant (déjà nettoyé)
     "ai_trading/__pycache__",        # Fichiers de cache Python
     "ai_trading/.pytest_cache",      # Cache pytest
     "ai_trading/tmp_test_models",    # Dossier temporaire de test
