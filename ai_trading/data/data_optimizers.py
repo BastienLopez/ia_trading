@@ -31,6 +31,7 @@ except ImportError:
     )
 
 try:
+    import tables
     HAVE_TABLES = True
 except ImportError:
     logger.warning(
@@ -39,6 +40,7 @@ except ImportError:
     )
 
 try:
+    import h5py
     HAVE_HDF5 = True
 except ImportError:
     logger.warning(

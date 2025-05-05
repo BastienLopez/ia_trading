@@ -6,30 +6,19 @@ import numpy as np
 import pytest
 from unittest.mock import MagicMock, patch
 
-try:
-    import cv2
-    from ai_trading.rl.frame_compression import FrameCompressor, FrameStackWrapper
-    CV2_AVAILABLE = True
-except ImportError:
-    CV2_AVAILABLE = False
-    # Créer des mocks pour les classes
-    FrameCompressor = MagicMock()
-    FrameStackWrapper = MagicMock()
+# Importer directement les modules maintenant que cv2 est installé
+import cv2
+from ai_trading.rl.frame_compression import FrameCompressor, FrameStackWrapper
 
 # Ajouter le répertoire parent au chemin pour pouvoir importer les modules
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
-@pytest.mark.skipif(not CV2_AVAILABLE, reason="OpenCV (cv2) library not available")
 class TestFrameCompressor(unittest.TestCase):
     """Tests pour le compresseur de frames basé sur CV2."""
 
     def setUp(self):
         """Configuration pour les tests."""
-        # Skip si OpenCV n'est pas disponible
-        if not CV2_AVAILABLE:
-            self.skipTest("OpenCV (cv2) library not available")
-        
         # Créer un compresseur avec les paramètres corrects selon l'implémentation réelle
         self.compressor = FrameCompressor(
             compression_level=5,
@@ -44,18 +33,12 @@ class TestFrameCompressor(unittest.TestCase):
         
     def test_compression_params(self):
         """Teste que les paramètres de compression sont correctement définis."""
-        if not CV2_AVAILABLE:
-            self.skipTest("OpenCV (cv2) library not available")
-            
         self.assertEqual(self.compressor.compression_level, 5)
         self.assertEqual(self.compressor.resize_dim, (100, 100))
         self.assertTrue(self.compressor.use_grayscale)
         
     def test_compress_decompress(self):
         """Teste que la compression et décompression fonctionne."""
-        if not CV2_AVAILABLE:
-            self.skipTest("OpenCV (cv2) library not available")
-            
         # Préprocesser la frame avec les méthodes disponibles
         processed = self.compressor.preprocess_frame(self.test_frame)
         
@@ -70,15 +53,11 @@ class TestFrameCompressor(unittest.TestCase):
         self.assertEqual(decompressed.shape, processed.shape)
 
 
-@pytest.mark.skipif(not CV2_AVAILABLE, reason="OpenCV (cv2) library not available")
 class TestFrameStackWrapper(unittest.TestCase):
     """Tests pour le wrapper de stacking de frames."""
     
     def setUp(self):
         """Configuration pour les tests."""
-        if not CV2_AVAILABLE:
-            self.skipTest("OpenCV (cv2) library not available")
-            
         # Créer un mock pour l'environnement
         self.mock_env = MagicMock()
         self.mock_env.reset.return_value = np.ones((84, 84, 3), dtype=np.uint8)
@@ -100,18 +79,12 @@ class TestFrameStackWrapper(unittest.TestCase):
         
     def test_init_params(self):
         """Teste que les paramètres sont correctement initialisés."""
-        if not CV2_AVAILABLE:
-            self.skipTest("OpenCV (cv2) library not available")
-            
         self.assertEqual(self.wrapper.n_frames, 4)
         self.assertTrue(self.wrapper.compress)
         self.assertEqual(self.wrapper.compression_level, 5)
         
     def test_add_frames(self):
         """Teste l'ajout de frames au buffer."""
-        if not CV2_AVAILABLE:
-            self.skipTest("OpenCV (cv2) library not available")
-            
         # Réinitialiser pour avoir une frame
         self.wrapper.reset()
         
@@ -126,9 +99,6 @@ class TestFrameStackWrapper(unittest.TestCase):
         
     def test_get_stacked_frames(self):
         """Teste la récupération d'un stack de frames."""
-        if not CV2_AVAILABLE:
-            self.skipTest("OpenCV (cv2) library not available")
-            
         # Réinitialiser l'environnement
         self.wrapper.reset()
         
@@ -143,9 +113,6 @@ class TestFrameStackWrapper(unittest.TestCase):
         
     def test_reset(self):
         """Teste le reset du wrapper."""
-        if not CV2_AVAILABLE:
-            self.skipTest("OpenCV (cv2) library not available")
-            
         # Reset devrait fonctionner et renvoyer une observation
         observation = self.wrapper.reset()
         

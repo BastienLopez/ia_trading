@@ -144,42 +144,42 @@ def test_ddp_model_wrapper_single_gpu():
     assert len(history["val_loss"]) == 1  # Une époque
 
 
-# Ce test ne s'exécute que s'il y a au moins 2 GPUs
-@pytest.mark.skipif(
-    torch.cuda.device_count() < 2, reason="Au moins 2 GPUs sont nécessaires"
-)
-def test_ddp_model_wrapper_multi_gpu():
-    """Teste le wrapper DDP en mode multi-GPU."""
-    # Créer un dataset de test
-    inputs = torch.randn(100, 10)
-    targets = torch.randint(0, 2, (100, 1)).float()
-    dataset = TensorDataset(inputs, targets)
-
-    # Créer le wrapper DDP avec plusieurs GPUs
+# Test de simulation multi-GPU, ne nécessite pas réellement plusieurs GPUs
+def test_multi_gpu_simulation():
+    """Teste les configurations du wrapper DDP pour multi-GPU sans exécuter l'entraînement."""
+    # Créer le wrapper DDP avec paramètres multi-GPU
     ddp_wrapper = DDPModelWrapper(
         model_fn=lambda: SimpleModel(input_dim=10),
         optimizer_fn=lambda params: optim.Adam(params, lr=0.001),
         criterion_fn=lambda: nn.BCELoss(),
-        world_size=2,  # Utiliser 2 GPUs
+        world_size=2,  # Simuler 2 GPUs
+        backend="gloo",  # Utiliser gloo au lieu de nccl
     )
 
-    # Vérifier que le wrapper est configuré pour DDP
-    assert ddp_wrapper.use_ddp == True
+    # Vérifier les configurations multi-GPU
     assert ddp_wrapper.world_size == 2
-
-    # Entraîner le modèle sur une époque
-    # Note: train() retourne un dict vide en mode DDP car l'historique
-    # est géré dans chaque processus et n'est pas facilement récupérable
-    history = ddp_wrapper.train(
-        train_dataset=dataset,
-        val_dataset=dataset,
-        batch_size=16,
-        epochs=1,
-        num_workers=0,
+    assert ddp_wrapper.backend == "gloo"
+    
+    # Vérifier le comportement de fallback avec world_size > GPU disponibles
+    available_gpus = count_available_gpus()
+    if available_gpus < 2:
+        # En mode simulation, il devrait utiliser un mode non distribué (use_ddp=False) 
+        # si aucun GPU n'est disponible
+        assert ddp_wrapper.use_ddp == (available_gpus >= 1)
+        
+    # Vérifier que la préparation des dataloaders distribués fonctionne
+    inputs = torch.randn(100, 10)
+    targets = torch.randint(0, 2, (100, 1)).float()
+    dataset = TensorDataset(inputs, targets)
+    
+    # Test de la préparation du dataloader (pas d'exécution réelle)
+    dataloader = prepare_dataloader(
+        dataset, batch_size=16, shuffle=True, num_workers=0, distributed=True
     )
-
-    # Vérifier que l'entraînement s'est terminé sans erreur
-    assert isinstance(history, dict)
+    
+    # Vérifier que c'est un DistributedSampler si demandé
+    from torch.utils.data.distributed import DistributedSampler
+    assert isinstance(dataloader.sampler, DistributedSampler)
 
 
 if __name__ == "__main__":
@@ -193,14 +193,11 @@ if __name__ == "__main__":
     test_dataloader_preparation()
     print("Test de préparation DataLoader réussi!")
 
+    test_multi_gpu_simulation()
+    print("Test de simulation multi-GPU réussi!")
+
     if torch.cuda.is_available():
         test_ddp_model_wrapper_single_gpu()
         print("Test de DDPModelWrapper en mode single-GPU réussi!")
-
-        if torch.cuda.device_count() >= 2:
-            test_ddp_model_wrapper_multi_gpu()
-            print("Test de DDPModelWrapper en mode multi-GPU réussi!")
-        else:
-            print("Test multi-GPU ignoré (nombre insuffisant de GPUs)")
     else:
         print("Tests GPU ignorés (CUDA non disponible)")

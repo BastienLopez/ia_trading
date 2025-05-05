@@ -5,7 +5,7 @@ python -m ai_trading.optim.check_all_optimizations --check-all-opti
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 # Test RL PASSED OR FAILED en ligne
 ```bash	
-python -m pytest ai_trading/tests/ -v
+python -m pytest ai_trading/tests/ -v -rs 
 ```
 # Stop si erreurs 
 ```bash	

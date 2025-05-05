@@ -6,149 +6,32 @@ import numpy as np
 import pandas as pd
 import pytest
 from unittest.mock import MagicMock, patch
+import torch
+import io
 
-try:
-    from ai_trading.data.optimized_dataset import (
-        OptimizedDataset,
-        CompressedDataset,
-        ParallelDataLoader,
-    )
-    from ai_trading.data.compressed_storage import CompressedStorage
-    DEPS_AVAILABLE = True
-except ImportError:
-    # Mocks si les modules ne sont pas disponibles
-    DEPS_AVAILABLE = False
-    OptimizedDataset = MagicMock()
-    CompressedDataset = MagicMock()
-    ParallelDataLoader = MagicMock()
-    CompressedStorage = MagicMock()
+# Importer les classes réellement disponibles dans le module
+from ai_trading.data.optimized_dataset import (
+    convert_to_compressed,
+    load_market_data_compressed
+)
+from ai_trading.data.compressed_storage import CompressedStorage
 
-
-@pytest.mark.skipif(not DEPS_AVAILABLE, reason="Required libraries not available")
-class TestOptimizedDataset(unittest.TestCase):
-    """Tests pour la classe OptimizedDataset."""
+# Tester directement les fonctions de compression sans utiliser OptimizedFinancialDataset
+class TestCompressedFunctions(unittest.TestCase):
+    """Tests pour les fonctions de compression."""
 
     def setUp(self):
         """Configuration pour les tests."""
-        if not DEPS_AVAILABLE:
-            self.skipTest("Required libraries not available")
-            
         # Créer un répertoire temporaire
         self.temp_dir = tempfile.mkdtemp()
-        
+
         # Créer un petit dataset de test
         dates = pd.date_range(start='2023-01-01', periods=100)
         self.test_data = pd.DataFrame({
-            'date': dates,
-            'price': np.random.rand(100) * 100 + 50,
-            'volume': np.random.randint(1000, 10000, 100),
-            'returns': np.random.randn(100) * 0.02
+            'close': np.random.rand(100) * 100 + 50,
+            'volume': np.random.randint(1000, 10000, 100)
         })
-        
-        # Créer une instance du dataset
-        self.dataset = OptimizedDataset(
-            data=self.test_data,
-            cache_dir=self.temp_dir
-        )
-        
-    def tearDown(self):
-        """Nettoyage après les tests."""
-        # Supprimer les fichiers temporaires
-        for filename in os.listdir(self.temp_dir):
-            os.remove(os.path.join(self.temp_dir, filename))
-        os.rmdir(self.temp_dir)
-        
-    def test_init_with_data(self):
-        """Teste l'initialisation avec des données."""
-        if not DEPS_AVAILABLE:
-            self.skipTest("Required libraries not available")
-            
-        self.assertEqual(len(self.dataset), len(self.test_data))
-        pd.testing.assert_frame_equal(self.dataset.data, self.test_data)
-        
-    def test_getitem(self):
-        """Teste l'accès aux éléments."""
-        if not DEPS_AVAILABLE:
-            self.skipTest("Required libraries not available")
-            
-        item = self.dataset[10]
-        self.assertIsInstance(item, pd.Series)
-        self.assertEqual(item.name, 10)
-        
-    def test_len(self):
-        """Teste la méthode __len__."""
-        if not DEPS_AVAILABLE:
-            self.skipTest("Required libraries not available")
-            
-        self.assertEqual(len(self.dataset), 100)
-        
-    def test_preprocess(self):
-        """Teste le prétraitement des données."""
-        if not DEPS_AVAILABLE:
-            self.skipTest("Required libraries not available")
-            
-        # Définir une fonction de prétraitement simple
-        def add_ma(df):
-            df['ma5'] = df['price'].rolling(5).mean()
-            return df.dropna()
-            
-        # Appliquer le prétraitement
-        self.dataset.preprocess(add_ma)
-        
-        # Vérifier que la colonne a été ajoutée
-        self.assertIn('ma5', self.dataset.data.columns)
-        # Vérifier que les lignes NaN ont été supprimées
-        self.assertEqual(len(self.dataset), 96)  # 100 - 4 (rolling 5)
-        
-    def test_save_load(self):
-        """Teste la sauvegarde et le chargement."""
-        if not DEPS_AVAILABLE:
-            self.skipTest("Required libraries not available")
-            
-        # Sauvegarder
-        path = os.path.join(self.temp_dir, "test_dataset.parquet")
-        self.dataset.save(path)
-        
-        # Vérifier que le fichier existe
-        self.assertTrue(os.path.exists(path))
-        
-        # Charger dans un nouveau dataset
-        loaded = OptimizedDataset()
-        loaded.load(path)
-        
-        # Vérifier que les données sont identiques
-        self.assertEqual(len(loaded), len(self.dataset))
-        pd.testing.assert_frame_equal(loaded.data, self.dataset.data)
 
-
-@pytest.mark.skipif(not DEPS_AVAILABLE, reason="Required libraries not available")
-class TestCompressedDataset(unittest.TestCase):
-    """Tests pour la classe CompressedDataset."""
-    
-    def setUp(self):
-        """Configuration pour les tests."""
-        if not DEPS_AVAILABLE:
-            self.skipTest("Required libraries not available")
-            
-        # Créer un répertoire temporaire
-        self.temp_dir = tempfile.mkdtemp()
-        
-        # Créer un petit dataset de test
-        dates = pd.date_range(start='2023-01-01', periods=100)
-        self.test_data = pd.DataFrame({
-            'date': dates,
-            'price': np.random.rand(100) * 100 + 50,
-            'volume': np.random.randint(1000, 10000, 100),
-            'returns': np.random.randn(100) * 0.02
-        })
-        
-        # Créer une instance du dataset compressé
-        self.dataset = CompressedDataset(
-            data=self.test_data,
-            cache_dir=self.temp_dir,
-            compression_level=3
-        )
-        
     def tearDown(self):
         """Nettoyage après les tests."""
         # Supprimer les fichiers temporaires
@@ -156,98 +39,119 @@ class TestCompressedDataset(unittest.TestCase):
             try:
                 os.remove(os.path.join(self.temp_dir, filename))
             except:
-                pass  # Ignorer les erreurs
+                pass
         os.rmdir(self.temp_dir)
+    
+    def test_compression_storage(self):
+        """Test de la classe CompressedStorage."""
+        # Créer un fichier à compresser
+        raw_path = os.path.join(self.temp_dir, "test_data.parquet")
+        self.test_data.to_parquet(raw_path)
+
+        # Créer un objet de stockage compressé
+        storage = CompressedStorage(compression_level=3)
         
-    def test_init_with_compression(self):
-        """Teste l'initialisation avec compression."""
-        if not DEPS_AVAILABLE:
-            self.skipTest("Required libraries not available")
-            
-        self.assertEqual(len(self.dataset), len(self.test_data))
-        self.assertEqual(self.dataset.compression_level, 3)
-        self.assertIsInstance(self.dataset.storage, CompressedStorage)
-        
-    def test_compress_decompress(self):
-        """Teste la compression et décompression."""
-        if not DEPS_AVAILABLE:
-            self.skipTest("Required libraries not available")
-            
-        # Sauvegarder de manière compressée
-        path = os.path.join(self.temp_dir, "compressed_dataset")
-        self.dataset.save_compressed(path)
+        # Compresser le fichier
+        compressed_path = storage.compress_file(raw_path)
         
         # Vérifier que le fichier compressé existe
-        self.assertTrue(os.path.exists(f"{path}.zst"))
+        self.assertTrue(os.path.exists(compressed_path))
         
-        # Charger à partir du fichier compressé
-        loaded = CompressedDataset()
-        loaded.load_compressed(path)
-        
+        # Décompresser le fichier
+        output_path = os.path.join(self.temp_dir, "decompressed.parquet")
+        storage.decompress_file(compressed_path, output_path)
+
+        # Vérifier que le fichier décompressé existe
+        self.assertTrue(os.path.exists(output_path))
+
+        # Lire les données décompressées
+        loaded_data = pd.read_parquet(output_path)
+
         # Vérifier que les données sont identiques
-        self.assertEqual(len(loaded), len(self.dataset))
-        pd.testing.assert_frame_equal(loaded.data, self.dataset.data)
+        pd.testing.assert_frame_equal(self.test_data, loaded_data)
 
+    def test_compress_dataframe(self):
+        """Test de la compression d'un DataFrame."""
+        # Compresser des données dans un buffer mémoire
+        storage = CompressedStorage(compression_level=3)
+        buffer = io.BytesIO()
+        self.test_data.to_parquet(buffer)
+        buffer.seek(0)
+        
+        # Compresser les données
+        compressed_data = storage.compress_data(buffer.getvalue())
 
-@pytest.mark.skipif(not DEPS_AVAILABLE, reason="Required libraries not available")
-class TestParallelDataLoader(unittest.TestCase):
-    """Tests pour la classe ParallelDataLoader."""
-    
-    def setUp(self):
-        """Configuration pour les tests."""
-        if not DEPS_AVAILABLE:
-            self.skipTest("Required libraries not available")
-            
-        # Créer un répertoire temporaire
-        self.temp_dir = tempfile.mkdtemp()
+        # Vérifier que les données sont compressées
+        self.assertIsInstance(compressed_data, bytes)
         
-        # Créer plusieurs petits datasets de test
-        self.test_files = []
-        for i in range(3):
-            dates = pd.date_range(start=f'2023-0{i+1}-01', periods=50)
-            data = pd.DataFrame({
-                'date': dates,
-                'price': np.random.rand(50) * 100 + 50,
-                'symbol': f'ASSET_{i}',
-                'returns': np.random.randn(50) * 0.02
-            })
-            
-            # Sauvegarder chaque dataset
-            path = os.path.join(self.temp_dir, f"data_{i}.parquet")
-            data.to_parquet(path)
-            self.test_files.append(path)
-            
-        # Créer le chargeur parallèle
-        self.loader = ParallelDataLoader(
-            num_workers=2,
-            batch_size=10
-        )
+        # Décompresser les données
+        decompressed_data = storage.decompress_data(compressed_data)
+
+        # Charger les données décompressées dans un DataFrame
+        buffer = io.BytesIO(decompressed_data)
+        loaded_data = pd.read_parquet(buffer)
+
+        # Vérifier que les données sont identiques
+        pd.testing.assert_frame_equal(self.test_data, loaded_data)
+
+    def test_compression_json(self):
+        """Test de la compression JSON."""
+        # Créer des données JSON de test
+        test_json = {
+            "meta": {
+                "version": 1,
+                "timestamp": "2023-01-01",
+                "source": "test"
+            },
+            "stats": {
+                "mean": 100.5,
+                "std": 15.2,
+                "min": 50.0,
+                "max": 150.0
+            }
+        }
         
-    def tearDown(self):
-        """Nettoyage après les tests."""
-        # Supprimer les fichiers temporaires
-        for filename in os.listdir(self.temp_dir):
-            os.remove(os.path.join(self.temp_dir, filename))
-        os.rmdir(self.temp_dir)
+        # Compresser les données JSON
+        storage = CompressedStorage(compression_level=3)
+        path = os.path.join(self.temp_dir, "test.json.zst")
+        storage.save_json(test_json, path)
+
+        # Vérifier que le fichier existe
+        self.assertTrue(os.path.exists(path))
+
+        # Charger les données
+        loaded_json = storage.load_json(path)
+
+        # Vérifier que les données sont identiques
+        self.assertEqual(test_json["meta"]["version"], loaded_json["meta"]["version"])
+        self.assertEqual(test_json["meta"]["source"], loaded_json["meta"]["source"])
+        self.assertEqual(test_json["stats"]["mean"], loaded_json["stats"]["mean"])
+        self.assertEqual(test_json["stats"]["std"], loaded_json["stats"]["std"])
+
+    def test_convert_to_compressed(self):
+        """Test de la fonction convert_to_compressed."""
+        # Créer un fichier à compresser
+        raw_path = os.path.join(self.temp_dir, "raw_data.parquet")
+        self.test_data.to_parquet(raw_path)
+
+        # Compresser avec la fonction de haut niveau
+        compressed_path = convert_to_compressed(raw_path, compression_level=3)
+
+        # Vérifier que le fichier compressé existe
+        self.assertTrue(os.path.exists(compressed_path))
         
-    def test_load_files(self):
-        """Teste le chargement parallèle des fichiers."""
-        if not DEPS_AVAILABLE:
-            self.skipTest("Required libraries not available")
-            
-        # Charger les fichiers
-        result = self.loader.load_files(self.test_files)
-        
-        # Vérifier que les données sont correctes
-        self.assertIsInstance(result, pd.DataFrame)
-        self.assertEqual(len(result), 50 * 3)  # 3 fichiers de 50 lignes chacun
-        
-        # Vérifier que tous les symboles sont présents
-        unique_symbols = result['symbol'].unique()
-        self.assertEqual(len(unique_symbols), 3)
-        self.assertTrue('ASSET_0' in unique_symbols)
-        self.assertTrue('ASSET_1' in unique_symbols)
-        self.assertTrue('ASSET_2' in unique_symbols)
+        # Vérifier qu'il se termine par .zst (en convertissant Path en str si nécessaire)
+        compressed_path_str = str(compressed_path)
+        self.assertTrue(compressed_path_str.endswith(".zst"))
+
+        # Charger les données compressées
+        storage = CompressedStorage()
+        output_path = os.path.join(self.temp_dir, "loaded.parquet")
+        storage.decompress_file(compressed_path, output_path)
+        loaded_data = pd.read_parquet(output_path)
+
+        # Vérifier que les données sont identiques
+        pd.testing.assert_frame_equal(self.test_data, loaded_data)
 
 
 if __name__ == "__main__":

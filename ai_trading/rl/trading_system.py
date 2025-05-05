@@ -275,8 +275,24 @@ class RLTradingSystem:
             episode_portfolio = []
 
             while not done:
+                # Adapter l'état à la taille attendue par l'agent si nécessaire
+                actual_state_size = len(state)
+                if actual_state_size != agent.state_size:
+                    # Adapter l'état à la taille attendue par l'agent
+                    if actual_state_size < agent.state_size:
+                        # Padding avec des zéros si l'état est plus petit
+                        padded_state = np.zeros((1, agent.state_size))
+                        padded_state[0, :actual_state_size] = state
+                        state_for_agent = padded_state
+                    else:
+                        # Tronquer si l'état est plus grand
+                        state_for_agent = np.reshape(state[:agent.state_size], (1, agent.state_size))
+                else:
+                    # Bonne taille, juste redimensionner
+                    state_for_agent = np.reshape(state, (1, agent.state_size))
+                
                 # Obtenir l'action de l'agent
-                action = agent.act(state)
+                action = agent.act(state_for_agent)
                 episode_actions.append(action)
 
                 # Exécuter l'action

@@ -193,12 +193,23 @@ class LazyFileReader:
                     nrows=end_idx - start_idx
                 )
             elif self._file_type == 'parquet':
-                # Pour Parquet, utiliser pyarrow pour une lecture partielle
-                table = pq.read_table(
-                    self.file_path, 
-                    row_groups=[chunk_idx % pq.read_metadata(self.file_path).num_row_groups]
-                )
-                chunk_data = table.to_pandas()
+                # Pour Parquet, utiliser pyarrow pour une lecture partielle avec offset et limit
+                try:
+                    # Méthode 1: Utiliser read_pandas avec offset et limit
+                    chunk_data = pd.read_parquet(
+                        self.file_path,
+                        engine='pyarrow',
+                        offset=start_idx,
+                        limit=end_idx - start_idx
+                    )
+                except Exception as e:
+                    logger.warning(f"Erreur avec read_parquet + offset/limit: {e}")
+                    # Méthode 2: Lire tout le fichier puis filtrer (moins efficace mais plus robuste)
+                    df = pd.read_parquet(self.file_path)
+                    if start_idx < len(df) and end_idx <= len(df):
+                        chunk_data = df.iloc[start_idx:end_idx].copy()
+                    else:
+                        chunk_data = pd.DataFrame()
             elif self._file_type == 'hdf5':
                 # Pour HDF5, utiliser des slices
                 with h5py.File(self.file_path, 'r') as f:

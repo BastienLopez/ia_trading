@@ -220,13 +220,12 @@ class TestSACAgent(unittest.TestCase):
             # Nettoyer
             shutil.rmtree(temp_dir)
 
-    @unittest.skip("Ignoré jusqu'à la correction de l'interface du replay buffer")
     def test_replay_buffer(self):
         """Teste le fonctionnement du tampon de replay"""
         # Vérifier si l'agent a un tampon de replay
-        if not hasattr(self.agent, "replay_buffer") and hasattr(self.agent, "memory"):
-            # Utiliser memory à la place de replay_buffer
-            initial_size = len(self.agent.memory)
+        if hasattr(self.agent, "replay_buffer"):
+            # Utiliser replay_buffer
+            initial_size = len(self.agent.replay_buffer)
 
             # Ajouter une expérience
             state = np.random.random(self.state_size)
@@ -238,21 +237,22 @@ class TestSACAgent(unittest.TestCase):
             self.agent.remember(state, action, reward, next_state, done)
 
             # Vérifier que la taille a augmenté
-            self.assertEqual(len(self.agent.memory), initial_size + 1)
+            self.assertEqual(len(self.agent.replay_buffer), initial_size + 1)
 
             # Échantillonner un lot si possible
-            if hasattr(self.agent.memory, "sample") and len(self.agent.memory) >= 10:
-                batch_size = 10
-                states, actions, rewards, next_states, dones = self.agent.memory.sample(
-                    batch_size
-                )
-
-                # Vérifier les dimensions
-                self.assertEqual(states.shape[0], batch_size)
-                self.assertEqual(actions.shape[0], batch_size)
-                self.assertEqual(rewards.shape[0], batch_size)
-                self.assertEqual(next_states.shape[0], batch_size)
-                self.assertEqual(dones.shape[0], batch_size)
+            if hasattr(self.agent.replay_buffer, "sample") and len(self.agent.replay_buffer) >= self.agent.batch_size:
+                batch = self.agent.replay_buffer.sample(self.agent.batch_size)
+                
+                # Vérifier que le lot a le bon format (peut varier selon l'implémentation)
+                self.assertIsNotNone(batch)
+                if isinstance(batch, tuple) and len(batch) == 5:
+                    states, actions, rewards, next_states, dones = batch
+                    # Vérifier les dimensions
+                    self.assertEqual(len(states), self.agent.batch_size)
+                    self.assertEqual(len(actions), self.agent.batch_size)
+                    self.assertEqual(len(rewards), self.agent.batch_size)
+                    self.assertEqual(len(next_states), self.agent.batch_size)
+                    self.assertEqual(len(dones), self.agent.batch_size)
 
     def test_scale_unscale_actions(self):
         """Teste les fonctions de mise à l'échelle et déséchelonnage des actions"""

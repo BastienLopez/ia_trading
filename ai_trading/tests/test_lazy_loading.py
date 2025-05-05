@@ -27,6 +27,13 @@ from ai_trading.data.lazy_loading import (
     get_cache_transform_fn,
 )
 
+# Vérifier si pyarrow est disponible
+try:
+    import pyarrow
+    PYARROW_AVAILABLE = True
+except ImportError:
+    PYARROW_AVAILABLE = False
+
 
 class TestLazyFileReader(unittest.TestCase):
     """Tests pour la classe LazyFileReader."""
@@ -121,7 +128,7 @@ class TestLazyFileReader(unittest.TestCase):
         self.assertLessEqual(len(reader._chunk_cache), 5)
 
     @unittest.skipIf(
-        not os.path.exists(os.path.expandvars("${TEMP}/test_data.parquet")),
+        not PYARROW_AVAILABLE,
         "Test parquet ignoré si pyarrow n'est pas installé",
     )
     def test_parquet_support(self):

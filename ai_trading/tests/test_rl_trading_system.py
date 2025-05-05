@@ -117,9 +117,6 @@ class TestRLTradingSystem(unittest.TestCase):
         # Vérifier que l'agent a été entraîné
         self.assertIsNotNone(agent)
 
-    @unittest.skip(
-        "Problème de dimensionnalité: l'environnement génère un état de 38 dimensions mais l'agent en attend 42"
-    )
     def test_evaluate(self):
         """Teste l'évaluation du système."""
         # Créer l'environnement

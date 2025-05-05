@@ -228,29 +228,108 @@ class TestGRUSACAgent(unittest.TestCase):
             sequence = np.random.normal(
                 0, 1, (self.sequence_length, self.state_size)
             ).astype(np.float16)
+            
+            # Créer une séquence d'états suivants (important pour GRU)
+            next_sequence = np.random.normal(
+                0, 1, (self.sequence_length, self.state_size)
+            ).astype(np.float16)
+            
             action = np.random.normal(0, 0.5, self.action_size).astype(
                 np.float16
             )  # Actions entre -1 et 1 approximativement
             reward = float(np.random.normal(0, 1))  # Convertir en float standard
-            next_state = np.random.normal(0, 1, self.state_size).astype(np.float16)
             done = False if i < 99 else True
 
-            # Ajouter à la mémoire
-            self.gru_agent.remember(sequence, action, reward, next_state, done)
+            # Ajouter à la mémoire avec le bon format pour sequence et next_sequence
+            self.gru_agent.remember(sequence, action, reward, next_sequence, done)
 
-        # Ce test peut être ignoré s'il n'est pas possible de faire fonctionner _train_step_gru
-        # Il y a trop de problèmes de dimensionnalité dans le code existant
-        self.skipTest(
-            "Test d'entraînement ignoré en raison de problèmes de dimensionnalité"
-        )
+        # Vérifier que la mémoire contient des données
+        self.assertGreater(self.gru_agent.replay_buffer.size(), 0)
+
+        # Effectuer un pas d'entraînement
+        try:
+            train_info = self.gru_agent.train(batch_size=32)
+            
+            # Vérifier que les pertes sont des valeurs numériques
+            self.assertIsInstance(train_info["critic_loss"], float)
+            self.assertIsInstance(train_info["actor_loss"], float)
+            self.assertIsInstance(train_info["alpha_loss"], float)
+            
+            logger.info(
+                f"Pertes d'entraînement - Critique: {train_info['critic_loss']:.4f}, "
+                f"Acteur: {train_info['actor_loss']:.4f}, "
+                f"Alpha: {train_info['alpha_loss']:.4f}"
+            )
+        except Exception as e:
+            self.fail(f"L'entraînement a échoué avec l'erreur: {str(e)}")
 
     def test_train_comparison(self):
         """Compare l'entraînement d'un agent GRU et d'un agent standard sur un petit échantillon."""
-        # Ce test peut être ignoré s'il n'est pas possible de faire fonctionner la comparaison
-        # Il y a trop de problèmes d'architecture dans le code existant
-        self.skipTest(
-            "Test de comparaison ignoré en raison de problèmes d'architecture"
-        )
+        # Nombre d'itérations d'entraînement
+        train_iterations = 5
+        
+        # Générer des expériences pour l'agent GRU
+        for i in range(100):
+            # Séquence d'états pour l'agent GRU
+            gru_sequence = np.random.normal(
+                0, 1, (self.sequence_length, self.state_size)
+            ).astype(np.float16)
+            
+            # Séquence d'états suivants pour l'agent GRU
+            gru_next_sequence = np.random.normal(
+                0, 1, (self.sequence_length, self.state_size)
+            ).astype(np.float16)
+            
+            # État simple pour l'agent standard
+            standard_state = np.random.normal(0, 1, self.state_size).astype(np.float16)
+            standard_next_state = np.random.normal(0, 1, self.state_size).astype(np.float16)
+            
+            # Action, récompense et terminaison communes
+            action = np.random.normal(0, 0.5, self.action_size).astype(np.float16)
+            reward = float(np.random.normal(0, 1))
+            done = False if i < 99 else True
+            
+            # Ajouter aux mémoires respectives
+            self.gru_agent.remember(gru_sequence, action, reward, gru_next_sequence, done)
+            self.standard_agent.remember(standard_state, action, reward, standard_next_state, done)
+        
+        # Entraînement des deux agents
+        gru_critic_losses = []
+        gru_actor_losses = []
+        standard_critic_losses = []
+        standard_actor_losses = []
+        
+        try:
+            # Entraîner les deux agents
+            for _ in range(train_iterations):
+                # Entraîner l'agent GRU
+                gru_train_info = self.gru_agent.train(batch_size=32)
+                gru_critic_losses.append(gru_train_info["critic_loss"])
+                gru_actor_losses.append(gru_train_info["actor_loss"])
+                
+                # Entraîner l'agent standard
+                standard_train_info = self.standard_agent.train(batch_size=32)
+                standard_critic_losses.append(standard_train_info["critic_loss"])
+                standard_actor_losses.append(standard_train_info["actor_loss"])
+            
+            # Calculer les pertes moyennes
+            avg_gru_critic_loss = sum(gru_critic_losses) / len(gru_critic_losses)
+            avg_gru_actor_loss = sum(gru_actor_losses) / len(gru_actor_losses)
+            avg_standard_critic_loss = sum(standard_critic_losses) / len(standard_critic_losses)
+            avg_standard_actor_loss = sum(standard_actor_losses) / len(standard_actor_losses)
+            
+            # Journaliser les résultats
+            logger.info(f"Agent GRU - Perte critique moyenne: {avg_gru_critic_loss:.4f}, Perte acteur moyenne: {avg_gru_actor_loss:.4f}")
+            logger.info(f"Agent Standard - Perte critique moyenne: {avg_standard_critic_loss:.4f}, Perte acteur moyenne: {avg_standard_actor_loss:.4f}")
+            
+            # Vérifier que les deux agents ont pu être entraînés
+            self.assertIsInstance(avg_gru_critic_loss, float)
+            self.assertIsInstance(avg_gru_actor_loss, float)
+            self.assertIsInstance(avg_standard_critic_loss, float)
+            self.assertIsInstance(avg_standard_actor_loss, float)
+            
+        except Exception as e:
+            self.fail(f"La comparaison d'entraînement a échoué avec l'erreur: {str(e)}")
 
     def test_gradient_flow(self):
         """Teste le flux de gradient à travers les couches GRU."""

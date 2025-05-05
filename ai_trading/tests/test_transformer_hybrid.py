@@ -174,7 +174,6 @@ class TestTransformerHybrid(unittest.TestCase):
         # Vérifier la forme de sortie
         self.assertEqual(output.shape, (self.batch_size, self.output_dim))
 
-    @pytest.mark.slow
     def test_save_load_model(self):
         """Teste la sauvegarde et le chargement du modèle."""
         # Créer un modèle

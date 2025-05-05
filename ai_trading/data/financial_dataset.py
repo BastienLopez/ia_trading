@@ -519,38 +519,7 @@ class FinancialDataset(Dataset):
                         info["column_names"] = feature_cols
                     except Exception as e:
                         logger.error(f"Erreur lors du chargement du fichier CSV: {e}")
-                        # Essayer une approche alternative avec des options différentes
-                        try:
-                            # Tenter le chargement avec spécification explicite des types de données
-                            df = pd.read_csv(data, dtype=float)
-                            n_rows, n_cols = df.shape
-                            info["length"] = n_rows
-                            info["columns"] = list(df.columns)
-                            
-                            # Extraire les features
-                            if self.feature_columns is not None:
-                                feature_cols = [col for col in self.feature_columns if col in df.columns]
-                            else:
-                                feature_cols = list(df.columns)
-                                if self.target_column in feature_cols:
-                                    feature_cols.remove(self.target_column)
-                            
-                            # Convertir en tenseurs
-                            feature_data = df[feature_cols].values
-                            info["data_tensor"] = torch.tensor(feature_data, dtype=self.dtype)
-                            
-                            # Extraire la colonne cible si spécifiée
-                            if self.target_column and self.target_column in df.columns:
-                                target_data = df[self.target_column].values
-                                info["target_tensor"] = torch.tensor(target_data, dtype=self.dtype)
-                                info["target_index"] = df.columns.get_loc(self.target_column)
-                            
-                            # Stocker les indices des colonnes features
-                            info["feature_indices"] = [df.columns.get_loc(col) for col in feature_cols]
-                            info["column_names"] = feature_cols
-                        except Exception as e2:
-                            logger.error(f"Deuxième tentative de lecture CSV échouée: {e2}")
-                            info["error"] = str(e2)
+                        info["error"] = str(e)
                 
                 # Autres formats de fichier (parquet, hdf5, etc.)
                 elif ext == ".parquet" and HAVE_PYARROW:
@@ -588,6 +557,41 @@ class FinancialDataset(Dataset):
                         info["column_names"] = feature_cols
                     except Exception as e:
                         logger.error(f"Erreur lors du chargement du fichier Parquet: {e}")
+                        info["error"] = str(e)
+                
+                # Format HDF5
+                elif ext in [".h5", ".hdf5"] and HAVE_HDF5:
+                    try:
+                        # Charger les données depuis le fichier HDF5
+                        df = pd.read_hdf(data, key="data")
+                        
+                        n_rows, n_cols = df.shape
+                        info["length"] = n_rows
+                        info["columns"] = list(df.columns)
+                        
+                        # Extraire les features
+                        if self.feature_columns is not None:
+                            feature_cols = [col for col in self.feature_columns if col in df.columns]
+                        else:
+                            feature_cols = list(df.columns)
+                            if self.target_column in feature_cols:
+                                feature_cols.remove(self.target_column)
+                        
+                        # Convertir en tenseurs
+                        feature_data = df[feature_cols].values
+                        info["data_tensor"] = torch.tensor(feature_data, dtype=self.dtype)
+                        
+                        # Extraire la colonne cible si spécifiée
+                        if self.target_column and self.target_column in df.columns:
+                            target_data = df[self.target_column].values
+                            info["target_tensor"] = torch.tensor(target_data, dtype=self.dtype)
+                            info["target_index"] = df.columns.get_loc(self.target_column)
+                        
+                        # Stocker les indices des colonnes features
+                        info["feature_indices"] = [df.columns.get_loc(col) for col in feature_cols]
+                        info["column_names"] = feature_cols
+                    except Exception as e:
+                        logger.error(f"Erreur lors du chargement du fichier HDF5: {e}")
                         info["error"] = str(e)
             else:
                 # En mode lazy loading, on ne charge pas les données entièrement mais on récupère les métadonnées
@@ -646,6 +650,38 @@ class FinancialDataset(Dataset):
                             info["target_index"] = df_sample.columns.get_loc(self.target_column)
                     except Exception as e:
                         logger.warning(f"Erreur lors de la lecture des métadonnées Parquet: {e}")
+                        info["length"] = 1000  # Valeur par défaut
+                        
+                elif ext in [".h5", ".hdf5"] and HAVE_HDF5:
+                    try:
+                        # Lire les métadonnées du fichier HDF5
+                        with pd.HDFStore(data, mode='r') as store:
+                            # Vérifier si la clé 'data' existe
+                            if 'data' in store.keys():
+                                info["length"] = store.get_storer('data').nrows
+                                # Lire quelques lignes pour obtenir la structure
+                                df_sample = pd.read_hdf(data, key='data', start=0, stop=5)
+                                info["columns"] = list(df_sample.columns)
+                                
+                                # Déterminer les indices des colonnes features
+                                if self.feature_columns is not None:
+                                    feature_cols = [col for col in self.feature_columns if col in df_sample.columns]
+                                else:
+                                    feature_cols = list(df_sample.columns)
+                                    if self.target_column in feature_cols:
+                                        feature_cols.remove(self.target_column)
+                                
+                                info["feature_indices"] = [df_sample.columns.get_loc(col) for col in feature_cols if col in df_sample.columns]
+                                info["column_names"] = feature_cols
+                                
+                                # Enregistrer l'indice de la colonne cible
+                                if self.target_column and self.target_column in df_sample.columns:
+                                    info["target_index"] = df_sample.columns.get_loc(self.target_column)
+                            else:
+                                logger.warning(f"Clé 'data' non trouvée dans le fichier HDF5: {data}")
+                                info["length"] = 1000  # Valeur par défaut
+                    except Exception as e:
+                        logger.warning(f"Erreur lors de la lecture des métadonnées HDF5: {e}")
                         info["length"] = 1000  # Valeur par défaut
 
         # Stocker les informations de colonnes pour référence future

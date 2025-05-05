@@ -417,7 +417,6 @@ class TestMultiAssetTradingSystem(unittest.TestCase):
         # Vérifier que le poids de la corrélation est augmenté en période stable
         assert weights["correlation"] > 0.3
 
-    @pytest.mark.slow
     def test_train(self):
         """Teste l'entraînement des systèmes de trading."""
         self.system.train(self.market_data, epochs=2)
@@ -426,7 +425,6 @@ class TestMultiAssetTradingSystem(unittest.TestCase):
         for asset in self.system.assets:
             self.assertIn(asset, self.system.trading_systems)
 
-    @pytest.mark.slow
     def test_predict_actions(self):
         """Teste la prédiction des actions."""
         # Entraîner d'abord

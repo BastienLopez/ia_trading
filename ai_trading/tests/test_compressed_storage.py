@@ -6,32 +6,25 @@ import tempfile
 import numpy as np
 import pandas as pd
 import pytest
+import io
 
-try:
-    from ai_trading.data.compressed_storage import (
-        CompressedStorage,
-        CompressedFrame,
-        COMPRESSION_LEVEL_DEFAULT,
-        get_compressor,
-    )
-    ZSTD_AVAILABLE = True
-except ImportError:
-    # Mock des classes si le module zstandard n'est pas installé
-    ZSTD_AVAILABLE = False
-    CompressedStorage = MagicMock()
-    CompressedFrame = MagicMock()
-    COMPRESSION_LEVEL_DEFAULT = 3
-    get_compressor = MagicMock()
+# Importer les composants réellement disponibles
+from ai_trading.data.compressed_storage import (
+    CompressedStorage,
+    dataframe_to_compressed, 
+    compressed_to_dataframe,
+    get_compression_info,
+    optimize_compression_level
+)
 
-
-@pytest.mark.skipif(not ZSTD_AVAILABLE, reason="Zstandard library not available")
+# La classe de test n'a plus besoin d'être conditionnellement ignorée
 class TestCompressedStorage(unittest.TestCase):
     """Test pour le système de stockage compressé."""
 
     def setUp(self):
         """Configuration pour les tests."""
         self.temp_dir = tempfile.mkdtemp()
-        self.storage = CompressedStorage(base_path=self.temp_dir)
+        self.storage = CompressedStorage()
 
         # Créer des données de test
         self.test_data = pd.DataFrame(
@@ -45,85 +38,110 @@ class TestCompressedStorage(unittest.TestCase):
             os.remove(os.path.join(self.temp_dir, filename))
         os.rmdir(self.temp_dir)
 
-    def test_save_load_frame(self):
+    def test_save_load_dataframe(self):
         """Test de la sauvegarde et du chargement d'un DataFrame."""
-        if not ZSTD_AVAILABLE:
-            self.skipTest("Zstandard library not available")
-            
-        frame_id = "test_frame"
+        # Utiliser dataframe_to_compressed et compressed_to_dataframe au lieu de save_frame
+        output_path = os.path.join(self.temp_dir, "test_frame.zst")
         
-        # Sauvegarder le DataFrame
-        self.storage.save_frame(frame_id, self.test_data)
-        
+        # Sauvegarder le DataFrame en utilisant la fonction disponible
+        dataframe_to_compressed(self.test_data, output_path, format='parquet')
+
         # Vérifier que le fichier a été créé
-        expected_path = os.path.join(self.temp_dir, f"{frame_id}.zst")
-        self.assertTrue(os.path.exists(expected_path))
-        
-        # Charger le DataFrame
-        loaded_data = self.storage.load_frame(frame_id)
-        
+        self.assertTrue(os.path.exists(output_path))
+
+            # Charger le DataFrame
+        loaded_data = compressed_to_dataframe(output_path, format='parquet')
+
         # Vérifier que les données sont identiques
         pd.testing.assert_frame_equal(self.test_data, loaded_data)
 
-    def test_frame_metadata(self):
-        """Test des métadonnées de frame."""
-        if not ZSTD_AVAILABLE:
-            self.skipTest("Zstandard library not available")
-            
-        frame_id = "metadata_test"
+    def test_json_metadata(self):
+        """Test de la sauvegarde et du chargement de métadonnées JSON."""
         metadata = {"source": "test", "version": 1}
+        output_path = os.path.join(self.temp_dir, "metadata.json.zst")
         
-        # Sauvegarder avec métadonnées
-        self.storage.save_frame(frame_id, self.test_data, metadata=metadata)
-        
-        # Récupérer les métadonnées
-        loaded_metadata = self.storage.get_metadata(frame_id)
-        
+        # Utiliser la méthode save_json de CompressedStorage
+        self.storage.save_json(metadata, output_path)
+
+        # Vérifier que le fichier a été créé
+        self.assertTrue(os.path.exists(output_path))
+
+        # Charger les métadonnées
+        loaded_metadata = self.storage.load_json(output_path)
+
         # Vérifier les métadonnées
         self.assertEqual(metadata["source"], loaded_metadata["source"])
         self.assertEqual(metadata["version"], loaded_metadata["version"])
 
-    def test_compressed_frame(self):
-        """Test de la classe CompressedFrame."""
-        if not ZSTD_AVAILABLE:
-            self.skipTest("Zstandard library not available")
-            
-        frame = CompressedFrame(self.test_data)
-        
-        # Compresser les données
-        compressed_data = frame.compress()
+    def test_compression_functions(self):
+        """Test des fonctions de compression des données."""
+        # Convertir DataFrame en bytes pour le test
+        buffer = io.BytesIO()
+        self.test_data.to_parquet(buffer)
+        data_bytes = buffer.getvalue()
+
+        # Compresser les données avec CompressedStorage
+        compressed_data = self.storage.compress_data(data_bytes)
         self.assertIsInstance(compressed_data, bytes)
-        
+
         # Décompresser les données
-        decompressed_frame = CompressedFrame.decompress(compressed_data)
-        pd.testing.assert_frame_equal(self.test_data, decompressed_frame)
+        decompressed_data = self.storage.decompress_data(compressed_data)
+        
+        # Charger à nouveau dans un DataFrame et vérifier
+        buffer = io.BytesIO(decompressed_data)
+        df_decompressed = pd.read_parquet(buffer)
+        pd.testing.assert_frame_equal(self.test_data, df_decompressed)
 
     def test_compression_levels(self):
         """Test des différents niveaux de compression."""
-        if not ZSTD_AVAILABLE:
-            self.skipTest("Zstandard library not available")
-            
-        # Tester avec différents niveaux
-        for level in [1, 5, 10]:
-            frame = CompressedFrame(self.test_data)
-            compressed_data = frame.compress(level=level)
-            
-            # Décompresser et vérifier
-            decompressed = CompressedFrame.decompress(compressed_data)
-            pd.testing.assert_frame_equal(self.test_data, decompressed)
-
-    def test_compressor_selection(self):
-        """Test de la sélection du compresseur."""
-        if not ZSTD_AVAILABLE:
-            self.skipTest("Zstandard library not available")
-            
-        # Tester le compresseur par défaut
-        compressor = get_compressor()
-        self.assertIsNotNone(compressor)
+        # Convertir DataFrame en bytes pour le test
+        buffer = io.BytesIO()
+        self.test_data.to_parquet(buffer)
+        data_bytes = buffer.getvalue()
         
-        # Tester avec un niveau spécifié
-        compressor = get_compressor(level=7)
-        self.assertIsNotNone(compressor)
+        sizes = {}
+        
+        # Tester différents niveaux de compression
+        for level in [1, 5, 10]:
+            # Créer un nouveau CompressedStorage avec le niveau spécifié
+            storage = CompressedStorage(compression_level=level)
+
+            # Compresser les données
+            compressed = storage.compress_data(data_bytes)
+            
+            # Stocker la taille pour comparaison
+            sizes[level] = len(compressed)
+
+            # Décompresser et vérifier
+            decompressed = storage.decompress_data(compressed)
+            
+            # Charger à nouveau dans un DataFrame et vérifier
+            buffer = io.BytesIO(decompressed)
+            df_decompressed = pd.read_parquet(buffer)
+            pd.testing.assert_frame_equal(self.test_data, df_decompressed)
+        
+        # Vérifier que niveau supérieur = meilleure compression (taille plus petite)
+        self.assertLessEqual(sizes[10], sizes[5])
+        self.assertLessEqual(sizes[5], sizes[1])
+
+    def test_compression_optimization(self):
+        """Test de l'optimisation du niveau de compression."""
+        buffer = io.BytesIO()
+        self.test_data.to_parquet(buffer)
+        data_bytes = buffer.getvalue()
+
+        # Tester optimize_compression_level avec des niveaux limités pour la rapidité
+        best_level, results = optimize_compression_level(data_bytes, test_levels=[1, 3])
+
+        # Vérifier le résultat
+        self.assertIn(best_level, [1, 3])
+        self.assertEqual(len(results), 2)  # Deux niveaux testés
+        
+        # Vérifier que les résultats contiennent les métriques attendues
+        for level in [1, 3]:
+            self.assertIn(level, results)
+            self.assertIn('compression_ratio', results[level])
+            self.assertIn('compression_time', results[level])
 
 
 if __name__ == "__main__":

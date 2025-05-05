@@ -213,17 +213,18 @@ class DQNAgent:
         # Stocker l'expérience dans la mémoire
         self.memory.append((state, action, reward, next_state, done))
 
-    def act(self, state):
+    def act(self, state, use_epsilon=True):
         """
         Choisit une action en fonction de l'état actuel.
 
         Args:
             state (numpy.array): État actuel
+            use_epsilon (bool): Si True, utilise epsilon-greedy pour l'exploration
 
         Returns:
             int: Action choisie
         """
-        if np.random.rand() <= self.epsilon:
+        if use_epsilon and np.random.rand() <= self.epsilon:
             return random.randrange(self.action_size)
 
         # Convertir l'état en tensor
