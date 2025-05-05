@@ -8,9 +8,14 @@ import torch
 
 from ai_trading.rl.agents.noisy_sac_agent import NoisySACAgent
 
-# Filtrer les avertissements de dépréciation liés à TensorFlow et JAX
+# Mise à jour des filtres d'avertissement pour utiliser des approches plus modernes
+# Ces filtres sont plus précis et évitent de masquer tous les avertissements TF
 warnings.filterwarnings("ignore", message=".*jax.xla_computation is deprecated.*")
-warnings.filterwarnings("ignore", category=DeprecationWarning, module="tensorflow.*")
+warnings.filterwarnings("ignore", message=".*tensorflow.*deprecated.*") 
+warnings.filterwarnings("ignore", message=".*tensorflow.*removed in a future version.*")
+# Ignorer l'avertissement concernant distutils.version.LooseVersion dans tensorflow_probability
+warnings.filterwarnings("ignore", message=".*distutils Version classes are deprecated.*")
+warnings.filterwarnings("ignore", message=".*'imghdr' is deprecated.*")
 
 
 class TestNoisySACAgent(unittest.TestCase):

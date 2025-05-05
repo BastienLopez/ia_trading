@@ -1,0 +1,30 @@
+[
+  {
+    "timestamp": "2025-05-05T18:06:57.474863",
+    "symbol": "BTC",
+    "action": "ACHETER",
+    "amount": 1.0,
+    "price": 50000.0
+  },
+  {
+    "timestamp": "2025-05-05T18:06:57.481861",
+    "symbol": "BTC",
+    "action": "ACHETER",
+    "amount": 1.0,
+    "price": 45000.0
+  },
+  {
+    "timestamp": "2025-05-05T18:06:57.487862",
+    "symbol": "BTC",
+    "action": "ACHETER",
+    "amount": 1.0,
+    "price": 50000.0
+  },
+  {
+    "timestamp": "2025-05-05T18:06:57.489861",
+    "symbol": "ETH",
+    "action": "ACHETER",
+    "amount": 2.0,
+    "price": 3000.0
+  }
+]

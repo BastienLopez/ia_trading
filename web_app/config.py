@@ -4,15 +4,28 @@ from pathlib import Path
 
 # Configuration de base
 class Config:
-    SECRET_KEY = os.environ.get('SECRET_KEY', 'dev_key_very_secret')
-    API_URL = os.environ.get('API_URL', 'http://localhost:8000')
-    DATA_FILE = os.path.join(os.path.dirname(__file__), 'data', 'transactions.json')
+    # Configuration générale
+    SECRET_KEY = 'your-secret-key'
+    DEBUG = True
+    
+    # Chemins de fichiers
+    BASE_DIR = os.path.dirname(__file__)
+    DATA_DIR = os.path.join(BASE_DIR, 'info_retour', 'data')
+    
+    # S'assurer que le dossier existe
+    os.makedirs(DATA_DIR, exist_ok=True)
+    
+    # Chemin du fichier de transactions
+    DATA_FILE = os.path.join(DATA_DIR, 'transactions.json')
+    
+    # Configuration API
+    API_URL = 'https://api.coingecko.com/api/v3'
+    API_KEY = ''  # Votre clé API si nécessaire
     
     # Liste des cryptos supportées
     SUPPORTED_CRYPTOS = [
-        "BTC", "ETH", "BNB", "SOL", "XRP", "ADA", "AVAX", "DOT", 
-        "MATIC", "LINK", "UNI", "AAVE", "ATOM", "DOGE", "SHIB",
-        "USDT", "USDC", "DAI"
+        'BTC', 'ETH', 'USDT', 'BNB', 'USDC', 
+        'XRP', 'ADA', 'DOGE', 'SOL', 'DOT'
     ]
     
     # Prix par défaut pour les cryptos

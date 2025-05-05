@@ -11,10 +11,16 @@ import shutil
 import sys
 import tempfile
 import unittest
+import warnings
 
 import numpy as np
 import pandas as pd
 import tensorflow as tf
+
+# Filtres pour ignorer les avertissements de dépréciation connus
+warnings.filterwarnings("ignore", message=".*distutils Version classes are deprecated.*")
+warnings.filterwarnings("ignore", message=".*'imghdr' is deprecated.*")
+warnings.filterwarnings("ignore", message=".*tensorflow.*deprecated.*") 
 
 # Configurer le logger pour les tests
 logging.basicConfig(level=logging.INFO)

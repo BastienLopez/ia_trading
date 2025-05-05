@@ -1,9 +1,9 @@
 # Bibliothèques d'analyse de données
 numpy>=1.23.5,<2.0.0
-pandas>=1.4.0
+pandas>=2.0.0
 matplotlib>=3.5.0
 seaborn>=0.12.2
-scikit-learn>=1.0.0
+scikit-learn>=1.2.0
 scipy>=1.7.0
 statsmodels>=0.13.0
 python-dateutil>=2.8.2
@@ -15,14 +15,14 @@ ta>=0.10.0
 # TA-Lib est installé séparément via apt/brew ou le script d'installation
 
 # Apprentissage par renforcement
-tensorflow==2.15.0
-tensorflow_probability==0.23.0
-keras==2.15.0
-tf-keras==2.15.0
-gymnasium==0.29.1
-stable-baselines3==2.2.1
+tensorflow>=2.15.0
+tensorflow_probability>=0.23.0
+keras>=2.15.0
+tf-keras>=2.15.0
+gymnasium>=0.29.1
+stable-baselines3>=2.2.1
 torch>=2.2.0
-optuna>=2.10.0
+optuna>=3.0.0
 packaging>=23.0
 jax>=0.4.14
 # ray[rllib,tune]==2.45.0  # Commenté en raison de problèmes d'installation sur Windows
@@ -41,6 +41,11 @@ memory_profiler>=0.61.0
 fastparquet>=2024.0.0
 accelerate>=0.35.0
 
+# Compression et traitement d'image
+zstandard>=0.20.0
+opencv-python>=4.8.0
+opencv-python-headless>=4.8.0
+
 # Packages optionnels (installation séparée si besoin)
 # -----------------------------------------------------
 # DeepSpeed (difficile à installer sur Windows)
@@ -49,7 +54,7 @@ accelerate>=0.35.0
 # qui simule l'API de DeepSpeed sans l'installation
 
 # Ray (peut causer des problèmes d'installation sur Windows)
-# Pour installer Ray sur Linux : pip install ray[rllib,tune]==2.45.0
+# Pour installer Ray sur Linux : pip install ray[rllib,tune]>=2.45.0
 # Pour Windows, utilisez l'installation manuelle ou le wrapper de compatibilité
 
 # Exportation et optimisation de modèles
@@ -61,59 +66,58 @@ bayesian-optimization>=1.4.3
 
 # API et collecte de données
 requests>=2.31.0
-pycoingecko==2.2.0
-beautifulsoup4==4.12.3
-tweepy==4.14.0
-praw==7.7.1
-newsapi-python==0.2.7
+pycoingecko>=3.0.0
+beautifulsoup4>=4.12.3
+tweepy>=4.14.0
+praw>=7.7.1
+newsapi-python>=0.2.7
 
 # Traitement du langage naturel
 nltk>=3.8.1
-textblob==0.17.1
+textblob>=0.17.1
 transformers>=4.35.0
-sentence-transformers==2.2.2
-emoji==0.6.0
-spacy>=3.2.0
-huggingface-hub>=0.4.0
-xformers>=0.0.22
+sentence-transformers>=2.2.2
+emoji>=2.8.0
+spacy>=3.7.0
+huggingface-hub>=0.20.0
+xformers>=0.0.23
 
 # Web et API
-flask==2.3.3
-jinja2==3.1.2
-werkzeug==2.3.7
-itsdangerous==2.1.2
-flask-wtf==1.1.1
-flask-login==0.6.2
-flask-cors==4.0.0
-flask-socketio==5.3.6
-python-socketio==5.11.2
-websocket-client==1.7.0
-fastapi==0.115.0
-uvicorn==0.27.1
-starlette==0.38.6
-httpx==0.27.0
+flask>=2.3.3
+jinja2>=3.1.2
+werkzeug>=2.3.7
+itsdangerous>=2.1.2
+flask-wtf>=1.1.1
+flask-login>=0.6.2
+flask-cors>=4.0.0
+flask-socketio>=5.3.6
+python-socketio>=5.11.2
+websocket-client>=1.7.0
+fastapi>=0.115.0
+uvicorn>=0.27.1
+starlette>=0.38.6
+httpx>=0.27.0
 
 # Visualisation
 plotly>=5.3.0
 dash>=2.0.0
 
 # Tests et développement
-pytest>=6.0.0
-pytest-cov==6.1.0
-black>=21.9b0
-isort>=5.9.0
-autoflake>=1.4.0
-jupyter==1.0.0
+pytest>=7.0.0
+pytest-cov>=6.1.0
+black>=23.0.0
+isort>=5.12.0
+autoflake>=2.2.0
+jupyter>=1.0.0
 
 # Utilitaires
-tqdm==4.66.1
-joblib>=1.1.0
+tqdm>=4.66.1
+joblib>=1.3.0
 python-dotenv>=1.0.0
-# Corrigé: importlib-metadata peut créer des problèmes de compatibilité avec la version 4.12.0
-importlib-metadata>=4.12.0
-pillow>=10.0.0
+importlib-metadata>=6.0.0
+pillow>=10.2.0
 
 # ML avancé
-xgboost==1.7.6
-lightgbm==4.1.0
-arch>=5.0.0
+xgboost>=2.0.0
+lightgbm>=4.1.0
+arch>=6.0.0

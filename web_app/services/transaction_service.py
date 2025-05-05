@@ -7,9 +7,9 @@ from web_app.config import Config
 logger = logging.getLogger(__name__)
 
 class TransactionService:
-    def __init__(self, price_service):
+    def __init__(self, price_service, data_dir=None):
         self.price_service = price_service
-        self.data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'info_retour/web_app/data')
+        self.data_dir = data_dir or os.path.join(os.path.dirname(os.path.dirname(__file__)), 'info_retour', 'data')
         self.transactions_file = os.path.join(self.data_dir, 'transactions.json')
         
         # Créer le dossier data s'il n'existe pas
@@ -18,6 +18,13 @@ class TransactionService:
             
         os.makedirs(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "info_retour/logs"), exist_ok=True)
             
+        # Créer le fichier s'il n'existe pas
+        if not os.path.exists(self.transactions_file):
+            with open(self.transactions_file, 'w') as f:
+                json.dump([], f)
+                
+        logger.info(f"Fichier de transactions configuré: {self.transactions_file}")
+
         self.load_transactions()
 
     def load_transactions(self):
