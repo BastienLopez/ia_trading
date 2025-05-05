@@ -194,8 +194,16 @@ class TestTransformerHybrid(unittest.TestCase):
         # Sauvegarder le modèle
         model.save(save_path)
 
-        # Charger le modèle
-        loaded_model = tf.keras.models.load_model(save_path)
+        # Définir les objets personnalisés pour le chargement
+        custom_objects = {
+            'TransformerGRUModel': TransformerGRUModel,
+            'TransformerLSTMModel': TransformerLSTMModel,
+            'TransformerBlock': TransformerBlock,
+            'PositionalEncoding': PositionalEncoding
+        }
+
+        # Charger le modèle avec les objets personnalisés
+        loaded_model = tf.keras.models.load_model(save_path, custom_objects=custom_objects)
 
         # Calculer la sortie avec le modèle chargé
         loaded_output = loaded_model(self.test_input, training=False).numpy()
