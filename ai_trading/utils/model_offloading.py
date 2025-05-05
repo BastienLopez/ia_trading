@@ -51,33 +51,34 @@ def check_vram_requirements(
     Returns:
         Dict contenant les estimations de mémoire en Mo
     """
+    # Calculer la taille du modèle (fonctionne avec ou sans CUDA)
+    model_size = sum(p.numel() * p.element_size() for p in model.parameters())
+    model_size_mb = model_size / (1024 * 1024)
+    
+    # Estimer l'espace requis pour les activations et les gradients
+    # en général, les activations et gradients peuvent prendre 2-4x la taille du modèle
+    # mais cela varie beaucoup selon l'architecture
+    forward_pass_estimate = model_size_mb * 3
+    
+    # Espace total requis
+    total_required = model_size_mb + forward_pass_estimate
+    
     if not torch.cuda.is_available():
         logger.warning(
-            "CUDA n'est pas disponible, impossible d'estimer les besoins en VRAM"
+            "CUDA n'est pas disponible, estimation basée uniquement sur la taille du modèle"
         )
         return {
-            "model_size_mb": 0,
-            "forward_pass_mb": 0,
-            "total_required_mb": 0,
+            "model_size_mb": model_size_mb,
+            "forward_pass_mb": forward_pass_estimate,
+            "total_required_mb": total_required,
             "available_mb": 0,
+            "free_memory_mb": 0,
             "is_sufficient": False,
         }
 
     # Nettoyer la mémoire avant l'estimation
     torch.cuda.empty_cache()
     gc.collect()
-
-    # Mesurer la taille du modèle
-    model_size = sum(p.numel() * p.element_size() for p in model.parameters())
-    model_size_mb = model_size / (1024 * 1024)
-
-    # Estimer l'espace requis pour les activations et les gradients
-    # en général, les activations et gradients peuvent prendre 2-4x la taille du modèle
-    # mais cela varie beaucoup selon l'architecture
-    forward_pass_estimate = model_size_mb * 3
-
-    # Espace total requis
-    total_required = model_size_mb + forward_pass_estimate
 
     # Espace disponible
     available = torch.cuda.get_device_properties(0).total_memory / (1024 * 1024)

@@ -424,9 +424,10 @@ class DDPModelWrapper:
         self.checkpoint_dir = checkpoint_dir
 
         # Vérifier si le multi-GPU est disponible
-        if self.world_size <= 1:
+        available_gpus = count_available_gpus()
+        if self.world_size <= 1 or available_gpus == 0:
             logger.warning(
-                "Un seul GPU détecté ou spécifié. L'entraînement distribué n'est pas utilisé."
+                "Un seul GPU détecté ou spécifié, ou aucun GPU disponible. L'entraînement distribué n'est pas utilisé."
             )
             self.use_ddp = False
         else:

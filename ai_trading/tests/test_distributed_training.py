@@ -17,7 +17,7 @@ from torch.utils.data import TensorDataset
 # Ajouter le répertoire parent au chemin Python
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
-from ai_trading.utils.distributed_training import (
+from utils.distributed_training import (
     DDPModelWrapper,
     count_available_gpus,
     get_gpu_memory_usage,

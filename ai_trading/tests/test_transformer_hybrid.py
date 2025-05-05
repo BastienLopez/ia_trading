@@ -10,7 +10,7 @@ import tensorflow as tf
 # Ajouter le répertoire parent au chemin pour importer les modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from ai_trading.models.transformer_hybrid import (
+from models.transformer_hybrid import (
     PositionalEncoding,
     TransformerBlock,
     TransformerGRUModel,
@@ -189,7 +189,7 @@ class TestTransformerHybrid(unittest.TestCase):
         initial_output = model(self.test_input, training=False).numpy()
 
         # Définir le chemin de sauvegarde
-        save_path = os.path.join(self.temp_dir.name, "test_model")
+        save_path = os.path.join(self.temp_dir.name, "test_model.keras")
 
         # Sauvegarder le modèle
         model.save(save_path)

@@ -117,17 +117,21 @@ class StateCache:
         Returns:
             True si les états sont similaires
         """
+        # Vérifier d'abord si les types sont différents
+        if type(state1) != type(state2):
+            return False
+            
         # Cas PyTorch
         if isinstance(state1, torch.Tensor) and isinstance(state2, torch.Tensor):
-            # Assurer le même device
-            if state1.device != state2.device:
-                state2 = state2.to(state1.device)
-
             # Vérifier si les dimensions correspondent
             if state1.shape != state2.shape:
                 return False
 
-            # Calculer la distance
+            # Assurer le même device
+            if state1.device != state2.device:
+                state2 = state2.to(state1.device)
+
+            # Calculer la distance moyenne
             diff = torch.abs(state1 - state2).mean().item()
             return diff < self.similarity_threshold
 

@@ -9,7 +9,7 @@ import torch.nn as nn
 # Configurer le chemin pour importer depuis le répertoire parent
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
-from ai_trading.utils.model_offloading import (
+from utils.model_offloading import (
     ModelOffloader,
     check_vram_requirements,
     is_accelerate_available,
