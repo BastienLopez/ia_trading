@@ -17,8 +17,9 @@ Analyse ce dépôt AI Trading :
    - `info_retour/examples/` pour les exemples démos
    - `info_retour/prod/` pour les scripts en production
    - `info_retour/optimisation/` pour les logs etc d'optimisations
+   - `info_retour/.../` selon les retours
 5. Si des chemins d’écriture sont en dur ailleurs, les centraliser ou les corriger pour suivre cette règle d’organisation.
-6. Par consequent opur les fichiers de sortie sont bien save dans `ai_trading/info_retour/`, dans des sous-dossiers selon leur origine
+6. Par consequent les fichiers de sortie sont bien save dans `ai_trading/info_retour/`, dans des sous-dossiers selon leur origine
 7. Rien n'est donc save en racine ou dans d'autre root du projet
 
 Résultat attendu : un dépôt propre, bien structuré, avec une séparation claire entre code et fichiers de sortie.

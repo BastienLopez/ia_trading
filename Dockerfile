@@ -23,6 +23,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libssl-dev \
     git \
     curl \
+    openmpi-bin \
+    libopenmpi-dev \
+    openssh-client \
     && rm -rf /var/lib/apt/lists/*
 
 # Installation de TA-Lib
@@ -48,12 +51,22 @@ COPY pyproject.toml poetry.lock ./
 # Installation des dépendances avec Poetry
 RUN poetry install --no-root --no-dev
 
+# Installation directe de DeepSpeed (en dehors de Poetry pour une meilleure compatibilité)
+RUN pip install deepspeed accelerate
+
 # Image finale
 FROM python:3.11-slim-bookworm as runtime
 
 # Copie de TA-Lib depuis l'image builder
 COPY --from=builder /usr/lib/libta_lib* /usr/lib/
 COPY --from=builder /usr/include/ta-lib/ /usr/include/ta-lib/
+
+# Installation des bibliothèques système requises pour DeepSpeed
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    openmpi-bin \
+    libopenmpi-dev \
+    openssh-client \
+    && rm -rf /var/lib/apt/lists/*
 
 # Variables d'environnement pour la production
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -67,7 +80,7 @@ COPY --from=builder /app/.venv /app/.venv
 COPY . .
 
 # Création des répertoires nécessaires
-RUN mkdir -p data logs
+RUN mkdir -p data logs models/checkpoints
 
 # Exposition du port
 EXPOSE 8000

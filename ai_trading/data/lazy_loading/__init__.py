@@ -1,42 +1,88 @@
 """
-Package pour le chargement paresseux (lazy loading) des données et les optimisations associées.
-Ce package contient des modules pour:
-- Chargement paresseux des fichiers de données volumineux
-- Mise en cache des transformations fréquemment utilisées
-- Optimisation des inférences par lots
+Module pour le chargement paresseux (lazy loading) des données financières.
+Permet de charger efficacement de grands ensembles de données sans surcharger la mémoire.
 """
 
-from ai_trading.data.lazy_loading.lazy_storage import (
-    LazyFileReader,
-    LazyDataset,
-    get_lazy_dataloader
-)
+import logging
+from pathlib import Path
 
-from ai_trading.data.lazy_loading.cached_transform import (
-    get_cache_transform_fn,
-    CachedFeatureTransform,
-    cached_transform,
-    default_transform_cache
-)
+# Configuration du logger
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
-from ai_trading.data.lazy_loading.batch_inference import (
-    BatchInferenceOptimizer,
-    batch_inference
-)
+# Vérification des modules optionnels
+HAVE_DASK = False
 
-__all__ = [
-    # Lazy loading
-    'LazyFileReader',
-    'LazyDataset',
-    'get_lazy_dataloader',
+try:
+    import dask
+    import dask.dataframe as dd
+    HAVE_DASK = True
+    logger.info("Dask est disponible pour le chargement paresseux.")
+except ImportError:
+    logger.warning("Dask n'est pas installé. Certaines fonctionnalités de chargement paresseux seront limitées.")
+    logger.warning("Pour installer Dask, exécutez: pip install 'dask[complete]'")
+
+# Importer les composants principaux
+from .lazy_storage import LazyFileReader, LazyDataset, get_lazy_dataloader
+from .cached_transform import CachedTransform, get_cache_transform_fn, CachedFeatureTransform, cached_transform
+from .batch_inference import BatchInferenceOptimizer, batch_inference
+
+# Si Dask est disponible, importer les composants spécifiques
+if HAVE_DASK:
+    try:
+        # Importer les composants qui dépendent de Dask
+        from .dask_loader import DaskDataLoader, read_parquet_lazy, read_csv_lazy
+        
+        __all__ = [
+            'LazyFileReader', 'LazyDataset', 'get_lazy_dataloader',
+            'CachedTransform', 'get_cache_transform_fn', 'CachedFeatureTransform', 'cached_transform',
+            'BatchInferenceOptimizer', 'batch_inference',
+            'DaskDataLoader', 'read_parquet_lazy', 'read_csv_lazy',
+            'HAVE_DASK'
+        ]
+    except ImportError as e:
+        logger.warning(f"Erreur lors de l'importation de certains modules Dask: {e}")
+        __all__ = ['LazyFileReader', 'LazyDataset', 'get_lazy_dataloader', 
+                  'CachedTransform', 'get_cache_transform_fn', 'CachedFeatureTransform', 'cached_transform',
+                  'BatchInferenceOptimizer', 'batch_inference',
+                  'HAVE_DASK']
+else:
+    __all__ = ['LazyFileReader', 'LazyDataset', 'get_lazy_dataloader', 
+              'CachedTransform', 'get_cache_transform_fn', 'CachedFeatureTransform', 'cached_transform',
+              'BatchInferenceOptimizer', 'batch_inference',
+              'HAVE_DASK']
+
+def is_dask_available():
+    """
+    Vérifie si Dask est disponible pour le chargement paresseux avancé.
     
-    # Cached transforms
-    'get_cache_transform_fn',
-    'CachedFeatureTransform',
-    'cached_transform',
-    'default_transform_cache',
+    Returns:
+        bool: True si Dask est disponible, False sinon
+    """
+    return HAVE_DASK
+
+def install_dask():
+    """
+    Tente d'installer Dask automatiquement.
     
-    # Batch inference
-    'BatchInferenceOptimizer',
-    'batch_inference'
-] 
+    Returns:
+        bool: True si l'installation a réussi, False sinon
+    """
+    try:
+        import subprocess
+        import sys
+        
+        print("Installation de Dask...")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "dask[complete]"])
+        
+        # Vérifier que l'installation a réussi
+        import dask
+        import dask.dataframe
+        
+        global HAVE_DASK
+        HAVE_DASK = True
+        print("Dask installé avec succès!")
+        return True
+    except Exception as e:
+        print(f"Échec de l'installation de Dask: {e}")
+        return False 

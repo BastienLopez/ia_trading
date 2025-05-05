@@ -1,7 +1,8 @@
 # Optimisation check 
 ```bash	
- python ai_trading/optim/check_all_optimizations.py
+python -m ai_trading.optim.check_all_optimizations --check-all-opti
 ```
+
 -> créer @\ai_trading\documentation\opti_CUDA\optimization_report.txt
 
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------

@@ -334,4 +334,100 @@ def cached_transform(
         Données transformées.
     """
     manager = cache_manager or default_transform_cache
+    return manager.transform_with_cache(data, transform_fn, transform_name)
+
+
+class CachedTransform:
+    """
+    Classe pour appliquer et mettre en cache les transformations de données.
+    Version simplifiée de CachedFeatureTransform avec une API plus légère.
+    """
+    
+    def __init__(self, transform_fn=None, cache_size=100):
+        """
+        Initialise la transformation avec cache.
+        
+        Args:
+            transform_fn: Fonction de transformation optionnelle à appliquer
+            cache_size: Taille maximale du cache
+        """
+        self.transform_fn = transform_fn
+        self.cache_size = cache_size
+        self.cache = {}
+        self.hits = 0
+        self.misses = 0
+    
+    def __call__(self, x):
+        """
+        Applique la transformation avec mise en cache.
+        
+        Args:
+            x: Données à transformer
+            
+        Returns:
+            Données transformées
+        """
+        if self.transform_fn is None:
+            return x
+            
+        # Créer une clé de cache
+        if isinstance(x, torch.Tensor):
+            key = (x.shape, hash(x.detach().cpu().numpy().tobytes()))
+        elif isinstance(x, np.ndarray):
+            key = (x.shape, hash(x.tobytes()))
+        else:
+            # Pour les autres types, utiliser directement la fonction
+            return self.transform_fn(x)
+            
+        # Vérifier le cache
+        if key in self.cache:
+            self.hits += 1
+            return self.cache[key]
+            
+        # Calculer et mettre en cache
+        self.misses += 1
+        result = self.transform_fn(x)
+        self.cache[key] = result
+        
+        # Gérer la taille du cache
+        if len(self.cache) > self.cache_size:
+            # Supprimer un élément aléatoire
+            del self.cache[next(iter(self.cache))]
+            
+        return result
+        
+    def clear_cache(self):
+        """Vide le cache."""
+        self.cache.clear()
+        self.hits = 0
+        self.misses = 0
+        
+    def get_stats(self):
+        """Retourne les statistiques du cache."""
+        return {
+            "hits": self.hits,
+            "misses": self.misses,
+            "size": len(self.cache),
+            "hit_ratio": self.hits / (self.hits + self.misses) if (self.hits + self.misses) > 0 else 0
+        }
+
+def cached_transform(
+    data: Union[np.ndarray, Tensor],
+    transform_fn: Callable,
+    transform_name: Optional[str] = None,
+    cache_manager: Optional[CachedFeatureTransform] = None
+) -> Union[np.ndarray, Tensor]:
+    """
+    Fonction utilitaire pour appliquer une transformation avec cache.
+    
+    Args:
+        data: Données à transformer.
+        transform_fn: Fonction de transformation.
+        transform_name: Nom de la transformation.
+        cache_manager: Gestionnaire de cache à utiliser (utilise l'instance par défaut si None).
+        
+    Returns:
+        Données transformées.
+    """
+    manager = cache_manager or default_transform_cache
     return manager.transform_with_cache(data, transform_fn, transform_name) 

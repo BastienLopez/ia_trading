@@ -256,4 +256,14 @@ ray_checkpoints/
 *.pyc
 .python-version
 .tool-versions
-.direnv/ 
+.direnv/
+
+# DeepSpeed
+.deepspeed/
+deepspeed_config.json
+zero_to_fp32.py
+zero_checkpoint/
+*_ds_config.json
+*_ds_model/
+ds_config*.json
+ds_report/ 

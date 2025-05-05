@@ -25,7 +25,7 @@ torch>=2.2.0
 optuna>=2.10.0
 packaging>=23.0
 jax>=0.4.14
-ray[rllib,tune]==2.45.0
+# ray[rllib,tune]==2.45.0  # Commenté en raison de problèmes d'installation sur Windows
 
 # Optimisations CPU/GPU
 psutil>=7.0.0
@@ -39,6 +39,18 @@ numba>=0.61.0
 bottleneck>=1.4.0
 memory_profiler>=0.61.0
 fastparquet>=2024.0.0
+accelerate>=0.35.0
+
+# Packages optionnels (installation séparée si besoin)
+# -----------------------------------------------------
+# DeepSpeed (difficile à installer sur Windows)
+# Pour installer DeepSpeed sur Linux : pip install deepspeed>=0.12.0
+# Pour Windows, utilisez le wrapper de compatibilité inclus dans le projet
+# qui simule l'API de DeepSpeed sans l'installation
+
+# Ray (peut causer des problèmes d'installation sur Windows)
+# Pour installer Ray sur Linux : pip install ray[rllib,tune]==2.45.0
+# Pour Windows, utilisez l'installation manuelle ou le wrapper de compatibilité
 
 # Exportation et optimisation de modèles
 onnx>=1.15.0
@@ -97,7 +109,8 @@ jupyter==1.0.0
 tqdm==4.66.1
 joblib>=1.1.0
 python-dotenv>=1.0.0
-importlib-metadata==4.12.0
+# Corrigé: importlib-metadata peut créer des problèmes de compatibilité avec la version 4.12.0
+importlib-metadata>=4.12.0
 pillow>=10.0.0
 
 # ML avancé

@@ -137,16 +137,16 @@
 ---
 
 ### 8. Optimisation des performances et fluidité
-- [ ] **Optimisation des opérations critiques** :
-  - [ ] Utiliser `torch.jit.script` pour les fonctions fréquemment appelées
-  - [ ] Implémenter des opérations vectorisées avec `torch.vmap`
-  - [ ] Utiliser `torch.compile()` pour les modèles fréquemment utilisés
-  - [ ] Activer `torch.backends.cudnn.benchmark = True` pour optimiser les convolutions
-- [ ] **Réduction des temps d'opération** :
-  - [ ] Pré-calculer et cacher les résultats fréquents
-  - [ ] Utiliser des batchs de taille optimale (généralement puissance de 2)
-  - [ ] Implémenter un système de cache intelligent pour les prédictions
-  - [ ] Paralléliser les opérations indépendantes avec `torch.nn.parallel`
+- [x] **Optimisation des opérations critiques** :
+  - [x] Utiliser `torch.jit.script` pour les fonctions fréquemment appelées
+  - [x] Implémenter des opérations vectorisées avec `torch.vmap`
+  - [x] Utiliser `torch.compile()` pour les modèles fréquemment utilisés
+  - [x] Activer `torch.backends.cudnn.benchmark = True` pour optimiser les convolutions
+- [x] **Réduction des temps d'opération** :
+  - [x] Pré-calculer et cacher les résultats fréquents
+  - [x] Utiliser des batchs de taille optimale (généralement puissance de 2)
+  - [x] Implémenter un système de cache intelligent pour les prédictions
+  - [x] Paralléliser les opérations indépendantes avec `torch.nn.parallel`
 - [x] **Optimisation des E/S** :
   - [x] Utiliser des formats de données optimisés (parquet, hdf5)
   - [x] Implémenter un système de pré-chargement intelligent
@@ -188,7 +188,9 @@
   - [x] Implémenter des mécanismes de compression pour les communications
   - [x] Utiliser des techniques de mise en cache pour les communications fréquentes
 
-### 9. Check all opti
-- [ ] python ai_trading/optim/check_all_optimizations.py test bien tt les opti ? si c'est pas le cas up le fichier pour que ca test tout 
+---
 
-python -m ai_trading.optim.check_all_optimizations  pour check ce qui tourne ou pas 
+### 9. Check all opti
+- [x] python ai_trading/optim/check_all_optimizations.py test bien tt les opti ? si c'est pas le cas up le fichier pour que ca test tout 
+
+python -m ai_trading.optim.check_all_optimizations --check-all-opti pour check ce qui tourne ou pas 

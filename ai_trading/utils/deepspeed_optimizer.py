@@ -15,7 +15,12 @@ from typing import Dict, List, Optional, Union, Any, Tuple, Callable
 
 import torch
 import torch.nn as nn
-import torch.distributed as dist
+
+# Essayer d'importer torch.distributed
+try:
+    import torch.distributed as dist
+except ImportError:
+    logging.warning("torch.distributed n'est pas disponible")
 
 # Configuration du logger
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
