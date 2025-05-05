@@ -140,14 +140,16 @@ def plot_results(
     plt.legend()
 
     plt.tight_layout()
-    plt.savefig("continuous_agents_results.png")
+    # Créer le répertoire si nécessaire
+    os.makedirs("ai_trading/info_retour/visualisations/rl", exist_ok=True)
+    plt.savefig("ai_trading/info_retour/visualisations/rl/continuous_agents_results.png")
     plt.close()
 
 
 def main():
     # Chargement des données
     data_path = os.path.join(
-        os.path.dirname(__file__), "../data/processed/btc_usd_1h.csv"
+        os.path.dirname(os.path.dirname(__file__)), "info_retour/data/processed/btc_usd_1h.csv"
     )
     df = pd.read_csv(data_path)
     df["timestamp"] = pd.to_datetime(df["timestamp"])

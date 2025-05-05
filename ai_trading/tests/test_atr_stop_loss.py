@@ -430,10 +430,8 @@ def visualize_trades(data, trades):
     # Au lieu d'utiliser plt.show(), sauvegarder l'image dans un fichier temporaire
     import os
 
-    # Créer un répertoire temporaire pour les visualisations
-    output_dir = os.path.join(
-        os.path.dirname(__file__), "..", "info_retour", "visualisations"
-    )
+    # Créer un répertoire pour les visualisations de tests
+    output_dir = os.path.join(os.path.dirname(__file__), "..", "info_retour", "tests")
     os.makedirs(output_dir, exist_ok=True)
 
     # Sauvegarder l'image

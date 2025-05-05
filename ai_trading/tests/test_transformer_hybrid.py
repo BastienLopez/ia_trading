@@ -2,9 +2,9 @@ import os
 import sys
 import tempfile
 import unittest
-import pytest
 
 import numpy as np
+import pytest
 import tensorflow as tf
 
 # Ajouter le répertoire parent au chemin pour importer les modules

@@ -626,7 +626,7 @@ if __name__ == "__main__":
     market_preprocessor = EnhancedMarketDataPreprocessor()
 
     # Exemple avec un fichier de données fusionnées
-    market_data_path = "data/bitcoin_merged_30d.csv"
+    market_data_path = "ai_trading/info_retour/data/bitcoin_merged_30d.csv"
     if os.path.exists(market_data_path):
         processed_data = market_preprocessor.preprocess_market_data(market_data_path)
         print(f"Données prétraitées: {processed_data.shape}")

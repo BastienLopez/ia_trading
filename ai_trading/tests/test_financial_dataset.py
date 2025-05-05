@@ -6,8 +6,8 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
-import pytest
 
+import pytest
 import torch
 
 from ai_trading.data.financial_dataset import FinancialDataset, get_financial_dataloader

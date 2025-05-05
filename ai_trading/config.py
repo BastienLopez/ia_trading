@@ -91,8 +91,8 @@ BINANCE_CONFIG = {
 LLM_CONFIG = {
     "openai_api_key": os.getenv("OPENAI_API_KEY"),
     "huggingface_api_key": os.getenv("HUGGINGFACE_API_KEY"),
-    "sentiment_model_path": os.getenv("SENTIMENT_MODEL_PATH", "models/sentiment"),
-    "prediction_model_path": os.getenv("PREDICTION_MODEL_PATH", "models/prediction"),
+    "sentiment_model_path": os.getenv("SENTIMENT_MODEL_PATH", "ai_trading/info_retour/models/sentiment"),
+    "prediction_model_path": os.getenv("PREDICTION_MODEL_PATH", "ai_trading/info_retour/models/prediction"),
 }
 
 # Configuration des réseaux sociaux
@@ -118,7 +118,7 @@ TIME_FRAMES = {
 
 # Configuration des modèles ML
 ML_CONFIG = {
-    "model_path": os.getenv("ML_MODEL_PATH", "models/trading"),
+    "model_path": os.getenv("ML_MODEL_PATH", "ai_trading/info_retour/models/trading"),
     "features": [
         "close",
         "volume",

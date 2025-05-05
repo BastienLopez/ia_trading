@@ -2,9 +2,6 @@
 ```bash	
 python -m ai_trading.optim.check_all_optimizations --check-all-opti
 ```
-
--> créer @\ai_trading\documentation\opti_CUDA\optimization_report.txt
-
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 # Test RL PASSED OR FAILED en ligne
 ```bash	

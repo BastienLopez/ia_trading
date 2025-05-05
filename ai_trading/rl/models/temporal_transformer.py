@@ -241,7 +241,7 @@ class FinancialTemporalTransformer(nn.Module):
             # Format (batch_size, seq_len, seq_dim, features) -> convertir en (batch_size, seq_len, features)
             batch_size, seq_len, seq_dim, features = src.shape
             src = src.view(batch_size, seq_len, seq_dim * features)
-        
+
         # Vérifier si le tensor est 3D avec une dimension de 1 à la fin et réorganiser
         if src.dim() == 3 and src.size(2) == 1:
             # Format (batch_size, seq_len, 1) où chaque élément est un scalaire
@@ -251,8 +251,10 @@ class FinancialTemporalTransformer(nn.Module):
                 batch_size = src.size(0)
                 seq_len = src.size(1)
                 # Étendre la dernière dimension pour correspondre à input_dim
-                src = src.expand(batch_size, seq_len, self.input_projection[0].in_features)
-        
+                src = src.expand(
+                    batch_size, seq_len, self.input_projection[0].in_features
+                )
+
         # Normalisation des données d'entrée
         src_mean = src.mean(dim=1, keepdim=True)
         src_std = src.std(dim=1, keepdim=True) + 1e-8

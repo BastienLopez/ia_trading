@@ -80,7 +80,7 @@ COPY --from=builder /app/.venv /app/.venv
 COPY . .
 
 # Création des répertoires nécessaires
-RUN mkdir -p data logs models/checkpoints
+RUN mkdir -p ai_trading/info_retour/data ai_trading/info_retour/logs ai_trading/info_retour/models/checkpoints
 
 # Exposition du port
 EXPOSE 8000

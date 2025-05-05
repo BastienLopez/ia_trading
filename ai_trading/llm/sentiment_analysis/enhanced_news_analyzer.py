@@ -36,7 +36,7 @@ class EnhancedNewsAnalyzer(NewsAnalyzer):
     def __init__(
         self,
         enable_cache: bool = True,
-        cache_dir: str = "data/sentiment/cache",
+        cache_dir: str = "ai_trading/info_retour/sentiment_cache",
         **kwargs,
     ):
         super().__init__(**kwargs)

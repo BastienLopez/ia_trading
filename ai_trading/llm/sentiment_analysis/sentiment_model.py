@@ -21,7 +21,7 @@ class SentimentAnalyzer:
         self,
         model_name: str = "finiteautomata/bertweet-base-sentiment-analysis",
         device: str = "cuda" if torch.cuda.is_available() else "cpu",
-        cache_dir: str = "models/sentiment",
+        cache_dir: str = "ai_trading/info_retour/models/sentiment",
     ):
         """
         Initialise l'analyseur de sentiment.

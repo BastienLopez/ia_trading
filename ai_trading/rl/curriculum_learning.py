@@ -893,7 +893,7 @@ class GRUCurriculumTrainer:
         episodes_per_level=20,
         max_episodes=200,
         eval_frequency=5,
-        save_path="models/gru_sac",
+        save_path="ai_trading/info_retour/models/rl/gru_sac",
     ):
         """
         Initialise l'entraîneur pour le curriculum learning avec GRU.

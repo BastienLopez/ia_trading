@@ -14,7 +14,7 @@ from ai_trading.rl_agent import CryptoTradingEnv, RLAgent
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.FileHandler("logs/api.log", mode="a"), logging.StreamHandler()],
+    handlers=[logging.FileHandler("ai_trading/info_retour/logs/api.log", mode="a"), logging.StreamHandler()],
 )
 
 logger = logging.getLogger("trading_api")
@@ -106,7 +106,7 @@ async def predict(
             )
         else:
             # Utiliser des données existantes
-            data_path = f"ai_trading/data/{request.exchange}_{request.symbol.replace('/', '_')}_{request.timeframe}.csv"
+            data_path = f"ai_trading/info_retour/data/{request.exchange}_{request.symbol.replace('/', '_')}_{request.timeframe}.csv"
             if not os.path.exists(data_path):
                 raise HTTPException(
                     status_code=404, detail=f"Données non trouvées: {data_path}"
@@ -120,7 +120,7 @@ async def predict(
         model_name = (
             f"{request.symbol.replace('/', '_')}_{request.timeframe}_rl_model.zip"
         )
-        model_path = f"ai_trading/models/{model_name}"
+        model_path = f"ai_trading/info_retour/models/rl/{model_name}"
 
         if not os.path.exists(model_path):
             raise HTTPException(
@@ -198,7 +198,7 @@ async def train(
             )
         else:
             # Utiliser des données existantes
-            data_path = f"ai_trading/data/{request.exchange}_{request.symbol.replace('/', '_')}_{request.timeframe}.csv"
+            data_path = f"ai_trading/info_retour/data/{request.exchange}_{request.symbol.replace('/', '_')}_{request.timeframe}.csv"
             if not os.path.exists(data_path):
                 raise HTTPException(
                     status_code=404, detail=f"Données non trouvées: {data_path}"
@@ -213,7 +213,7 @@ async def train(
 
         # Entraîner l'agent
         model_name = f"{request.symbol.replace('/', '_')}_{request.timeframe}_rl_model"
-        save_path = f"ai_trading/models/{model_name}.zip"
+        save_path = f"ai_trading/info_retour/models/rl/{model_name}.zip"
 
         logger.info(
             f"Début de l'entraînement sur {len(train_data)} points de données..."
@@ -276,7 +276,7 @@ async def backtest(
             model_name = (
                 f"{request.symbol.replace('/', '_')}_{request.timeframe}_rl_model.zip"
             )
-            model_path = f"ai_trading/models/{model_name}"
+            model_path = f"ai_trading/info_retour/models/rl/{model_name}"
 
         if not os.path.exists(model_path):
             raise HTTPException(

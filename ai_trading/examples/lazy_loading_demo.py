@@ -40,8 +40,8 @@ from ai_trading.data.financial_dataset import (
 from ai_trading.data.synthetic_data_generator import generate_synthetic_market_data
 
 # Chemin pour sauvegarder les résultats
-RESULTS_DIR = Path("results")
-DATA_DIR = Path("data/demo")
+RESULTS_DIR = Path("ai_trading/info_retour/visualisations/misc")
+DATA_DIR = Path("ai_trading/info_retour/data/demo")
 
 
 def get_memory_usage():
