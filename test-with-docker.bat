@@ -1,0 +1,6 @@
+@echo off
+echo Construction de l'image Docker de test...
+docker build -t ai-trading-test -f Dockerfile.test .
+
+echo Execution des tests...
+docker run --rm ai-trading-test

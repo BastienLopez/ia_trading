@@ -6,6 +6,7 @@ pour l'entraînement des modèles financiers.
 import logging
 import time
 from pathlib import Path
+import os
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -21,9 +22,18 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Chemins pour les données et les modèles
-DATA_DIR = Path("./data")
-MODELS_DIR = Path("./models")
+# Définir les chemins
+BASE_DIR = Path(__file__).parent.parent.parent
+INFO_RETOUR_DIR = BASE_DIR / "ai_trading" / "info_retour"
+EXAMPLES_OUTPUT_DIR = INFO_RETOUR_DIR / "examples" / "optimized_training"
+DATA_DIR = EXAMPLES_OUTPUT_DIR / "data"
+MODELS_DIR = EXAMPLES_OUTPUT_DIR / "models"
+VISUALIZATION_DIR = EXAMPLES_OUTPUT_DIR / "visualizations"
+
+# Créer les répertoires nécessaires
+DATA_DIR.mkdir(exist_ok=True, parents=True)
+MODELS_DIR.mkdir(exist_ok=True, parents=True)
+VISUALIZATION_DIR.mkdir(exist_ok=True, parents=True)
 
 
 def main():
@@ -200,8 +210,9 @@ def main():
 
     # Enregistrer le graphique
     plt.tight_layout()
-    plt.savefig("dataloader_performance.png")
-    logger.info("Graphique de performance enregistré dans 'dataloader_performance.png'")
+    performance_graph_path = VISUALIZATION_DIR / "dataloader_performance.png"
+    plt.savefig(performance_graph_path)
+    logger.info(f"Graphique de performance enregistré dans '{performance_graph_path}'")
 
     # Exemple d'entrainement complet avec DataLoader optimisé
     logger.info("\nDémarrage de l'entraînement du modèle Transformer...")

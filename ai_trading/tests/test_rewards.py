@@ -1,9 +1,20 @@
 import os
 import sys
+from pathlib import Path
+from datetime import datetime, timedelta
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+
+# Chemins pour les sorties
+BASE_DIR = Path(__file__).parent.parent.parent
+INFO_RETOUR_DIR = BASE_DIR / "ai_trading" / "info_retour"
+TESTS_OUTPUT_DIR = INFO_RETOUR_DIR / "tests" / "rewards"
+VISUALIZATION_DIR = TESTS_OUTPUT_DIR / "visualizations"
+
+# Assurer que les répertoires existent
+os.makedirs(VISUALIZATION_DIR, exist_ok=True)
 
 # Ajouter le chemin du projet au PYTHONPATH
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))

@@ -10,6 +10,7 @@ import argparse
 import os
 import sys
 import time
+from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -26,6 +27,22 @@ from ai_trading.utils.onnx_exporter import (
     export_pytorch_policy_model,
 )
 
+# Vérifier si ONNX est installé
+try:
+    import onnx
+    import onnxruntime as ort
+
+    HAVE_ONNX = True
+except ImportError:
+    HAVE_ONNX = False
+
+# Définir les chemins pour les sorties
+BASE_DIR = Path(__file__).parent.parent.parent
+INFO_RETOUR_DIR = BASE_DIR / "ai_trading" / "info_retour"
+EXAMPLES_OUTPUT_DIR = INFO_RETOUR_DIR / "examples" / "onnx_export"
+
+# S'assurer que le répertoire existe
+os.makedirs(EXAMPLES_OUTPUT_DIR, exist_ok=True)
 
 # Définition d'un modèle de politique simple pour l'exemple
 class SimplePolicyNetwork(nn.Module):
@@ -86,8 +103,6 @@ def benchmark_inference(model_path, input_shape, num_runs=1000, batch_size=1):
     Returns:
         Dictionnaire des résultats du benchmark
     """
-    import onnxruntime as ort
-
     # Créer le modèle PyTorch
     pytorch_model = create_pytorch_model(input_shape[0], [64, 32], 1)
     pytorch_model.eval()
@@ -144,13 +159,7 @@ def benchmark_inference(model_path, input_shape, num_runs=1000, batch_size=1):
 def plot_inference_comparison(
     results, title="Comparaison des performances d'inférence"
 ):
-    """
-    Trace un graphique comparant les performances d'inférence.
-
-    Args:
-        results: Dictionnaire des résultats du benchmark
-        title: Titre du graphique
-    """
+    """Tracer un graphique comparatif des performances d'inférence."""
     labels = ["PyTorch", "ONNX"]
     means = [results["pytorch_mean_ms"], results["onnx_mean_ms"]]
     stds = [results["pytorch_std_ms"], results["onnx_std_ms"]]
@@ -200,11 +209,11 @@ def plot_inference_comparison(
     )
 
     # Enregistrer le graphique
-    os.makedirs("results", exist_ok=True)
-    plt.savefig("results/onnx_inference_comparison.png")
+    output_path = EXAMPLES_OUTPUT_DIR / "onnx_inference_comparison.png"
+    plt.savefig(output_path)
     plt.close()
 
-    print(f"Graphique sauvegardé dans 'results/onnx_inference_comparison.png'")
+    print(f"Graphique sauvegardé dans '{output_path}'")
 
 
 def main(args):
@@ -219,8 +228,11 @@ def main(args):
     print("Exemple d'exportation de modèle PyTorch vers ONNX")
     print("=" * 80)
 
+    # Définir le répertoire de sortie
+    output_dir = EXAMPLES_OUTPUT_DIR / "models" if args.output_dir == "onnx_models" else Path(args.output_dir)
+    
     # Créer le répertoire de sortie
-    os.makedirs(args.output_dir, exist_ok=True)
+    os.makedirs(output_dir, exist_ok=True)
 
     # Dimensions du modèle
     input_dim = args.input_dim
@@ -241,7 +253,7 @@ def main(args):
         print("\nExportation directe avec ONNXExporter...")
 
         exporter = ONNXExporter(
-            output_dir=args.output_dir, device="cpu", opset_version=12
+            output_dir=output_dir, device="cpu", opset_version=12
         )
 
         onnx_model_path = exporter.export_pytorch_model(
@@ -284,7 +296,7 @@ def main(args):
             model=model,
             input_shape=(input_dim,),
             model_name=args.model_name,
-            output_dir=args.output_dir,
+            output_dir=output_dir,
         )
 
     # Benchmark des performances d'inférence

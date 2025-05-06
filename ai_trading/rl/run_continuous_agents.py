@@ -1,12 +1,24 @@
 import os
-from typing import Dict, List
-
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from agents.ppo_agent import PPOAgent
-from agents.sac_agent import SACAgent
-from trading_environment import TradingEnvironment
+import matplotlib.pyplot as plt
+from pathlib import Path
+from typing import Dict, List
+
+# Import des agents
+from ai_trading.rl.agents.ppo_agent import PPOAgent
+from ai_trading.rl.agents.sac_agent import SACAgent
+from ai_trading.rl.trading_environment import TradingEnvironment
+
+# Chemins pour les sorties
+BASE_DIR = Path(__file__).parent.parent.parent
+INFO_RETOUR_DIR = BASE_DIR / "ai_trading" / "info_retour"
+RL_VISUALIZATION_DIR = INFO_RETOUR_DIR / "visualisations" / "rl"
+DATA_DIR = INFO_RETOUR_DIR / "data" / "processed"
+
+# Assurer que les répertoires existent
+os.makedirs(RL_VISUALIZATION_DIR, exist_ok=True)
+os.makedirs(DATA_DIR, exist_ok=True)
 
 
 def evaluate_agent(
@@ -140,17 +152,14 @@ def plot_results(
     plt.legend()
 
     plt.tight_layout()
-    # Créer le répertoire si nécessaire
-    os.makedirs("ai_trading/info_retour/visualisations/rl", exist_ok=True)
-    plt.savefig("ai_trading/info_retour/visualisations/rl/continuous_agents_results.png")
+    # Sauvegarder le graphique
+    plt.savefig(RL_VISUALIZATION_DIR / "continuous_agents_results.png")
     plt.close()
 
 
 def main():
     # Chargement des données
-    data_path = os.path.join(
-        os.path.dirname(os.path.dirname(__file__)), "info_retour/data/processed/btc_usd_1h.csv"
-    )
+    data_path = DATA_DIR / "btc_usd_1h.csv"
     df = pd.read_csv(data_path)
     df["timestamp"] = pd.to_datetime(df["timestamp"])
     df.set_index("timestamp", inplace=True)

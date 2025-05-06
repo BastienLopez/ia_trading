@@ -1,8 +1,9 @@
 import argparse
 import sys
 import time
+import os
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Tuple, Any
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -11,6 +12,15 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from rl.frame_compression import FrameCompressor, FrameStackWrapper
+
+# Définir les chemins pour les sorties
+BASE_DIR = Path(__file__).parent.parent.parent
+INFO_RETOUR_DIR = BASE_DIR / "ai_trading" / "info_retour"
+EXAMPLES_OUTPUT_DIR = INFO_RETOUR_DIR / "examples" / "frame_compression"
+VISUALIZATION_DIR = EXAMPLES_OUTPUT_DIR / "visualizations"
+
+# Assurer que les répertoires existent
+os.makedirs(VISUALIZATION_DIR, exist_ok=True)
 
 
 def generate_sample_frames(
@@ -140,10 +150,10 @@ def plot_compression_results(
     title: str = "Compression Performance",
 ):
     """
-    Affiche les résultats de compression sous forme de graphique.
+    Visualise les résultats de compression.
 
     Args:
-        sizes: Liste des tailles
+        sizes: Liste des tailles de mémoire
         times: Liste des temps de traitement
         labels: Noms des méthodes
         title: Titre du graphique
@@ -181,7 +191,7 @@ def plot_compression_results(
 
     fig.suptitle(title)
     plt.tight_layout()
-    plt.savefig("compression_results.png")
+    plt.savefig(VISUALIZATION_DIR / "compression_results.png")
     plt.show()
 
 
@@ -224,7 +234,7 @@ def plot_sample_frames(
         axes[1, i].axis("off")
 
     plt.tight_layout()
-    plt.savefig("frame_samples.png")
+    plt.savefig(VISUALIZATION_DIR / "frame_samples.png")
     plt.show()
 
 
