@@ -44,7 +44,7 @@ numba>=0.61.0
 bottleneck>=1.4.0
 memory_profiler>=0.61.0
 fastparquet>=2023.0.0
-# Accelerate - fonctionnalité optionnelle avec fallback sur CPU si non disponible
+# Accelerate - crucial pour la gestion des modèles entre CPU et GPU
 accelerate>=0.24.0
 
 # Compression et traitement d'image
@@ -70,6 +70,7 @@ opencv-python-headless>=4.8.0
 # Exportation et optimisation de modèles
 onnx>=1.15.0
 onnxruntime>=1.16.0
+onnxruntime-gpu>=1.16.0  # Support GPU pour ONNX Runtime
 tf2onnx>=1.15.0
 hyperopt>=0.2.7
 bayesian-optimization>=1.4.3
@@ -120,6 +121,8 @@ pytest-timeout>=2.1.0
 pytest-repeat>=0.9.1
 pytest-mock>=3.14.0
 pytest-xdist>=3.3.1
+pytest-benchmark>=4.0.0  # Pour les benchmarks de performance
+pytest-profiling>=1.7.0  # Pour le profilage du code pendant les tests
 black>=23.0.0
 isort>=5.12.0
 autoflake>=2.2.0
@@ -136,3 +139,8 @@ pillow>=10.2.0
 xgboost>=2.0.0
 lightgbm>=4.1.0
 arch>=6.0.0
+
+# Support CUDA et optimisations hardware-specific
+# Ces packages ne sont pas installés automatiquement car ils dépendent de la configuration matérielle
+# torch-tensorrt  # Optimisation TensorRT pour PyTorch (s'installe séparément)
+# cupy-cuda11x  # Remplacer 11x par votre version CUDA (10.2, 11.x, 12.x)

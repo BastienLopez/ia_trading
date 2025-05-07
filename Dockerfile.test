@@ -1,9 +1,22 @@
-FROM python:3.11-slim
+# Image de base avec support CUDA pour les tests
+FROM nvidia/cuda:12.2.0-runtime-ubuntu22.04
 
 WORKDIR /app
 
-# Installation des dépendances système y compris celles nécessaires pour OpenCV et TensorFlow
-RUN apt-get update && apt-get install -y \
+# Variables d'environnement
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    DEBIAN_FRONTEND=noninteractive \
+    TF_CPP_MIN_LOG_LEVEL=2 \
+    CUDA_HOME="/usr/local/cuda" \
+    NVIDIA_VISIBLE_DEVICES=all
+
+# Installation des dépendances système
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.11 \
+    python3.11-dev \
+    python3.11-venv \
+    python3-pip \
     git \
     build-essential \
     libgl1-mesa-glx \
@@ -11,34 +24,47 @@ RUN apt-get update && apt-get install -y \
     libsm6 \
     libxrender1 \
     libxext6 \
-    # Dépendances pour TensorFlow sur Linux
     libhdf5-dev \
-    # Nettoyage pour réduire la taille de l'image
+    wget \
+    curl \
     && rm -rf /var/lib/apt/lists/*
+
+# Liaison symbolique de Python 3.11
+RUN ln -sf /usr/bin/python3.11 /usr/bin/python3 && \
+    ln -sf /usr/bin/python3 /usr/bin/python && \
+    ln -sf /usr/bin/pip3 /usr/bin/pip
+
+# Installation de TA-Lib (nécessaire pour certains tests)
+RUN wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz \
+    && tar -xvzf ta-lib-0.4.0-src.tar.gz \
+    && cd ta-lib/ \
+    && ./configure --prefix=/usr \
+    && make \
+    && make install \
+    && cd .. \
+    && rm -rf ta-lib-0.4.0-src.tar.gz ta-lib/
 
 # Copier les requirements
 COPY requirements.txt .
 
-# Installer les dépendances Python avec considération pour les différentes plateformes
-# Remarque: Les versions spécifiques de TensorFlow sont compatibles avec Linux 
-# mais peuvent nécessiter des ajustements sur Windows
+# Installer les dépendances Python
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Ajouter pytest et ses plugins pour les tests
-RUN pip install pytest pytest-cov pytest-sugar pytest-timeout pytest-repeat pytest-mock pytest-xdist
+# Installer les packages de test supplémentaires
+RUN pip install pytest pytest-cov pytest-sugar pytest-timeout pytest-repeat pytest-mock pytest-xdist pytest-benchmark pytest-profiling
 
-# Configuration spécifique pour TensorFlow dans l'environnement Docker
-ENV TF_CPP_MIN_LOG_LEVEL=2
-# Désactiver l'utilisation du GPU si non disponible
-ENV CUDA_VISIBLE_DEVICES=-1
+# Configuration de l'environnement pour les tests
+RUN mkdir -p /app/test-reports \
+    /app/ai_trading/info_retour/data \
+    /app/ai_trading/info_retour/logs \
+    /app/ai_trading/info_retour/models/checkpoints
 
 # Copier le code source
 COPY . .
 
-# Créer un répertoire pour les rapports de test
-RUN mkdir -p /app/test-reports
+# Vérifier que CUDA est disponible
+RUN python -c "import torch; print(f'PyTorch CUDA available: {torch.cuda.is_available()}'); import tensorflow as tf; print(f'TensorFlow GPU available: {len(tf.config.list_physical_devices(\"GPU\"))>0}')"
 
 # Par défaut, exécuter tous les tests avec génération de rapport de couverture
-# Mais permettre de remplacer la commande pour des tests spécifiques
 ENTRYPOINT ["python", "-m", "pytest", "-v", "-rs", "--cov=ai_trading", "--cov-report=html:/app/test-reports/coverage"]
 CMD ["ai_trading/tests/", "web_app/tests/"] 

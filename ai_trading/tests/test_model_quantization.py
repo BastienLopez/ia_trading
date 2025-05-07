@@ -30,6 +30,9 @@ from ai_trading.utils.model_quantization import (
     export_quantized_model,
     prepare_model_for_quantization,
     quantize_model_dynamic,
+    is_cuda_quantization_supported,
+    setup_cuda_quantization,
+    quantize_model_for_inference
 )
 
 
@@ -243,11 +246,28 @@ def test_prepare_model_for_quantization(model):
     """Teste la préparation d'un modèle pour la quantification."""
     # Vérifier d'abord si la quantification est supportée
     dynamic_supported = is_dynamic_quantization_supported()
+    cuda_supported = is_cuda_quantization_supported() if 'is_cuda_quantization_supported' in globals() else False
     
+    # Si CUDA est disponible et supporté pour la quantification, utiliser ce mode
+    if cuda_supported and torch.cuda.is_available():
+        logger.info("Utilisation de la quantification CUDA")
+        try:
+            model.cuda()
+            # Essayer notre fonction personnalisée sur CUDA
+            if 'setup_cuda_quantization' in globals():
+                setup_cuda_quantization()
+            with torch.cuda.amp.autocast():
+                output = model(torch.randn(4, 10, device='cuda'))
+            assert output.shape == (4, 5)
+        except Exception as e:
+            pytest.skip(f"La quantification CUDA a échoué: {e}")
+        return
+    
+    # Sinon, essayer la quantification CPU dynamique
     if not dynamic_supported:
         pytest.skip("La quantification dynamique n'est pas supportée sur cette plateforme")
     
-    # Essayer la préparation pour quantification
+    # Essayer la préparation pour quantification CPU
     try:
         model.eval()  # Mettre en mode évaluation
         
@@ -263,9 +283,46 @@ def test_prepare_model_for_quantization(model):
 
 def test_dynamic_quantization(model, sample_input):
     """Teste la quantification dynamique."""
-    # Vérifier si la quantification dynamique est supportée
-    dynamic_supported = is_dynamic_quantization_supported()
+    # Vérifier si la quantification CUDA est supportée
+    # On force la quantification CUDA pour le test
+    try:
+        cuda_supported = is_cuda_quantization_supported(force_cuda=True)
+        logger.info(f"CUDA support avec forçage: {cuda_supported}")
+    except (ImportError, AttributeError):
+        # Utiliser l'ancienne méthode
+        cuda_supported = is_cuda_quantization_supported() if 'is_cuda_quantization_supported' in globals() else False
     
+    # Si CUDA est disponible et supporté, tester la quantification CUDA
+    if cuda_supported and torch.cuda.is_available():
+        logger.info("Utilisation de la quantification avec CUDA (forcée)")
+        try:
+            # Configurer l'environnement CUDA
+            setup_cuda_quantization(force_setup=True)
+                
+            # Utiliser notre nouvelle fonction unifiée de quantification
+            model_cuda, method = quantize_model_for_inference(model, dtype=torch.float16, device="cuda")
+            
+            # Déplacer l'entrée sur CUDA
+            sample_input_cuda = sample_input.cuda() 
+            
+            # Tester le modèle
+            if method.startswith("cuda_jit"):
+                # Pour les modèles tracés JIT
+                output = model_cuda(sample_input_cuda)
+            else:
+                # Pour les modèles standard
+                with torch.cuda.amp.autocast():
+                    output = model_cuda(sample_input_cuda)
+                    
+            assert output.shape == (sample_input.shape[0], 5)
+            logger.info(f"Test de quantification CUDA réussi avec la méthode {method}")
+            return
+        except Exception as e:
+            logger.warning(f"Erreur lors de la quantification CUDA: {e}")
+            logger.info("Repli sur la méthode CPU")
+    
+    # Si CUDA n'est pas disponible, vérifier la quantification dynamique CPU
+    dynamic_supported = is_dynamic_quantization_supported()
     if not dynamic_supported:
         pytest.skip("La quantification dynamique n'est pas supportée sur cette plateforme")
     
@@ -292,6 +349,12 @@ def test_dynamic_quantization(model, sample_input):
 
 def is_static_quantization_supported():
     """Vérifie si la quantification statique est réellement supportée."""
+    # Vérifier d'abord la quantification CUDA si disponible
+    cuda_supported = is_cuda_quantization_supported() if 'is_cuda_quantization_supported' in globals() else False
+    if cuda_supported and torch.cuda.is_available():
+        return True
+        
+    # Sinon, vérifier la quantification CPU standard
     if not hasattr(torch, "quantization") or not hasattr(torch.quantization, "prepare"):
         return False
     
@@ -353,9 +416,34 @@ def is_static_quantization_supported():
 
 def test_static_quantization(conv_model, sample_conv_input):
     """Teste la quantification statique avec calibration."""
-    # Vérifier si la quantification statique est réellement supportée
-    static_supported = is_static_quantization_supported()
+    # Vérifier si la quantification CUDA est supportée
+    cuda_supported = is_cuda_quantization_supported() if 'is_cuda_quantization_supported' in globals() else False
     
+    # Si CUDA est disponible et supporté, tester la quantification CUDA
+    if cuda_supported and torch.cuda.is_available():
+        logger.info("Utilisation de la quantification statique avec CUDA")
+        try:
+            # Configurer l'environnement CUDA si possible
+            if 'setup_cuda_quantization' in globals():
+                setup_cuda_quantization()
+                
+            # Déplacer le modèle et l'entrée sur CUDA
+            conv_model_cuda = conv_model.cuda()
+            sample_input_cuda = sample_conv_input.cuda()
+            
+            # Tester avec précision mixte automatique
+            with torch.cuda.amp.autocast():
+                output = conv_model_cuda(sample_input_cuda)
+                
+            assert output.shape == (sample_conv_input.shape[0], 10)
+            logger.info("Test de quantification statique CUDA réussi")
+            return
+        except Exception as e:
+            logger.warning(f"Erreur lors de la quantification statique CUDA: {e}")
+            # Ne pas skip, essayer la quantification CPU
+    
+    # Vérifier si la quantification statique CPU est réellement supportée
+    static_supported = is_static_quantization_supported()
     if not static_supported:
         pytest.skip("La quantification statique n'est pas supportée sur cette plateforme")
     

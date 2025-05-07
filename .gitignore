@@ -266,15 +266,53 @@ yarn.lock
 .yarn
 
 # Docker
-.docker/
-docker-compose.override.yml
-*.env
 .dockerignore
-docker-compose.*.yml
-!docker-compose.yml
-!docker-compose.example.yml
-docker-volumes/
-.docker-sync/
+docker-compose.override.yml
+docker-compose.override.yaml
+docker-data/
+docker_volume/
+*.tar
+*.tar.gz
+.docker/
+
+# CUDA et optimisations GPU
+.cuda-profile/
+*.nvvp
+*.nsight
+*.nsys-rep
+*.qdrep
+*.sqlite-journal
+nvprof_output/
+cuda_profile/
+nvcc_output/
+profile_output/
+.nv/
+build/temp.*
+
+# Fichiers spécifiques à setup_cuda_quantization
+setup_cuda_results/
+cuda_quantization_logs/
+cuda_test_results/
+docker_cuda_tests/
+
+# Répertoires de test Docker
+test-with-docker-*/
+test-reports/
+docker-test-volume/
+
+# Fichiers générés automatiquement
+version.txt
+build_info.json
+.build_cache/
+
+# CJSON files (configuration avancée)
+*.cjson
+*.qcjson
+
+# VSCode spécifiques à CUDA
+.vscode/c_cpp_properties.json
+.vscode/launch.json
+.vscode/settings.json
 
 # MLflow
 mlruns/
