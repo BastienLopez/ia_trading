@@ -1,6 +1,9 @@
 import gc
 import logging
+import os
+from typing import Dict, List, Optional, Tuple, Union
 
+import numpy as np
 import tensorflow as tf
 from tensorflow.keras.layers import (
     GRU,
@@ -13,17 +16,33 @@ from tensorflow.keras.layers import (
 )
 from tensorflow.keras.models import Model
 
-# Configuration du logger
-logger = logging.getLogger("TransformerHybrid")
-logger.setLevel(logging.INFO)
-if not logger.handlers:
-    handler = logging.StreamHandler()
-    formatter = logging.Formatter(
-        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    )
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
+# Configurer le logger
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
 
+# Définir une fonction pour obtenir le décorateur register_keras_serializable selon la version de TF
+def get_register_keras_serializable(package=None):
+    """Retourne le décorateur register_keras_serializable compatible avec la version de TensorFlow actuelle."""
+    if hasattr(tf.keras, 'saving') and hasattr(tf.keras.saving, 'register_keras_serializable'):
+        # Versions plus récentes de TensorFlow
+        if package:
+            return tf.keras.saving.register_keras_serializable(package=package)
+        else:
+            return tf.keras.saving.register_keras_serializable()
+    elif hasattr(tf.keras.utils, 'register_keras_serializable'):
+        # Versions plus anciennes de TensorFlow
+        if package:
+            return tf.keras.utils.register_keras_serializable(package=package)
+        else:
+            return tf.keras.utils.register_keras_serializable()
+    else:
+        # Si le décorateur n'est pas disponible, retourner une fonction d'identité
+        logger.warning("register_keras_serializable n'est pas disponible. Utilisation d'une implémentation de secours.")
+        def identity(cls):
+            return cls
+        return identity
 
 def optimize_memory():
     """
@@ -39,7 +58,10 @@ def optimize_memory():
         logger.warning(f"Erreur lors du nettoyage de la session TensorFlow: {e}")
 
 
-@tf.keras.saving.register_keras_serializable()
+# Utiliser la fonction pour obtenir le décorateur
+register_serializable = get_register_keras_serializable()
+
+@register_serializable
 class TransformerBlock(tf.keras.layers.Layer):
     """
     Bloc Transformer standard avec multi-head attention et feed forward network
@@ -87,7 +109,7 @@ class TransformerBlock(tf.keras.layers.Layer):
         return config
 
 
-@tf.keras.saving.register_keras_serializable()
+@register_serializable
 class PositionalEncoding(tf.keras.layers.Layer):
     """
     Encodage positionnel pour les séquences dans un Transformer
@@ -137,7 +159,9 @@ class PositionalEncoding(tf.keras.layers.Layer):
         return config
 
 
-@tf.keras.saving.register_keras_serializable(package="ai_trading.models")
+register_serializable = get_register_keras_serializable(package="ai_trading.models")
+
+@register_serializable
 class TransformerGRUModel(Model):
     """
     Modèle hybride combinant Transformer et GRU pour l'analyse de séries temporelles financières
@@ -313,7 +337,7 @@ class TransformerGRUModel(Model):
         return config
 
 
-@tf.keras.saving.register_keras_serializable(package="ai_trading.models")
+@register_serializable
 class TransformerLSTMModel(Model):
     """
     Modèle hybride combinant Transformer et LSTM pour l'analyse de séries temporelles financières

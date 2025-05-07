@@ -120,11 +120,9 @@ class TestProfiling(unittest.TestCase):
             self.assertIsInstance(first_entry["percall"], float)
             self.assertIsInstance(first_entry["cumtime"], float)
 
-    @unittest.skipIf(not os.environ.get("RUN_GPU_TESTS"), "Tests GPU désactivés")
     def test_pytorch_profiler(self):
         """
-        Teste le profilage PyTorch (exécuté uniquement si PyTorch est disponible
-        et que RUN_GPU_TESTS est défini).
+        Teste le profilage PyTorch en s'adaptant à l'environnement disponible.
         """
         try:
             import torch
@@ -140,7 +138,11 @@ class TestProfiling(unittest.TestCase):
                     return self.fc(x)
 
             model = SimpleModel()
-            input_data = torch.randn(32, 10)
+            
+            # Préparer les données d'entrée sur le bon appareil
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            model = model.to(device)
+            input_data = torch.randn(32, 10, device=device)
 
             # Profiler le modèle
             result = self.profiler.profile_with_torch(model, input_data)
@@ -155,6 +157,13 @@ class TestProfiling(unittest.TestCase):
 
         except ImportError:
             self.skipTest("PyTorch n'est pas disponible")
+        except RuntimeError as e:
+            if "CUDA" in str(e) and not torch.cuda.is_available():
+                self.skipTest(f"Problème CUDA sur ce système: {e}")
+            elif "CUDA initialization" in str(e):
+                self.skipTest(f"Problème d'initialisation CUDA: {e}")
+            else:
+                raise e
 
     def test_nsight_availability(self):
         """Teste la détection de disponibilité de NVIDIA Nsight."""

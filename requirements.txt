@@ -15,13 +15,18 @@ ta>=0.10.0
 # TA-Lib est installé séparément via apt/brew ou le script d'installation
 
 # Apprentissage par renforcement
-tensorflow>=2.15.0
+# TensorFlow compatible avec les deux plateformes (Linux et Windows)
+# Pour Linux: TensorFlow 2.12+ supporte bien les fonctionnalités avancées
+# Pour Windows: TensorFlow 2.15+ recommandé pour une meilleure stabilité
+tensorflow>=2.12.0
 tensorflow_probability>=0.23.0
-keras>=2.15.0
-tf-keras>=2.15.0
+# Keras avec compatibilité multiplateforme
+keras>=2.12.0
+# tf-keras est nécessaire pour tensorflow_probability avec TensorFlow
+tf-keras>=2.12.0
 gymnasium>=0.29.1
 stable-baselines3>=2.2.1
-torch>=2.2.0
+torch>=2.0.0
 optuna>=3.0.0
 packaging>=23.0
 jax>=0.4.14
@@ -38,8 +43,9 @@ line_profiler>=4.1.1
 numba>=0.61.0
 bottleneck>=1.4.0
 memory_profiler>=0.61.0
-fastparquet>=2024.0.0
-accelerate>=0.35.0
+fastparquet>=2023.0.0
+# Accelerate - fonctionnalité optionnelle avec fallback sur CPU si non disponible
+accelerate>=0.24.0
 
 # Compression et traitement d'image
 zstandard>=0.20.0
@@ -50,8 +56,12 @@ opencv-python-headless>=4.8.0
 # -----------------------------------------------------
 # DeepSpeed (difficile à installer sur Windows)
 # Pour installer DeepSpeed sur Linux : pip install deepspeed>=0.12.0
-# Pour Windows, utilisez le wrapper de compatibilité inclus dans le projet
-# qui simule l'API de DeepSpeed sans l'installation
+# Pour Windows, il faut d'abord installer Visual C++ Build Tools et CUDA :
+#   1. Installer Visual Studio Build Tools avec "Desktop development with C++"
+#   2. Installer CUDA Toolkit (compatible avec votre version de PyTorch)
+#   3. Exécuter: pip install deepspeed
+# Si l'installation échoue sur Windows, ne vous inquiétez pas - le module ai_trading/utils/deepspeed_optimizer.py 
+# contient une implémentation de compatibilité qui simule l'API DeepSpeed pour les tests et la formation.
 
 # Ray (peut causer des problèmes d'installation sur Windows)
 # Pour installer Ray sur Linux : pip install ray[rllib,tune]>=2.45.0
@@ -105,6 +115,11 @@ dash>=2.0.0
 # Tests et développement
 pytest>=7.0.0
 pytest-cov>=6.1.0
+pytest-sugar>=0.9.7
+pytest-timeout>=2.1.0
+pytest-repeat>=0.9.1
+pytest-mock>=3.14.0
+pytest-xdist>=3.3.1
 black>=23.0.0
 isort>=5.12.0
 autoflake>=2.2.0

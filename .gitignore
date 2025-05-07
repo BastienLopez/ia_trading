@@ -37,6 +37,7 @@ test_data/
 prof/
 .pytest_cache/
 pytest.xml
+test-reports/
 
 # Environnements virtuels
 venv/
@@ -123,7 +124,7 @@ onnx_models/
 !web_app/static/images/**
 !docs/images/**
 
-# TensorFlow
+# TensorFlow et autres frameworks ML
 *.pb
 *.pbtxt
 *.ckpt
@@ -134,6 +135,15 @@ tensorboard/
 events.out.tfevents.*
 .tf_profile/
 .keras/
+tflite_models/
+keras_metadata.pb
+assets/
+variables/
+lightning_logs/
+mlruns/
+catboost_info/
+.torch_jit_trace/
+nohup.out
 
 # Système
 .DS_Store
@@ -144,6 +154,48 @@ events.out.tfevents.*
 Thumbs.db
 ehthumbs.db
 Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# Spécifique à Windows
+*.exe
+*.dll
+*.sys
+*.obj
+*.pdb
+*.user
+*.aps
+*.pch
+*.vspscc
+*.vssscc
+*_i.c
+*_p.c
+*.ncb
+*.suo
+*.tlb
+*.tlh
+*.bak
+*.cache
+*.ilk
+*.lib
+*.sbr
+*.sdf
+*.msi
+*.msm
+*.msp
+
+# Spécifique à Linux
+*.o
+*.ko
+*.elf
+*.a
+*.la
+*.lo
+*.out
+*.deb
+*.rpm
+core
+*.core
 
 # Fichiers de nettoyage et temporaires
 *.bak
@@ -186,6 +238,9 @@ ai_trading/info_retour/data/*
 !ai_trading/info_retour/models/
 ai_trading/info_retour/models/*
 !ai_trading/info_retour/models/.gitkeep
+!ai_trading/info_retour/models/jit/
+ai_trading/info_retour/models/jit/*
+!ai_trading/info_retour/models/jit/.gitkeep
 
 !ai_trading/info_retour/logs/
 ai_trading/info_retour/logs/*

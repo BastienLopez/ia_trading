@@ -20,6 +20,9 @@ from ai_trading.rl.curriculum_learning import (
     GRUCurriculumTrainer,
 )
 
+# Variable pour contrôler l'exécution des tests lents
+RUN_SLOW_TESTS = os.environ.get('RUN_SLOW_TESTS', 'False').lower() in ('true', '1', 't', 'yes')
+
 
 class TestGRUCurriculumLearning(unittest.TestCase):
     """Tests pour la classe GRUCurriculumLearning."""
@@ -240,13 +243,13 @@ class TestGRUCurriculumTrainer(unittest.TestCase):
         self.test_save_path = INFO_RETOUR_DIR / "test" / "gru_curriculum"
         os.makedirs(self.test_save_path, exist_ok=True)
 
-        # Initialiser l'entraîneur
+        # Initialiser l'entraîneur avec des paramètres très réduits pour les tests rapides
         self.trainer = GRUCurriculumTrainer(
             curriculum=self.curriculum,
             data=self.df,
-            episodes_per_level=5,  # Réduit pour les tests
-            max_episodes=10,  # Réduit pour les tests
-            eval_frequency=2,  # Réduit pour les tests
+            episodes_per_level=2,  # Encore plus réduit pour les tests
+            max_episodes=4,  # Encore plus réduit pour les tests
+            eval_frequency=1,  # Réduit pour les tests
             save_path=self.test_save_path,
         )
 
@@ -260,83 +263,99 @@ class TestGRUCurriculumTrainer(unittest.TestCase):
         """Teste l'initialisation correcte des paramètres du trainer."""
         self.assertEqual(self.trainer.curriculum, self.curriculum)
         self.assertTrue(len(self.trainer.data) > 0)
-        self.assertEqual(self.trainer.episodes_per_level, 5)
-        self.assertEqual(self.trainer.max_episodes, 10)
-        self.assertEqual(self.trainer.eval_frequency, 2)
+        self.assertEqual(self.trainer.episodes_per_level, 2)
+        self.assertEqual(self.trainer.max_episodes, 4)
+        self.assertEqual(self.trainer.eval_frequency, 1)
         self.assertEqual(self.trainer.save_path, self.test_save_path)
 
-    @pytest.mark.skip(reason="Ce test prend trop de temps à exécuter")
-    @patch("ai_trading.rl.curriculum_learning.GRUCurriculumLearning.create_environment")
-    @patch("ai_trading.rl.curriculum_learning.GRUCurriculumLearning.create_agent")
-    def test_train_method_calls(self, mock_create_agent, mock_create_env):
+    def test_train_method_calls(self):
         """Teste que les méthodes appropriées sont appelées lors de l'entraînement."""
+        # Skip le test s'il est trop long et qu'on n'a pas demandé à exécuter les tests lents
+        if not RUN_SLOW_TESTS:
+            self.skipTest("Test trop long - activez RUN_SLOW_TESTS=1 pour l'exécuter")
+            
         # Configurer les mocks
-        mock_env = MagicMock()
-        mock_env.reset.return_value = (np.zeros(10), {})
-        mock_env.step.return_value = (np.zeros(10), 0.0, False, False, {})
-        mock_env.portfolio_value.return_value = 10500.0
-        mock_env.transaction_count = 5
+        with patch("ai_trading.rl.curriculum_learning.GRUCurriculumLearning.create_environment") as mock_create_env, \
+             patch("ai_trading.rl.curriculum_learning.GRUCurriculumLearning.create_agent") as mock_create_agent:
+            
+            # Configurer les mocks
+            mock_env = MagicMock()
+            mock_env.reset.return_value = (np.zeros(10), {})
+            mock_env.step.return_value = (np.zeros(10), 0.0, False, False, {})
+            mock_env.portfolio_value.return_value = 10500.0
+            mock_env.transaction_count = 5
 
-        mock_create_env.return_value = mock_env
+            mock_create_env.return_value = mock_env
 
-        mock_agent = MagicMock()
-        mock_agent.sequence_length = 5
-        mock_agent.batch_size = 32
-        mock_agent.sequence_buffer = [1] * 100  # Simuler un buffer non vide
-        mock_agent.act.return_value = np.array([0.5])
-        mock_agent.train.return_value = {"actor_loss": 0.1, "critic_loss": 0.2}
+            mock_agent = MagicMock()
+            mock_agent.sequence_length = 5
+            mock_agent.batch_size = 32
+            mock_agent.sequence_buffer = [1] * 100  # Simuler un buffer non vide
+            mock_agent.act.return_value = np.array([0.5])
+            mock_agent.train.return_value = {"actor_loss": 0.1, "critic_loss": 0.2}
 
-        mock_create_agent.return_value = mock_agent
+            mock_create_agent.return_value = mock_agent
 
-        # Patch la méthode d'évaluation pour éviter d'exécuter le code réel
-        with patch.object(self.trainer, "_evaluate_agent", return_value=0.8):
-            # Réduire encore plus le nombre d'épisodes pour accélérer le test
-            self.trainer.max_episodes = 3
+            # Patch la méthode d'évaluation pour éviter d'exécuter le code réel
+            with patch.object(self.trainer, "_evaluate_agent", return_value=0.8):
+                # Paramètres ultra-réduits pour test rapide
+                self.trainer.max_episodes = 2 
+                self.trainer.episodes_per_level = 1
 
-            # Appeler la méthode d'entraînement
-            agent, history = self.trainer.train(window_size=10)
+                # Appeler la méthode d'entraînement
+                agent, history = self.trainer.train(window_size=10)
+
+                # Vérifier que les méthodes ont été appelées correctement
+                mock_create_env.assert_called()
+                mock_create_agent.assert_called_once()
+
+                # Vérifier que l'agent a été entraîné
+                self.assertGreater(mock_agent.train.call_count, 0)
+
+                # Vérifier que l'historique a été correctement enregistré
+                self.assertEqual(len(history["rewards"]), 2)
+                self.assertEqual(len(history["difficulties"]), 2)
+                self.assertEqual(len(history["profits"]), 2)
+                self.assertEqual(len(history["transactions"]), 2)
+                self.assertEqual(len(history["portfolio_values"]), 2)
+
+                # Vérifier que l'agent a été sauvegardé
+                self.assertGreater(mock_agent.save.call_count, 0)
+
+    def test_evaluate_agent(self):
+        """Teste la méthode d'évaluation de l'agent."""
+        # Skip le test s'il est trop long et qu'on n'a pas demandé à exécuter les tests lents
+        if not RUN_SLOW_TESTS:
+            self.skipTest("Test trop long - activez RUN_SLOW_TESTS=1 pour l'exécuter")
+            
+        # Configurer les mocks
+        with patch("ai_trading.rl.curriculum_learning.SACAgent") as mock_agent_class, \
+             patch("ai_trading.rl.curriculum_learning.TradingEnvironment") as mock_env_class:
+             
+            # Configurer les mocks
+            mock_env = MagicMock()
+            mock_env.reset.return_value = (np.zeros(10), {})
+            mock_env.step.return_value = (np.zeros(10), 1.0, False, False, {})
+
+            mock_agent = MagicMock()
+            mock_agent.sequence_length = 5
+            mock_agent.act.return_value = np.array([0.5])
+
+            # Très réduit pour tests rapides
+            n_episodes = 1
+            max_steps = 10
+            
+            # Appeler la méthode d'évaluation directement avec un nombre réduit d'étapes
+            with patch.object(self.trainer, '_max_episode_steps', max_steps):
+                avg_reward = self.trainer._evaluate_agent(mock_agent, mock_env, n_episodes=n_episodes)
 
             # Vérifier que les méthodes ont été appelées correctement
-            mock_create_env.assert_called()
-            mock_create_agent.assert_called_once()
+            self.assertEqual(mock_env.reset.call_count, n_episodes)
+            self.assertGreaterEqual(mock_agent.act.call_count, n_episodes)  # Au moins une action par épisode
 
-            # Vérifier que l'agent a été entraîné
-            self.assertGreater(mock_agent.train.call_count, 0)
-
-            # Vérifier que l'historique a été correctement enregistré
-            self.assertEqual(len(history["rewards"]), 3)
-            self.assertEqual(len(history["difficulties"]), 3)
-            self.assertEqual(len(history["profits"]), 3)
-            self.assertEqual(len(history["transactions"]), 3)
-            self.assertEqual(len(history["portfolio_values"]), 3)
-
-            # Vérifier que l'agent a été sauvegardé
-            self.assertGreater(mock_agent.save.call_count, 0)
-
-    @pytest.mark.skip(reason="Ce test prend trop de temps à exécuter")
-    @patch("ai_trading.rl.curriculum_learning.SACAgent")
-    @patch("ai_trading.rl.curriculum_learning.TradingEnvironment")
-    def test_evaluate_agent(self, mock_env_class, mock_agent_class):
-        """Teste la méthode d'évaluation de l'agent."""
-        # Configurer les mocks
-        mock_env = MagicMock()
-        mock_env.reset.return_value = (np.zeros(10), {})
-        mock_env.step.return_value = (np.zeros(10), 1.0, False, False, {})
-
-        mock_agent = MagicMock()
-        mock_agent.sequence_length = 5
-        mock_agent.act.return_value = np.array([0.5])
-
-        # Appeler la méthode d'évaluation directement
-        avg_reward = self.trainer._evaluate_agent(mock_agent, mock_env, n_episodes=2)
-
-        # Vérifier que les méthodes ont été appelées correctement
-        self.assertEqual(mock_env.reset.call_count, 2)
-        self.assertGreater(mock_agent.act.call_count, 0)
-
-        # Vérifier que le reward moyen est calculé correctement
-        # Dans ce cas, chaque épisode donne un reward de n pas * 1.0
-        self.assertGreater(avg_reward, 0)
+            # Vérifier que le reward moyen est calculé correctement
+            # Dans ce cas, chaque épisode donne un reward de n pas * 1.0
+            self.assertGreater(avg_reward, 0)
 
 
 if __name__ == "__main__":

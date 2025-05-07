@@ -15,6 +15,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+# Configuration du logger
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 # Ajout du répertoire parent au path pour importer les modules du projet
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
@@ -82,39 +86,58 @@ class TestSystemOptimizer(unittest.TestCase):
         mock_environ.__setitem__.assert_any_call("TEST_VAR", "test_value")
         self.assertIn("environment_variables", optimizer.applied_optimizations)
 
-    @unittest.skipIf(
-        platform.system() == "Windows",
-        "Le module 'resource' n'est pas disponible sur Windows",
-    )
-    def test_configure_system_limits_unix(self):
-        """Tester la configuration des limites système sur les systèmes Unix."""
-        # Ce test ne s'exécute que sur les systèmes Unix/Linux
+    def test_configure_system_limits_cross_platform(self):
+        """Tester la configuration des limites système de manière cross-platform."""
+        # Vérifier si nous sommes sur un système Unix/Linux ou Windows
+        is_windows = platform.system() == "Windows"
 
-        with patch("resource.setrlimit") as mock_setrlimit, patch(
-            "resource.getrlimit"
-        ) as mock_getrlimit, patch(
-            "ai_trading.utils.system_optimizer.SystemOptimizer._check_admin_privileges"
-        ) as mock_admin:
-
-            # Configurer les mocks
-            mock_admin.return_value = True
-            mock_getrlimit.return_value = (1000, 2000)
-
+        # Utiliser les patches appropriés selon la plateforme
+        if is_windows:
+            # Sous Windows, nous allons juste vérifier que la fonction retourne un dictionnaire
+            # sans faire d'opérations spécifiques à Unix
             optimizer = SystemOptimizer(self.temp_config_file.name)
             result = optimizer.configure_system_limits()
+            
+            # Vérifier les résultats de base
+            self.assertIsInstance(result, dict)
+            # Sur Windows, la fonction devrait retourner des valeurs par défaut ou des infos Windows
+            # plutôt que de lever une exception ou retourner None
+            self.assertIsNotNone(result)
+            
+            # Vérifier que le dictionnaire contient au moins certaines clés
+            # (même si elles peuvent avoir des valeurs par défaut ou None sur Windows)
+            if "memory_limit" in optimizer.config.get("system_limits", {}):
+                self.assertIn("memory_limit", result)
+            
+            # Vérifier que les optimisations appliquées sont correctement enregistrées
+            if result and any(result.values()):  # Si des optimisations ont été appliquées
+                self.assertIn("system_limits", optimizer.applied_optimizations)
+        else:
+            # Sur Unix/Linux où resource est disponible
+            try:
+                import resource
+                
+                with patch("resource.setrlimit") as mock_setrlimit, patch(
+                    "resource.getrlimit"
+                ) as mock_getrlimit, patch(
+                    "ai_trading.utils.system_optimizer.SystemOptimizer._check_admin_privileges"
+                ) as mock_admin:
 
-            # Vérifier les résultats
-            self.assertIn("system_limits", optimizer.applied_optimizations)
+                    # Configurer les mocks
+                    mock_admin.return_value = True
+                    mock_getrlimit.return_value = (1000, 2000)
 
-    def test_configure_system_limits_windows(self):
-        """Tester la configuration des limites système sur Windows."""
-        # Ce test s'exécute sur tous les systèmes
-        optimizer = SystemOptimizer(self.temp_config_file.name)
-        result = optimizer.configure_system_limits()
+                    optimizer = SystemOptimizer(self.temp_config_file.name)
+                    result = optimizer.configure_system_limits()
 
-        # Sur Windows, on s'attend à ce que la fonction ne fasse rien de particulier
-        # mais retourne quand même un dictionnaire de limites (éventuellement vide)
-        self.assertIsInstance(result, dict)
+                    # Vérifier les résultats
+                    self.assertIn("system_limits", optimizer.applied_optimizations)
+            except ImportError:
+                # Si resource n'est pas disponible (ce qui ne devrait pas arriver sur Unix),
+                # exécuter le test de base similaire à Windows
+                optimizer = SystemOptimizer(self.temp_config_file.name)
+                result = optimizer.configure_system_limits()
+                self.assertIsInstance(result, dict)
 
     @patch("os.path.exists")
     @patch("os.makedirs")

@@ -208,6 +208,53 @@ class MultiPeriodTrainer:
             is_training=True,
         )
 
+    def create_agent(self, env):
+        """Crée un agent RL adapté à l'environnement et aux paramètres choisis.
+        
+        Args:
+            env: L'environnement de trading
+            
+        Returns:
+            Agent de trading (SACAgent ou GRUSACAgent)
+        """
+        # Récupérer les informations de l'environnement
+        state_size = env.observation_space.shape[0]
+        action_size = env.action_space.shape[0]
+        action_bounds = (
+            float(env.action_space.low[0]), 
+            float(env.action_space.high[0])
+        )
+        
+        # Stocker la référence à l'agent pour pouvoir le sauvegarder/charger
+        if self.use_gru:
+            # Utiliser GRUSACAgent si use_gru est True
+            self.current_agent = GRUSACAgent(
+                state_size=state_size,
+                action_size=action_size,
+                action_bounds=action_bounds,
+                actor_lr=self.actor_lr,
+                critic_lr=self.critic_lr,
+                tau=self.tau,
+                sequence_length=self.sequence_length,
+                gru_units=self.gru_units,
+                batch_size=self.batch_size,
+                buffer_size=self.buffer_size,
+            )
+        else:
+            # Utiliser SACAgent standard
+            self.current_agent = SACAgent(
+                state_size=state_size,
+                action_size=action_size,
+                action_bounds=action_bounds,
+                actor_lr=self.actor_lr,
+                critic_lr=self.critic_lr,
+                tau=self.tau,
+                batch_size=self.batch_size,
+                buffer_size=self.buffer_size,
+            )
+            
+        return self.current_agent
+
     def prepare_datasets(self, market_data, sentiment_data, validation_ratio):
         """Prépare les datasets d'entraînement et de validation.
 

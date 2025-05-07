@@ -199,14 +199,57 @@ Ce module contient l'implémentation d'un système de trading de cryptomonnaies 
   - [ ] Journalisation avancée
   - [ ] Sauvegarde/reprise
 
-  ### 5. Stratégies d'apprentissage avancées
-  - [ ] Imitation learning à partir de stratégies de référence
-  - [ ] Transfer learning entre actifs/marchés
-  - [ ] Meta-learning pour adaptation rapide
-  - [ ] Reward shaping dynamique
-  - [ ] Parallelization avec vectorized environments
+## 💻 Compatibilité Multi-Plateformes
 
------------------------------------------------------------------------------------------------------------------------
+Le projet AI Trading est conçu pour fonctionner de manière identique sur Windows et Linux, avec ou sans Docker. Voici les principales considérations de compatibilité:
+
+### Installation et Configuration
+
+- **Windows**:
+  - Utilisez `setup_env.bat` pour configurer l'environnement
+  - TensorFlow 2.15+ recommandé pour une meilleure stabilité
+  - Certaines fonctionnalités (DeepSpeed, Ray) peuvent nécessiter des étapes d'installation supplémentaires
+
+- **Linux**:
+  - Utilisez l'équivalent `setup_env.sh` pour la configuration
+  - Compatible avec TensorFlow 2.12+
+  - Meilleur support natif pour les outils d'optimisation
+
+- **Docker**:
+  - Utilisation de `docker-compose up` pour déployer l'environnement complet
+  - Configuration automatique des dépendances spécifiques à la plateforme
+
+### Gestion des Ressources
+
+- **GPU**:
+  - Détection automatique et utilisation de CUDA si disponible
+  - Fallback transparent sur CPU si GPU non disponible
+  - Configuration via variables d'environnement (`CUDA_VISIBLE_DEVICES`)
+
+- **CPU**:
+  - Optimisations multi-threading adaptées à la plateforme
+  - Paramètres de mémoire ajustés selon le système d'exploitation
+
+### Fonctionnalités Spécifiques à la Plateforme
+
+- **Gestion des Modèles**:
+  - Sérialisation compatible cross-plateforme
+  - Détection automatique de la version de TensorFlow pour les API spécifiques
+  - Mécanismes de fallback pour les fonctionnalités non disponibles
+
+- **Tests**:
+  - Suite de tests robuste avec détection automatique des fonctionnalités disponibles
+  - Tests ignorés proprement quand les fonctionnalités ne sont pas supportées
+  - Rapports de couverture générés indépendamment de la plateforme
+
+### Bonnes Pratiques
+
+1. Utilisez les chemins relatifs avec `pathlib.Path` pour la compatibilité des chemins
+2. Encapsulez les fonctionnalités spécifiques à une plateforme dans des blocs try/except
+3. Utilisez les wrappers de compatibilité fournis pour les bibliothèques spécialisées
+4. Définissez des variables d'environnement pour contrôler le comportement (ex: `RUN_SLOW_TESTS`)
+
+## 📊 Résultats et Performance
 
 ### Phase 4: Prédictions de Marché (LLM) ⏳
 - ⏳ 4.1 Implémentation de `llm/predictions/market_predictor.py`

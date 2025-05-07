@@ -112,3 +112,21 @@ gantt
     section Phase 4
     Multi-Asset Trading   :         des4, 2024-09-01, 2025-01-01
 ```
+
+---
+
+### 🔧 Consignes pour le projet AI Trading – Compatibilité OS & Environnement
+
+* Le projet **doit fonctionner de manière identique sous Windows et Linux** (Docker inclus).
+* L’exécution doit se faire **en priorité sur GPU via CUDA si disponible**, sinon basculer automatiquement sur **CPU**.
+* Le script `setup_env.bat` (ou son équivalent `.sh` selon l’OS) doit :
+
+  * Configurer l’environnement CUDA,
+  * Être utilisé pour initialiser l’environnement d’exécution, **quel que soit l’OS** (Windows, Linux, Docker).
+* Si des bibliothèques ou dépendances sont **disponibles uniquement sur un OS** :
+
+  * Elles doivent être **utilisées sur cet OS**,
+  * Mais le projet doit **rester fonctionnel sur l’autre OS** via des alternatives ou du fallback.
+* En résumé : **exploiter toutes les ressources et dépendances disponibles selon l’OS, tout en assurant une compatibilité et cohérence globale du projet.**
+
+---

@@ -2,7 +2,7 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Installation des dépendances système y compris celles nécessaires pour OpenCV
+# Installation des dépendances système y compris celles nécessaires pour OpenCV et TensorFlow
 RUN apt-get update && apt-get install -y \
     git \
     build-essential \
@@ -11,16 +11,26 @@ RUN apt-get update && apt-get install -y \
     libsm6 \
     libxrender1 \
     libxext6 \
+    # Dépendances pour TensorFlow sur Linux
+    libhdf5-dev \
+    # Nettoyage pour réduire la taille de l'image
     && rm -rf /var/lib/apt/lists/*
 
 # Copier les requirements
 COPY requirements.txt .
 
-# Installer les dépendances Python
+# Installer les dépendances Python avec considération pour les différentes plateformes
+# Remarque: Les versions spécifiques de TensorFlow sont compatibles avec Linux 
+# mais peuvent nécessiter des ajustements sur Windows
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Ajouter pytest et ses plugins
+# Ajouter pytest et ses plugins pour les tests
 RUN pip install pytest pytest-cov pytest-sugar pytest-timeout pytest-repeat pytest-mock pytest-xdist
+
+# Configuration spécifique pour TensorFlow dans l'environnement Docker
+ENV TF_CPP_MIN_LOG_LEVEL=2
+# Désactiver l'utilisation du GPU si non disponible
+ENV CUDA_VISIBLE_DEVICES=-1
 
 # Copier le code source
 COPY . .
