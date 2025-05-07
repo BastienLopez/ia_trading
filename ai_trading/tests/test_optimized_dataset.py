@@ -1,20 +1,16 @@
+import io
 import os
-import sys
-import unittest
 import tempfile
+import unittest
+
 import numpy as np
 import pandas as pd
-import pytest
-from unittest.mock import MagicMock, patch
-import torch
-import io
+
+from ai_trading.data.compressed_storage import CompressedStorage
 
 # Importer les classes réellement disponibles dans le module
-from ai_trading.data.optimized_dataset import (
-    convert_to_compressed,
-    load_market_data_compressed
-)
-from ai_trading.data.compressed_storage import CompressedStorage
+from ai_trading.data.optimized_dataset import convert_to_compressed
+
 
 # Tester directement les fonctions de compression sans utiliser OptimizedFinancialDataset
 class TestCompressedFunctions(unittest.TestCase):
@@ -26,11 +22,13 @@ class TestCompressedFunctions(unittest.TestCase):
         self.temp_dir = tempfile.mkdtemp()
 
         # Créer un petit dataset de test
-        dates = pd.date_range(start='2023-01-01', periods=100)
-        self.test_data = pd.DataFrame({
-            'close': np.random.rand(100) * 100 + 50,
-            'volume': np.random.randint(1000, 10000, 100)
-        })
+        dates = pd.date_range(start="2023-01-01", periods=100)
+        self.test_data = pd.DataFrame(
+            {
+                "close": np.random.rand(100) * 100 + 50,
+                "volume": np.random.randint(1000, 10000, 100),
+            }
+        )
 
     def tearDown(self):
         """Nettoyage après les tests."""
@@ -41,7 +39,7 @@ class TestCompressedFunctions(unittest.TestCase):
             except:
                 pass
         os.rmdir(self.temp_dir)
-    
+
     def test_compression_storage(self):
         """Test de la classe CompressedStorage."""
         # Créer un fichier à compresser
@@ -50,13 +48,13 @@ class TestCompressedFunctions(unittest.TestCase):
 
         # Créer un objet de stockage compressé
         storage = CompressedStorage(compression_level=3)
-        
+
         # Compresser le fichier
         compressed_path = storage.compress_file(raw_path)
-        
+
         # Vérifier que le fichier compressé existe
         self.assertTrue(os.path.exists(compressed_path))
-        
+
         # Décompresser le fichier
         output_path = os.path.join(self.temp_dir, "decompressed.parquet")
         storage.decompress_file(compressed_path, output_path)
@@ -77,13 +75,13 @@ class TestCompressedFunctions(unittest.TestCase):
         buffer = io.BytesIO()
         self.test_data.to_parquet(buffer)
         buffer.seek(0)
-        
+
         # Compresser les données
         compressed_data = storage.compress_data(buffer.getvalue())
 
         # Vérifier que les données sont compressées
         self.assertIsInstance(compressed_data, bytes)
-        
+
         # Décompresser les données
         decompressed_data = storage.decompress_data(compressed_data)
 
@@ -98,19 +96,10 @@ class TestCompressedFunctions(unittest.TestCase):
         """Test de la compression JSON."""
         # Créer des données JSON de test
         test_json = {
-            "meta": {
-                "version": 1,
-                "timestamp": "2023-01-01",
-                "source": "test"
-            },
-            "stats": {
-                "mean": 100.5,
-                "std": 15.2,
-                "min": 50.0,
-                "max": 150.0
-            }
+            "meta": {"version": 1, "timestamp": "2023-01-01", "source": "test"},
+            "stats": {"mean": 100.5, "std": 15.2, "min": 50.0, "max": 150.0},
         }
-        
+
         # Compresser les données JSON
         storage = CompressedStorage(compression_level=3)
         path = os.path.join(self.temp_dir, "test.json.zst")
@@ -139,7 +128,7 @@ class TestCompressedFunctions(unittest.TestCase):
 
         # Vérifier que le fichier compressé existe
         self.assertTrue(os.path.exists(compressed_path))
-        
+
         # Vérifier qu'il se termine par .zst (en convertissant Path en str si nécessaire)
         compressed_path_str = str(compressed_path)
         self.assertTrue(compressed_path_str.endswith(".zst"))

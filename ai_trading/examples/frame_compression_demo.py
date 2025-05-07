@@ -1,9 +1,9 @@
 import argparse
+import os
 import sys
 import time
-import os
 from pathlib import Path
-from typing import List, Tuple, Any
+from typing import List, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np

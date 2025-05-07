@@ -159,26 +159,27 @@ def test_multi_gpu_simulation():
     # Vérifier les configurations multi-GPU
     assert ddp_wrapper.world_size == 2
     assert ddp_wrapper.backend == "gloo"
-    
+
     # Vérifier le comportement de fallback avec world_size > GPU disponibles
     available_gpus = count_available_gpus()
     if available_gpus < 2:
-        # En mode simulation, il devrait utiliser un mode non distribué (use_ddp=False) 
+        # En mode simulation, il devrait utiliser un mode non distribué (use_ddp=False)
         # si aucun GPU n'est disponible
         assert ddp_wrapper.use_ddp == (available_gpus >= 1)
-        
+
     # Vérifier que la préparation des dataloaders distribués fonctionne
     inputs = torch.randn(100, 10)
     targets = torch.randint(0, 2, (100, 1)).float()
     dataset = TensorDataset(inputs, targets)
-    
+
     # Test de la préparation du dataloader (pas d'exécution réelle)
     dataloader = prepare_dataloader(
         dataset, batch_size=16, shuffle=True, num_workers=0, distributed=True
     )
-    
+
     # Vérifier que c'est un DistributedSampler si demandé
     from torch.utils.data.distributed import DistributedSampler
+
     assert isinstance(dataloader.sampler, DistributedSampler)
 
 

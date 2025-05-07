@@ -7,8 +7,6 @@ de manière intelligente lorsque la VRAM est limitée, en utilisant Huggingface 
 
 import gc
 import logging
-import os
-from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
 import torch
@@ -54,15 +52,15 @@ def check_vram_requirements(
     # Calculer la taille du modèle (fonctionne avec ou sans CUDA)
     model_size = sum(p.numel() * p.element_size() for p in model.parameters())
     model_size_mb = model_size / (1024 * 1024)
-    
+
     # Estimer l'espace requis pour les activations et les gradients
     # en général, les activations et gradients peuvent prendre 2-4x la taille du modèle
     # mais cela varie beaucoup selon l'architecture
     forward_pass_estimate = model_size_mb * 3
-    
+
     # Espace total requis
     total_required = model_size_mb + forward_pass_estimate
-    
+
     if not torch.cuda.is_available():
         logger.warning(
             "CUDA n'est pas disponible, estimation basée uniquement sur la taille du modèle"
@@ -192,7 +190,7 @@ def setup_accelerate_offloading(
         if not torch.cuda.is_available():
             logger.error("CUDA n'est pas disponible mais force_all_cuda est activé")
             raise RuntimeError("CUDA non disponible pour force_all_cuda")
-        
+
         # Calculer la mémoire CUDA disponible avec une marge de sécurité
         free_memory = torch.cuda.get_device_properties(0).total_memory - 1 * (1024**3)
         max_memory = {"cuda": f"{free_memory // (1024 ** 2)}MB"}
@@ -285,7 +283,7 @@ class ModelOffloader:
         max_memory: Optional[Dict[str, Union[int, str]]] = None,
         keep_in_cpu: Optional[List[str]] = None,
         keep_in_gpu: Optional[List[str]] = None,
-        use_all_cuda: bool = False
+        use_all_cuda: bool = False,
     ):
         """
         Initialise le gestionnaire d'offloading.
@@ -302,17 +300,19 @@ class ModelOffloader:
         self.keep_in_cpu = keep_in_cpu or []
         self.keep_in_gpu = keep_in_gpu or []
         self.use_all_cuda = use_all_cuda  # Nouvelle option pour forcer CUDA partout
-        
+
         # Définir les limites mémoire par défaut
         self.max_memory = max_memory or {
             "cpu": "16GB",
             "cuda": "6GB" if torch.cuda.is_available() else "0MB",
         }
-        
+
         # Forcer CUDA uniquement si demandé
         if use_all_cuda and torch.cuda.is_available():
             logger.info("Mode all-CUDA activé: tous les modules seront sur CUDA")
-            free_memory = torch.cuda.get_device_properties(0).total_memory - 1 * (1024**3)
+            free_memory = torch.cuda.get_device_properties(0).total_memory - 1 * (
+                1024**3
+            )
             self.max_memory = {"cuda": f"{free_memory // (1024 ** 2)}MB"}
 
         # Détecter la meilleure stratégie si 'auto' est sélectionné
@@ -377,30 +377,32 @@ class ModelOffloader:
                 logger.warning("CUDA non disponible, désactivation de l'offloading.")
                 self.strategy = "none"
                 return
-            
+
             try:
                 # Pour les modèles simples, on peut utiliser une approche all-CUDA
                 # pour éviter les problèmes de périphériques mixtes
                 if getattr(self, "use_all_cuda", False) or "cpu" not in self.max_memory:
-                    logger.info("Utilisation du mode all-CUDA pour éviter les problèmes de périphériques mixtes")
+                    logger.info(
+                        "Utilisation du mode all-CUDA pour éviter les problèmes de périphériques mixtes"
+                    )
                     self.model = self.model.cuda()
                     # Créer une carte de périphériques explicite
                     device_map = create_all_cuda_device_map(self.model)
-                    
+
                     # Application de la carte de périphériques
                     self._assign_modules_to_devices(device_map)
                     return
-                
+
                 # Continuer avec Accelerate normalement
                 from accelerate import infer_auto_device_map
-                
+
                 # Inférer une carte de périphériques optimal avec Accelerate
                 device_map = infer_auto_device_map(
                     self.model, max_memory=self.max_memory, no_split_module_classes=[]
                 )
-                
+
                 logger.info(f"Carte de périphériques inférée: {device_map}")
-                
+
                 # Application de la carte de périphériques
                 self._assign_modules_to_devices(device_map)
             except Exception as e:
@@ -424,21 +426,21 @@ class ModelOffloader:
     def _assign_modules_to_devices(self, device_map: Dict[str, str]):
         """
         Assigne les modules aux périphériques selon la carte fournie.
-        
+
         Args:
             device_map: Dictionnaire associant les noms de modules aux périphériques
         """
         if not device_map:
             logger.warning("Carte de périphériques vide, aucune assignation effectuée")
             return
-            
+
         # Compter les modules par périphérique pour le logging
         device_counts = {}
         for device in device_map.values():
             device_counts[device] = device_counts.get(device, 0) + 1
-            
+
         logger.info(f"Distribution des modules: {device_counts}")
-        
+
         # Parcourir la carte des périphériques et déplacer les modules
         for module_name, device in device_map.items():
             # Obtenir le module par son nom
@@ -448,7 +450,7 @@ class ModelOffloader:
                     module = self.model
                 else:
                     module = get_module_by_name(self.model, module_name)
-                
+
                 # Déplacer le module vers le périphérique approprié
                 module.to(device)
                 logger.debug(f"Module '{module_name}' déplacé vers {device}")
@@ -541,29 +543,29 @@ def create_all_cuda_device_map(model: torch.nn.Module) -> Dict[str, str]:
     """
     Crée une carte de périphériques où tous les modules sont sur CUDA.
     Utilisé pour résoudre les problèmes de périphériques mixtes avec Accelerate.
-    
+
     Args:
         model: Le modèle dont on veut mapper les modules
-        
+
     Returns:
         Un dictionnaire {nom_module: "cuda"} pour tous les modules du modèle
     """
     if not torch.cuda.is_available():
         logger.error("CUDA n'est pas disponible pour créer une carte all-CUDA")
         raise RuntimeError("CUDA n'est pas disponible")
-    
+
     # Créer un dictionnaire avec tous les modules sur CUDA
     device_map = {}
-    
+
     # Récupérer tous les noms de modules (premier niveau)
     for name, _ in model.named_children():
         device_map[name] = "cuda"
-    
+
     # Si le modèle a des sous-modules, les ajouter aussi
     for name, _ in model.named_modules():
         if "." in name:  # C'est un sous-module
             device_map[name] = "cuda"
-    
+
     logger.info(f"Carte de périphériques all-CUDA créée avec {len(device_map)} modules")
     return device_map
 

@@ -4,7 +4,6 @@ import tempfile
 import unittest
 
 import numpy as np
-import pytest
 import tensorflow as tf
 
 # Ajouter le répertoire parent au chemin pour importer les modules
@@ -196,14 +195,16 @@ class TestTransformerHybrid(unittest.TestCase):
 
         # Définir les objets personnalisés pour le chargement
         custom_objects = {
-            'TransformerGRUModel': TransformerGRUModel,
-            'TransformerLSTMModel': TransformerLSTMModel,
-            'TransformerBlock': TransformerBlock,
-            'PositionalEncoding': PositionalEncoding
+            "TransformerGRUModel": TransformerGRUModel,
+            "TransformerLSTMModel": TransformerLSTMModel,
+            "TransformerBlock": TransformerBlock,
+            "PositionalEncoding": PositionalEncoding,
         }
 
         # Charger le modèle avec les objets personnalisés
-        loaded_model = tf.keras.models.load_model(save_path, custom_objects=custom_objects)
+        loaded_model = tf.keras.models.load_model(
+            save_path, custom_objects=custom_objects
+        )
 
         # Calculer la sortie avec le modèle chargé
         loaded_output = loaded_model(self.test_input, training=False).numpy()

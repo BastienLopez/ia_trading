@@ -3,14 +3,9 @@ import sys
 import tempfile
 import time
 import unittest
-from datetime import datetime
 from pathlib import Path
 
 import matplotlib
-import numpy as np
-import pandas as pd
-import pytest
-import tensorflow as tf
 
 # Ajouter le répertoire parent au path pour importer les modules du projet
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
@@ -148,7 +143,7 @@ class TestTrain(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             # Créer l'environnement
             env = self._create_test_environment()
-            
+
             # Créer l'agent avec la taille d'état correcte
             state_size = env.observation_space.shape[0]
             action_size = env.action_space.n

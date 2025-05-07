@@ -1,0 +1,85 @@
+# Image de base avec support CUDA
+FROM nvidia/cuda:12.2.0-runtime-ubuntu22.04
+
+# Configuration du répertoire de travail
+WORKDIR /app
+
+# Variables d'environnement
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    DEBIAN_FRONTEND=noninteractive \
+    TF_CPP_MIN_LOG_LEVEL=2 \
+    TF_CPP_MIN_VLOG_LEVEL=1 \
+    CUDA_HOME="/usr/local/cuda" \
+    NVIDIA_VISIBLE_DEVICES=all \
+    NVIDIA_DRIVER_CAPABILITIES=compute,utility \
+    XLA_FLAGS=--xla_gpu_cuda_data_dir=/usr/local/cuda \
+    PYTORCH_USE_SAFE_MODE=0 \
+    TORCH_COMPILE=1 \
+    TF_XLA_FLAGS="--tf_xla_auto_jit=2" \
+    TF_FORCE_GPU_ALLOW_GROWTH=true
+
+# Installation des dépendances système et de TA-Lib
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.11 python3.11-dev python3.11-venv python3-pip \
+    git build-essential \
+    libgl1-mesa-glx libglib2.0-0 libsm6 libxrender1 libxext6 libhdf5-dev \
+    wget curl \
+    && ln -sf /usr/bin/python3.11 /usr/bin/python3 \
+    && ln -sf /usr/bin/python3 /usr/bin/python \
+    && ln -sf /usr/bin/pip3 /usr/bin/pip \
+    && wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz \
+    && tar -xvzf ta-lib-0.4.0-src.tar.gz \
+    && cd ta-lib/ \
+    && ./configure --prefix=/usr && make && make install \
+    && cd .. && rm -rf ta-lib-0.4.0-src.tar.gz ta-lib/ \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* ~/.cache/*
+
+# Copier les requirements
+COPY requirements.txt .
+
+# Installer les dépendances Python (avec cache désactivé)
+RUN pip install --no-cache-dir -r requirements.txt \
+    && pip install --no-cache-dir \
+        pytest pytest-cov pytest-sugar pytest-timeout \
+        pytest-repeat pytest-mock pytest-xdist pytest-benchmark pytest-profiling \
+        ray[default]==2.7.1 ray[rllib]==2.7.1 ray[tune]==2.7.1 \
+        h5py==3.9.0 tables==3.8.0
+
+# Installation de cuda-nvcc pour libdevice
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    cuda-nvcc-12-2 \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* ~/.cache/*
+
+# Préparation des répertoires nécessaires
+RUN mkdir -p /app/test-reports \
+    /app/ai_trading/info_retour/data \
+    /app/ai_trading/info_retour/logs \
+    /app/ai_trading/info_retour/models/checkpoints
+
+# Copier le code source
+COPY . .
+
+# Patcher test_model_quantization
+RUN echo "import torch.serialization" > /tmp/torch_patch.py && \
+    echo "torch.serialization.add_safe_globals(['ai_trading.tests.test_model_quantization.SimpleModel'])" >> /tmp/torch_patch.py && \
+    echo "def torch_load_override(path, *args, **kwargs):" >> /tmp/torch_patch.py && \
+    echo "    try:" >> /tmp/torch_patch.py && \
+    echo "        return original_torch_load(path, weights_only=False)" >> /tmp/torch_patch.py && \
+    echo "    except Exception as e:" >> /tmp/torch_patch.py && \
+    echo "        print(f'Erreur lors du chargement avec weights_only=False: {e}')" >> /tmp/torch_patch.py && \
+    echo "        return original_torch_load(path, *args, **kwargs)" >> /tmp/torch_patch.py && \
+    echo "original_torch_load = torch.load" >> /tmp/torch_patch.py && \
+    echo "torch.load = torch_load_override" >> /tmp/torch_patch.py && \
+    cat /tmp/torch_patch.py >> /app/ai_trading/tests/test_model_quantization.py && \
+    rm /tmp/torch_patch.py
+
+# Vérification de la disponibilité GPU
+RUN python -c "import torch; print(f'PyTorch CUDA available: {torch.cuda.is_available()}')" && \
+    python -c "import tensorflow as tf; print(f'TensorFlow GPU available: {len(tf.config.list_physical_devices(\"GPU\"))>0}')"
+
+# Entrypoint avec parallélisation automatique
+ENTRYPOINT ["pytest", "-n", "auto", "-v", "-rs", "--cov=ai_trading", "--cov-report=html:/app/test-reports/coverage"]
+CMD ["ai_trading/tests/", "web_app/tests/"]

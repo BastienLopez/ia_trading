@@ -29,7 +29,6 @@ from ai_trading.utils.onnx_exporter import (
 
 # Vérifier si ONNX est installé
 try:
-    import onnx
     import onnxruntime as ort
 
     HAVE_ONNX = True
@@ -43,6 +42,7 @@ EXAMPLES_OUTPUT_DIR = INFO_RETOUR_DIR / "examples" / "onnx_export"
 
 # S'assurer que le répertoire existe
 os.makedirs(EXAMPLES_OUTPUT_DIR, exist_ok=True)
+
 
 # Définition d'un modèle de politique simple pour l'exemple
 class SimplePolicyNetwork(nn.Module):
@@ -229,8 +229,12 @@ def main(args):
     print("=" * 80)
 
     # Définir le répertoire de sortie
-    output_dir = EXAMPLES_OUTPUT_DIR / "models" if args.output_dir == "onnx_models" else Path(args.output_dir)
-    
+    output_dir = (
+        EXAMPLES_OUTPUT_DIR / "models"
+        if args.output_dir == "onnx_models"
+        else Path(args.output_dir)
+    )
+
     # Créer le répertoire de sortie
     os.makedirs(output_dir, exist_ok=True)
 
@@ -252,9 +256,7 @@ def main(args):
         # Utiliser directement la classe ONNXExporter
         print("\nExportation directe avec ONNXExporter...")
 
-        exporter = ONNXExporter(
-            output_dir=output_dir, device="cpu", opset_version=12
-        )
+        exporter = ONNXExporter(output_dir=output_dir, device="cpu", opset_version=12)
 
         onnx_model_path = exporter.export_pytorch_model(
             model=model,

@@ -1,21 +1,19 @@
+import io
 import os
-import sys
-import unittest
-from unittest.mock import MagicMock, patch
 import tempfile
+import unittest
+
 import numpy as np
 import pandas as pd
-import pytest
-import io
 
 # Importer les composants réellement disponibles
 from ai_trading.data.compressed_storage import (
     CompressedStorage,
-    dataframe_to_compressed, 
     compressed_to_dataframe,
-    get_compression_info,
-    optimize_compression_level
+    dataframe_to_compressed,
+    optimize_compression_level,
 )
+
 
 # La classe de test n'a plus besoin d'être conditionnellement ignorée
 class TestCompressedStorage(unittest.TestCase):
@@ -42,15 +40,15 @@ class TestCompressedStorage(unittest.TestCase):
         """Test de la sauvegarde et du chargement d'un DataFrame."""
         # Utiliser dataframe_to_compressed et compressed_to_dataframe au lieu de save_frame
         output_path = os.path.join(self.temp_dir, "test_frame.zst")
-        
+
         # Sauvegarder le DataFrame en utilisant la fonction disponible
-        dataframe_to_compressed(self.test_data, output_path, format='parquet')
+        dataframe_to_compressed(self.test_data, output_path, format="parquet")
 
         # Vérifier que le fichier a été créé
         self.assertTrue(os.path.exists(output_path))
 
-            # Charger le DataFrame
-        loaded_data = compressed_to_dataframe(output_path, format='parquet')
+        # Charger le DataFrame
+        loaded_data = compressed_to_dataframe(output_path, format="parquet")
 
         # Vérifier que les données sont identiques
         pd.testing.assert_frame_equal(self.test_data, loaded_data)
@@ -59,7 +57,7 @@ class TestCompressedStorage(unittest.TestCase):
         """Test de la sauvegarde et du chargement de métadonnées JSON."""
         metadata = {"source": "test", "version": 1}
         output_path = os.path.join(self.temp_dir, "metadata.json.zst")
-        
+
         # Utiliser la méthode save_json de CompressedStorage
         self.storage.save_json(metadata, output_path)
 
@@ -86,7 +84,7 @@ class TestCompressedStorage(unittest.TestCase):
 
         # Décompresser les données
         decompressed_data = self.storage.decompress_data(compressed_data)
-        
+
         # Charger à nouveau dans un DataFrame et vérifier
         buffer = io.BytesIO(decompressed_data)
         df_decompressed = pd.read_parquet(buffer)
@@ -98,9 +96,9 @@ class TestCompressedStorage(unittest.TestCase):
         buffer = io.BytesIO()
         self.test_data.to_parquet(buffer)
         data_bytes = buffer.getvalue()
-        
+
         sizes = {}
-        
+
         # Tester différents niveaux de compression
         for level in [1, 5, 10]:
             # Créer un nouveau CompressedStorage avec le niveau spécifié
@@ -108,18 +106,18 @@ class TestCompressedStorage(unittest.TestCase):
 
             # Compresser les données
             compressed = storage.compress_data(data_bytes)
-            
+
             # Stocker la taille pour comparaison
             sizes[level] = len(compressed)
 
             # Décompresser et vérifier
             decompressed = storage.decompress_data(compressed)
-            
+
             # Charger à nouveau dans un DataFrame et vérifier
             buffer = io.BytesIO(decompressed)
             df_decompressed = pd.read_parquet(buffer)
             pd.testing.assert_frame_equal(self.test_data, df_decompressed)
-        
+
         # Vérifier que niveau supérieur = meilleure compression (taille plus petite)
         self.assertLessEqual(sizes[10], sizes[5])
         self.assertLessEqual(sizes[5], sizes[1])
@@ -136,12 +134,12 @@ class TestCompressedStorage(unittest.TestCase):
         # Vérifier le résultat
         self.assertIn(best_level, [1, 3])
         self.assertEqual(len(results), 2)  # Deux niveaux testés
-        
+
         # Vérifier que les résultats contiennent les métriques attendues
         for level in [1, 3]:
             self.assertIn(level, results)
-            self.assertIn('compression_ratio', results[level])
-            self.assertIn('compression_time', results[level])
+            self.assertIn("compression_ratio", results[level])
+            self.assertIn("compression_time", results[level])
 
 
 if __name__ == "__main__":

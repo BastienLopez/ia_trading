@@ -84,7 +84,7 @@ class NoisyLinear(nn.Module):
         # Assurer que x est en float32 pour éviter les incompatibilités de type
         if x.dtype != torch.float32:
             x = x.float()
-            
+
         if training:
             # Reset du bruit à chaque forward
             self.reset_noise()

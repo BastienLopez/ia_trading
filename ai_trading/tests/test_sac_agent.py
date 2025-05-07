@@ -18,9 +18,11 @@ import pandas as pd
 import tensorflow as tf
 
 # Filtres pour ignorer les avertissements de dépréciation connus
-warnings.filterwarnings("ignore", message=".*distutils Version classes are deprecated.*")
+warnings.filterwarnings(
+    "ignore", message=".*distutils Version classes are deprecated.*"
+)
 warnings.filterwarnings("ignore", message=".*'imghdr' is deprecated.*")
-warnings.filterwarnings("ignore", message=".*tensorflow.*deprecated.*") 
+warnings.filterwarnings("ignore", message=".*tensorflow.*deprecated.*")
 
 # Configurer le logger pour les tests
 logging.basicConfig(level=logging.INFO)
@@ -240,9 +242,12 @@ class TestSACAgent(unittest.TestCase):
             self.assertEqual(len(self.agent.replay_buffer), initial_size + 1)
 
             # Échantillonner un lot si possible
-            if hasattr(self.agent.replay_buffer, "sample") and len(self.agent.replay_buffer) >= self.agent.batch_size:
+            if (
+                hasattr(self.agent.replay_buffer, "sample")
+                and len(self.agent.replay_buffer) >= self.agent.batch_size
+            ):
                 batch = self.agent.replay_buffer.sample(self.agent.batch_size)
-                
+
                 # Vérifier que le lot a le bon format (peut varier selon l'implémentation)
                 self.assertIsNotNone(batch)
                 if isinstance(batch, tuple) and len(batch) == 5:

@@ -5,18 +5,13 @@ import unittest
 
 import numpy as np
 import pandas as pd
-import pytest
 
 # Ajouter le répertoire parent au chemin pour pouvoir importer les modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from ai_trading.rl.data_integration import RLDataIntegrator
 from ai_trading.rl.dqn_agent import DQNAgent
-from ai_trading.rl.evaluation import (
-    PerformanceMetrics,
-    PerformanceVisualizer,
-    evaluate_agent,
-)
+from ai_trading.rl.evaluation import PerformanceMetrics, PerformanceVisualizer
 from ai_trading.rl.trading_environment import TradingEnvironment
 
 
@@ -120,35 +115,41 @@ class TestEvaluation(unittest.TestCase):
 
         # Obtenir la taille de l'état à partir de l'environnement
         initial_state = env.reset()
-        
+
         # Gérer les différentes versions de Gymnasium/Gym qui pourraient retourner un tuple ou juste l'état
         if isinstance(initial_state, tuple):
             state_array = initial_state[0]  # Nouvelle API Gymnasium (state, info)
         else:
             state_array = initial_state  # Ancienne API Gym
-        
+
         # Vérifier si l'état est un dictionnaire (interface Dict d'observation)
         if isinstance(state_array, dict):
-            state_size = sum(space.shape[0] if hasattr(space, 'shape') and len(space.shape) > 0 else 1 
-                            for space in state_array.values())
-        elif hasattr(state_array, 'shape'):
+            state_size = sum(
+                (
+                    space.shape[0]
+                    if hasattr(space, "shape") and len(space.shape) > 0
+                    else 1
+                )
+                for space in state_array.values()
+            )
+        elif hasattr(state_array, "shape"):
             state_size = state_array.shape[0]  # Tableau numpy
         else:
             # Si c'est une liste ou un autre type itérable
             state_size = len(state_array)
-            
+
         # Vérifier que l'état a la bonne forme pour l'agent
-        if hasattr(state_array, 'flatten'):
+        if hasattr(state_array, "flatten"):
             flattened_state = state_array.flatten()
             actual_state_size = len(flattened_state)
         else:
             # Si ce n'est pas un tableau numpy, essayer de le convertir
             flattened_state = np.array(state_array, dtype=np.float32).flatten()
             actual_state_size = len(flattened_state)
-            
+
         # S'assurer que state_size correspond à la taille réelle de l'état
         state_size = actual_state_size
-            
+
         # Créer l'agent avec la taille d'état correcte
         agent = DQNAgent(
             state_size=state_size,
@@ -163,7 +164,7 @@ class TestEvaluation(unittest.TestCase):
         portfolio_history = np.linspace(10000, 12000, 50)
         actions = np.random.randint(0, env.action_space.n, size=50)
         rewards = np.random.normal(0, 1, size=50)
-        
+
         # Créer un dictionnaire de résultats simulés
         results = {
             "final_value": portfolio_history[-1],
@@ -189,27 +190,28 @@ class TestEvaluation(unittest.TestCase):
         """Teste la création d'un tableau de bord de performance."""
         # Utiliser le backend non-interactif pour éviter les problèmes de tkinter
         import matplotlib
+
         matplotlib.use("Agg")
 
         # Recréer l'agent avec le bon state_size
         env = self.create_test_environment()
         initial_state = env.reset()
-        
+
         # Gérer les différentes versions de Gymnasium/Gym
         if isinstance(initial_state, tuple):
             state_array = initial_state[0]
         else:
             state_array = initial_state
-            
+
         # Vérifier que l'état a la bonne forme pour l'agent
-        if hasattr(state_array, 'flatten'):
+        if hasattr(state_array, "flatten"):
             flattened_state = state_array.flatten()
             state_size = len(flattened_state)
         else:
             # Si ce n'est pas un tableau numpy, essayer de le convertir
             flattened_state = np.array(state_array, dtype=np.float32).flatten()
             state_size = len(flattened_state)
-            
+
         # Créer l'agent avec la taille d'état correcte
         agent = DQNAgent(
             state_size=state_size,
@@ -227,13 +229,13 @@ class TestEvaluation(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             # Créer un visualiseur
             visualizer = PerformanceVisualizer(save_dir=temp_dir)
-            
+
             # Au lieu d'appeler evaluate_agent, créer directement un dictionnaire de résultats
             # pour éviter les problèmes d'incompatibilité
             portfolio_history = np.linspace(10000, 12000, 50)
             actions = np.random.randint(0, env.action_space.n, size=50)
             rewards = np.random.normal(0, 1, size=50)
-            
+
             # Créer un dictionnaire de résultats
             results = {
                 "final_value": portfolio_history[-1],
@@ -245,10 +247,12 @@ class TestEvaluation(unittest.TestCase):
                 "rewards": rewards,
                 "trades": None,
             }
-            
+
             # Utiliser les 100 derniers jours de données pour les dates
-            dates = pd.date_range(start="2023-01-01", periods=len(portfolio_history), freq="D")
-            
+            dates = pd.date_range(
+                start="2023-01-01", periods=len(portfolio_history), freq="D"
+            )
+
             # Vérifier que les dimensions correspondent maintenant
             self.assertEqual(len(dates), len(portfolio_history))
             self.assertEqual(len(actions), len(portfolio_history))

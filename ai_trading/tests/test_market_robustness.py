@@ -210,7 +210,7 @@ class TestRobustnessEvaluator:
         # Vérifier les résultats - tenir compte du scénario de base inclus
         assert len(stress_results) == len(scenarios) + 1  # +1 pour le scénario de base
         assert "base" in stress_results
-        
+
         for scenario_name, results in stress_results.items():
             assert results is not None
             assert "mean_return" in results

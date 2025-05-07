@@ -3,15 +3,14 @@
 
 """
 Module d'optimisation DeepSpeed pour les modèles RL lourds et les LLMs.
-Permet de réduire drastiquement l'utilisation mémoire et d'accélérer l'entraînement des grands 
+Permet de réduire drastiquement l'utilisation mémoire et d'accélérer l'entraînement des grands
 modèles.
 """
 
 import json
 import logging
 import os
-from typing import Any, Dict, Optional, Tuple, List
-from pathlib import Path
+from typing import Any, Dict, Optional
 
 import torch
 import torch.nn as nn
@@ -32,6 +31,7 @@ logger = logging.getLogger(__name__)
 HAVE_DEEPSPEED = False
 try:
     import deepspeed
+
     HAVE_DEEPSPEED = True
 except ImportError:
     logger.warning(
@@ -41,10 +41,11 @@ except ImportError:
         "En mode compatibilité - certaines fonctionnalités avancées ne seront pas disponibles."
     )
 
+
 # Classe DeepSpeedStub pour fournir une compatibilité quand DeepSpeed n'est pas installé
 class DeepSpeedStub:
     """Implémentation minimale de compatibilité pour DeepSpeed."""
-    
+
     @staticmethod
     def initialize(*args, **kwargs):
         """Stub pour deepspeed.initialize"""
@@ -53,60 +54,62 @@ class DeepSpeedStub:
         model_wrapped = DeepSpeedModelStub(model, optimizer)
         return model_wrapped, None, None, None
 
+
 class DeepSpeedModelStub:
     """Stub pour le modèle DeepSpeed."""
-    
+
     def __init__(self, model, optimizer=None):
         self.model = model
         self.optimizer = optimizer
         self.device = torch.device("cpu")
-    
+
     def __call__(self, *args, **kwargs):
         return self.model(*args, **kwargs)
-    
+
     def eval(self):
         self.model.eval()
         return self
-    
+
     def train(self):
         self.model.train()
         return self
-    
+
     def backward(self, loss):
         if self.optimizer:
             # Vérifier si la loss a requires_grad avant d'appeler backward
             # Si non, ne rien faire pour éviter l'erreur
-            if hasattr(loss, 'requires_grad') and loss.requires_grad:
+            if hasattr(loss, "requires_grad") and loss.requires_grad:
                 loss.backward()
             else:
                 # Simuler un backward sans erreur pour les tests
                 pass
-    
+
     def step(self):
         if self.optimizer:
             self.optimizer.step()
             self.optimizer.zero_grad()
-    
+
     def save_checkpoint(self, checkpoint_path, client_state=None):
         state_dict = self.model.state_dict()
         os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
         torch.save(state_dict, os.path.join(checkpoint_path, "model.pt"))
         if client_state:
             torch.save(client_state, os.path.join(checkpoint_path, "client_state.pt"))
-    
+
     def load_checkpoint(self, checkpoint_path):
         model_path = os.path.join(checkpoint_path, "model.pt")
         client_state_path = os.path.join(checkpoint_path, "client_state.pt")
-        
+
         if os.path.exists(model_path):
             state_dict = torch.load(model_path)
             self.model.load_state_dict(state_dict)
-        
+
         client_state = {}
         if os.path.exists(client_state_path):
             client_state = torch.load(client_state_path)
-        
+
         return None, client_state
+
 
 # Utiliser le stub si DeepSpeed n'est pas disponible
 if not HAVE_DEEPSPEED:
@@ -162,11 +165,17 @@ class DeepSpeedOptimizer:
         self.checkpoint_dir = checkpoint_dir
 
         # Initialiser le processus distribué si nécessaire
-        if local_rank != -1 and hasattr(dist, 'is_initialized') and not dist.is_initialized():
+        if (
+            local_rank != -1
+            and hasattr(dist, "is_initialized")
+            and not dist.is_initialized()
+        ):
             try:
                 dist.init_process_group(backend="nccl")
             except Exception as e:
-                logger.warning(f"Impossible d'initialiser le groupe de processus distribués: {e}")
+                logger.warning(
+                    f"Impossible d'initialiser le groupe de processus distribués: {e}"
+                )
 
         # Créer la configuration DeepSpeed
         ds_config = self._create_ds_config(
@@ -431,7 +440,11 @@ def create_deepspeed_config(
         },
         "scheduler": {
             "type": "WarmupLR",
-            "params": {"warmup_min_lr": 0, "warmup_max_lr": 3e-4, "warmup_num_steps": 500},
+            "params": {
+                "warmup_min_lr": 0,
+                "warmup_max_lr": 3e-4,
+                "warmup_num_steps": 500,
+            },
         },
         "gradient_clipping": max_grad_norm,
         "wall_clock_breakdown": False,

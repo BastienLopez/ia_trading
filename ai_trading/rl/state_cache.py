@@ -120,7 +120,7 @@ class StateCache:
         # Vérifier d'abord si les types sont différents
         if type(state1) != type(state2):
             return False
-            
+
         # Cas PyTorch
         if isinstance(state1, torch.Tensor) and isinstance(state2, torch.Tensor):
             # Vérifier si les dimensions correspondent

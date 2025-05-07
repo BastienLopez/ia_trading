@@ -337,12 +337,12 @@ def train_agent(
     for e in tqdm(range(episodes), desc="Entraînement"):
         # Réinitialiser l'environnement
         reset_result = env.reset()
-        
+
         # Gérer le cas où reset() retourne (state, info) ou juste state
         if isinstance(reset_result, tuple) and len(reset_result) == 2:
             state, _ = reset_result  # Nouvelle API: (state, info)
         else:
-            state = reset_result     # Ancienne API: state
+            state = reset_result  # Ancienne API: state
 
         # Vérifier si la taille de l'état retourné est différente de celle attendue par l'agent
         actual_state_size = len(state)
@@ -358,7 +358,7 @@ def train_agent(
                 state = padded_state
             else:
                 # Tronquer si l'état est plus grand
-                state = state[:agent.state_size]
+                state = state[: agent.state_size]
 
         # Redimensionner l'état en utilisant la taille de l'état de l'agent
         # qui a été mise à jour si nécessaire
@@ -380,7 +380,7 @@ def train_agent(
 
             # Exécuter l'action
             step_result = env.step(action)
-            
+
             # Gérer le cas où step() retourne 5 valeurs ou 4 valeurs
             if len(step_result) == 5:
                 # Nouvelle API: (next_state, reward, terminated, truncated, info)
@@ -401,7 +401,7 @@ def train_agent(
                     next_state = padded_state
                 else:
                     # Tronquer si l'état est plus grand
-                    next_state = next_state[:agent.state_size]
+                    next_state = next_state[: agent.state_size]
 
             # Redimensionner l'état suivant en utilisant la taille de l'état de l'agent
             next_state = np.reshape(next_state, [1, agent.state_size])

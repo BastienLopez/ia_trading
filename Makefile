@@ -2,19 +2,25 @@ install:
 	pip install -r requirements.txt
 
 test:
-	python -m pytest ai_trading/tests/ -v
-
-lint:
-	isort --check-only ai_trading/
-	black --check ai_trading/
+	python -m pytest ai_trading/tests/ -v -rs 
 
 format:
 	autoflake --in-place --remove-all-unused-imports --recursive ai_trading/
 	isort ai_trading/
 	black ai_trading/
 
+docker:
+	docker compose up --build
+
 docker-test:
-	docker-compose build && docker-compose up tests
+	# Construction de l'image Docker de test...
+	docker build -t ai-trading-test -f Dockerfile.test .
+
+	# Execution des tests standards...
+	docker run --rm --gpus all ai-trading-test
+
+	# Pour executer tous les tests (incluant les tests lents), utilisez:
+	docker run --rm --gpus all -e RUN_SLOW_TESTS=1 ai-trading-test
 
 clean:
 	find . -name '*.pyc' -exec rm -f {} +

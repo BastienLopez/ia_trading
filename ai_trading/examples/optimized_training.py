@@ -6,7 +6,6 @@ pour l'entraînement des modèles financiers.
 import logging
 import time
 from pathlib import Path
-import os
 
 import matplotlib.pyplot as plt
 import numpy as np

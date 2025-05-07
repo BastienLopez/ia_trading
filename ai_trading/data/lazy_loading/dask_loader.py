@@ -6,57 +6,56 @@ Module pour le chargement paresseux avec Dask.
 Fournit des fonctions et des classes pour charger et traiter efficacement de grands ensembles de données.
 """
 
-import os
 import logging
+import os
 from pathlib import Path
-from typing import Dict, List, Optional, Union, Any, Callable, Tuple
-import random
+from typing import Callable, List, Optional, Tuple, Union
 
 import numpy as np
-import pandas as pd
 import torch
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader, Dataset
 
 # Configuration du logger
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
 logger = logging.getLogger(__name__)
 
 try:
-    import dask
     import dask.dataframe as dd
-    from dask.delayed import delayed
+
     HAVE_DASK = True
 except ImportError:
-    logger.error("Dask n'est pas installé. Veuillez l'installer avec: pip install 'dask[complete]'")
+    logger.error(
+        "Dask n'est pas installé. Veuillez l'installer avec: pip install 'dask[complete]'"
+    )
     HAVE_DASK = False
 
 
 def read_csv_lazy(
-    path: Union[str, Path], 
-    blocksize: Optional[int] = None,
-    **kwargs
+    path: Union[str, Path], blocksize: Optional[int] = None, **kwargs
 ) -> "dd.DataFrame":
     """
     Lit un fichier CSV de manière paresseuse avec Dask.
-    
+
     Args:
         path: Chemin vers le fichier CSV ou dossier contenant plusieurs CSV
         blocksize: Taille des blocs pour la lecture paresseuse (None = auto)
         **kwargs: Arguments supplémentaires passés à dd.read_csv
-        
+
     Returns:
         DataFrame Dask contenant les données
     """
     if not HAVE_DASK:
         raise ImportError("Dask est requis pour utiliser cette fonction.")
-    
+
     if isinstance(path, Path):
         path = str(path)
-    
+
     # Déterminer si c'est un fichier ou un dossier
     if os.path.isdir(path):
         # Lire tous les CSV dans le dossier
-        pattern = os.path.join(path, '*.csv')
+        pattern = os.path.join(path, "*.csv")
         return dd.read_csv(pattern, blocksize=blocksize, **kwargs)
     else:
         # Lire un seul fichier
@@ -71,28 +70,28 @@ def read_parquet_lazy(
 ) -> "dd.DataFrame":
     """
     Lit un fichier Parquet de manière paresseuse avec Dask.
-    
+
     Args:
         path: Chemin vers le fichier ou dossier Parquet
         columns: Liste des colonnes à lire (None = toutes)
         filters: Filtres à appliquer lors de la lecture
         **kwargs: Arguments supplémentaires passés à dd.read_parquet
-        
+
     Returns:
         DataFrame Dask contenant les données
     """
     if not HAVE_DASK:
         raise ImportError("Dask est requis pour utiliser cette fonction.")
-    
+
     if isinstance(path, Path):
         path = str(path)
-    
+
     return dd.read_parquet(path, columns=columns, filters=filters, **kwargs)
 
 
 class DaskDataset(Dataset):
     """Dataset PyTorch basé sur un DataFrame Dask pour le chargement paresseux."""
-    
+
     def __init__(
         self,
         ddf: "dd.DataFrame",
@@ -101,11 +100,11 @@ class DaskDataset(Dataset):
         transform: Optional[Callable] = None,
         target_transform: Optional[Callable] = None,
         npartitions: Optional[int] = None,
-        compute_meta: bool = True
+        compute_meta: bool = True,
     ):
         """
         Initialise le dataset Dask.
-        
+
         Args:
             ddf: DataFrame Dask
             feature_columns: Liste des colonnes à utiliser comme features
@@ -117,23 +116,23 @@ class DaskDataset(Dataset):
         """
         if not HAVE_DASK:
             raise ImportError("Dask est requis pour utiliser cette classe.")
-        
+
         # Repartitionner si nécessaire
         if npartitions is not None and npartitions != ddf.npartitions:
             self.ddf = ddf.repartition(npartitions=npartitions)
         else:
             self.ddf = ddf
-        
+
         # Colonnes de features et cible
         self.feature_columns = feature_columns or list(ddf.columns)
         if target_column and target_column in self.feature_columns:
             self.feature_columns.remove(target_column)
         self.target_column = target_column
-        
+
         # Transformations
         self.transform = transform
         self.target_transform = target_transform
-        
+
         # Calculer la longueur et les métadonnées si demandé
         if compute_meta:
             self._length = len(self.ddf)
@@ -141,20 +140,22 @@ class DaskDataset(Dataset):
         else:
             self._length = None
             self._meta = None
-    
+
     def __len__(self) -> int:
         """Retourne le nombre d'éléments dans le dataset."""
         if self._length is None:
             self._length = len(self.ddf)
         return self._length
-    
-    def __getitem__(self, idx: int) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+
+    def __getitem__(
+        self, idx: int
+    ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         """
         Récupère un élément du dataset.
-        
+
         Args:
             idx: Index de l'élément à récupérer
-            
+
         Returns:
             Tenseur de features ou tuple (features, target)
         """
@@ -162,37 +163,41 @@ class DaskDataset(Dataset):
         partition_idx = self.ddf.partitions.npartitions_without_index
         if partition_idx is not None:
             # Trouver la partition qui contient cet index
-            row = self.ddf.partitions[idx // partition_idx].iloc[idx % partition_idx].compute()
+            row = (
+                self.ddf.partitions[idx // partition_idx]
+                .iloc[idx % partition_idx]
+                .compute()
+            )
         else:
             # Fallback si nous ne connaissons pas la structure des partitions
             row = self.ddf.iloc[idx].compute()
-        
+
         # Extraire les features
         features = row[self.feature_columns].values.astype(np.float32)
         features_tensor = torch.tensor(features)
-        
+
         # Appliquer la transformation des features si spécifiée
         if self.transform:
             features_tensor = self.transform(features_tensor)
-        
+
         # Si pas de cible, retourner seulement les features
         if self.target_column is None:
             return features_tensor
-        
+
         # Extraire la cible
         target = row[self.target_column]
         target_tensor = torch.tensor(float(target))
-        
+
         # Appliquer la transformation de la cible si spécifiée
         if self.target_transform:
             target_tensor = self.target_transform(target_tensor)
-        
+
         return features_tensor, target_tensor
 
 
 class DaskDataLoader(DataLoader):
     """DataLoader optimisé pour les datasets Dask."""
-    
+
     def __init__(
         self,
         ddf: "dd.DataFrame",
@@ -210,7 +215,7 @@ class DaskDataLoader(DataLoader):
     ):
         """
         Initialise le DataLoader Dask.
-        
+
         Args:
             ddf: DataFrame Dask
             batch_size: Taille des batchs
@@ -227,13 +232,13 @@ class DaskDataLoader(DataLoader):
         """
         if not HAVE_DASK:
             raise ImportError("Dask est requis pour utiliser cette classe.")
-        
+
         # Optimiser le nombre de partitions en fonction de la taille de batch et du nombre de workers
         if npartitions is None:
             # Heuristique : 2-4 partitions par worker est souvent optimal
             optimal_partitions = max(1, num_workers * 2)
             npartitions = min(optimal_partitions, ddf.npartitions)
-        
+
         # Créer le dataset
         dataset = DaskDataset(
             ddf=ddf,
@@ -241,9 +246,9 @@ class DaskDataLoader(DataLoader):
             target_column=target_column,
             transform=transform,
             target_transform=target_transform,
-            npartitions=npartitions
+            npartitions=npartitions,
         )
-        
+
         # Initialiser le DataLoader parent
         super().__init__(
             dataset=dataset,
@@ -253,4 +258,4 @@ class DaskDataLoader(DataLoader):
             pin_memory=pin_memory,
             drop_last=drop_last,
             **kwargs
-        ) 
+        )

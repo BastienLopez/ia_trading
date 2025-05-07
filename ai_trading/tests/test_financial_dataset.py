@@ -7,7 +7,6 @@ import tempfile
 import unittest
 from pathlib import Path
 
-import pytest
 import torch
 
 from ai_trading.data.financial_dataset import FinancialDataset, get_financial_dataloader
@@ -15,8 +14,6 @@ from ai_trading.data.synthetic_data_generator import generate_synthetic_market_d
 
 # Vérifier si les modules optionnels existent
 try:
-    import pyarrow
-    import pyarrow.parquet
     HAVE_PYARROW = True
     print("Module PyArrow disponible")
 except ImportError:
@@ -24,8 +21,6 @@ except ImportError:
     print("Module PyArrow non disponible")
 
 try:
-    import h5py
-    import tables
     HAVE_HDF5 = True
     print("Module h5py disponible")
 except ImportError:
@@ -34,6 +29,7 @@ except ImportError:
 
 try:
     from ai_trading.data.data_optimizers import convert_to_hdf5, convert_to_parquet
+
     HAVE_OPTIMIZERS = True
     print("Module optimizers disponible")
 except ImportError:
@@ -76,9 +72,7 @@ class TestFinancialDataset(unittest.TestCase):
         # Essayer de sauvegarder dans d'autres formats si les modules sont disponibles
         if HAVE_OPTIMIZERS and HAVE_PYARROW:
             try:
-                convert_to_parquet(
-                    self.synthetic_data, self.parquet_path
-                )
+                convert_to_parquet(self.synthetic_data, self.parquet_path)
             except Exception as e:
                 print(f"Erreur lors de la conversion Parquet: {e}")
                 self.parquet_path = None
@@ -137,53 +131,55 @@ class TestFinancialDataset(unittest.TestCase):
         sequence, target = dataset[0]
         self.assertEqual(sequence.shape[0], self.sequence_length)
 
-    @unittest.skipIf(
-        not HAVE_PYARROW,
-        "Module PyArrow non disponible"
-    )
+    @unittest.skipIf(not HAVE_PYARROW, "Module PyArrow non disponible")
     def test_init_from_parquet(self):
         """Tester l'initialisation à partir d'un fichier Parquet."""
         if not HAVE_PYARROW:
             self.skipTest("Module PyArrow non disponible")
-            
+
         # Créer directement un fichier Parquet simplifiée sans utiliser les fonctionnalités d'optimisation
         self.parquet_path = os.path.join(self.temp_path, "data_simple.parquet")
         try:
             # Utiliser pandas directement pour écrire le fichier Parquet
             self.synthetic_data.to_parquet(self.parquet_path)
-            
+
             # Vérifier que le fichier a été créé
-            self.assertTrue(os.path.exists(self.parquet_path), "Le fichier Parquet n'a pas été créé")
-            
+            self.assertTrue(
+                os.path.exists(self.parquet_path), "Le fichier Parquet n'a pas été créé"
+            )
+
             # Utiliser le fichier avec FinancialDataset
             dataset = FinancialDataset(
-                data=self.parquet_path, sequence_length=self.sequence_length, is_train=True
+                data=self.parquet_path,
+                sequence_length=self.sequence_length,
+                is_train=True,
             )
 
             # Récupérer un exemple et vérifier sa forme
             sequence, target = dataset[0]
             self.assertEqual(sequence.shape[0], self.sequence_length)
         except Exception as e:
-            self.skipTest(f"Erreur lors de la création ou du chargement du fichier Parquet: {e}")
+            self.skipTest(
+                f"Erreur lors de la création ou du chargement du fichier Parquet: {e}"
+            )
 
-    @unittest.skipIf(
-        not HAVE_HDF5,
-        "Module h5py non disponible"
-    )
+    @unittest.skipIf(not HAVE_HDF5, "Module h5py non disponible")
     def test_init_from_hdf5(self):
         """Tester l'initialisation à partir d'un fichier HDF5."""
         if not HAVE_HDF5:
             self.skipTest("Module h5py non disponible")
-            
+
         # Créer directement un fichier HDF5 simplifié sans utiliser les fonctionnalités d'optimisation
         self.hdf5_path = os.path.join(self.temp_path, "data_simple.h5")
         try:
             # Utiliser pandas directement pour écrire le fichier HDF5
             self.synthetic_data.to_hdf(self.hdf5_path, key="data", mode="w")
-            
+
             # Vérifier que le fichier a été créé
-            self.assertTrue(os.path.exists(self.hdf5_path), "Le fichier HDF5 n'a pas été créé")
-            
+            self.assertTrue(
+                os.path.exists(self.hdf5_path), "Le fichier HDF5 n'a pas été créé"
+            )
+
             # Utiliser le fichier avec FinancialDataset
             dataset = FinancialDataset(
                 data=self.hdf5_path, sequence_length=self.sequence_length, is_train=True
@@ -193,7 +189,9 @@ class TestFinancialDataset(unittest.TestCase):
             sequence, target = dataset[0]
             self.assertEqual(sequence.shape[0], self.sequence_length)
         except Exception as e:
-            self.skipTest(f"Erreur lors de la création ou du chargement du fichier HDF5: {e}")
+            self.skipTest(
+                f"Erreur lors de la création ou du chargement du fichier HDF5: {e}"
+            )
 
     def test_init_from_tensor(self):
         """Tester l'initialisation à partir d'un tensor."""
@@ -301,6 +299,7 @@ class TestFinancialDataset(unittest.TestCase):
 
     def test_transform_functions(self):
         """Tester les fonctions de transformation personnalisées."""
+
         # Définir des fonctions de transformation simples
         def transform_seq(x):
             return x * 2.0

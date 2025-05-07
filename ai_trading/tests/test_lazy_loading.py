@@ -29,7 +29,6 @@ from ai_trading.data.lazy_loading import (
 
 # Vérifier si pyarrow est disponible
 try:
-    import pyarrow
     PYARROW_AVAILABLE = True
 except ImportError:
     PYARROW_AVAILABLE = False

@@ -486,9 +486,11 @@ def benchmark_inference_speed(
 
 def is_dynamic_quantization_supported():
     """Vérifie si la quantification dynamique est réellement supportée."""
-    if not hasattr(torch, "quantization") or not hasattr(torch.quantization, "quantize_dynamic"):
+    if not hasattr(torch, "quantization") or not hasattr(
+        torch.quantization, "quantize_dynamic"
+    ):
         return False
-    
+
     # Vérifier si un backend est disponible pour CPU
     backend_available = False
     for backend in ["fbgemm", "qnnpack"]:
@@ -498,16 +500,18 @@ def is_dynamic_quantization_supported():
             break
         except Exception:
             pass
-    
+
     if not backend_available:
         return False
-    
+
     # Tester si la quantification fonctionne sur un modèle simple
     try:
         with torch.no_grad():
             model = nn.Sequential(nn.Linear(10, 10))
             model.eval()
-            quantized_model = torch.quantization.quantize_dynamic(model, {nn.Linear}, dtype=torch.qint8)
+            quantized_model = torch.quantization.quantize_dynamic(
+                model, {nn.Linear}, dtype=torch.qint8
+            )
             # Tester l'inférence
             input_tensor = torch.randn(1, 10)
             output = quantized_model(input_tensor)
@@ -519,10 +523,10 @@ def is_dynamic_quantization_supported():
 
 def is_cuda_quantization_supported(force_cuda=False):
     """Vérifie si la quantification est supportée avec CUDA.
-    
+
     Args:
         force_cuda: Si True, ignore les vérifications et considère que CUDA est supporté
-    
+
     Returns:
         bool: True si la quantification est supportée avec CUDA, False sinon
     """
@@ -530,33 +534,33 @@ def is_cuda_quantization_supported(force_cuda=False):
     if force_cuda:
         logger.info("Force CUDA quantization support")
         return True
-        
+
     # Vérifier si CUDA est disponible
     if not torch.cuda.is_available():
         logger.warning("CUDA n'est pas disponible")
         return False
-        
+
     # Vérifier la version de PyTorch (la quantification CUDA est supportée à partir de versions récentes)
     cuda_version = torch.version.cuda
     if cuda_version is None:
         logger.warning("Version CUDA non détectée dans PyTorch")
         return False
-        
+
     # Tester si la quantification CUDA fonctionne
     try:
         with torch.no_grad():
             # Créer un modèle simple
             model = nn.Sequential(nn.Linear(10, 10)).cuda()
             model.eval()
-            
+
             # Essayer la quantification FP16 qui est généralement supportée sur GPU
-            input_tensor = torch.randn(1, 10, device='cuda')
-            
-            # Pour CUDA, on utilise généralement la quantification FP16 
+            input_tensor = torch.randn(1, 10, device="cuda")
+
+            # Pour CUDA, on utilise généralement la quantification FP16
             # plutôt que Int8 qui est plus adaptée au CPU
             with torch.cuda.amp.autocast():
                 output = model(input_tensor)
-                
+
             return output.shape == (1, 10)
     except Exception as e:
         logger.warning(f"Test de quantification CUDA a échoué: {e}")
@@ -565,32 +569,36 @@ def is_cuda_quantization_supported(force_cuda=False):
 
 def setup_cuda_quantization(force_setup=False):
     """Configure l'environnement pour la quantification CUDA.
-    
-    Cette fonction configure les paramètres nécessaires pour utiliser 
-    la quantification avec CUDA, notamment les fusions d'opérations et 
+
+    Cette fonction configure les paramètres nécessaires pour utiliser
+    la quantification avec CUDA, notamment les fusions d'opérations et
     la précision mixte automatique.
-    
+
     Args:
         force_setup: Si True, poursuit la configuration même si CUDA n'est pas détecté
-    
+
     Returns:
         bool: True si la configuration a réussi, False sinon
     """
     if not torch.cuda.is_available() and not force_setup:
-        logger.warning("CUDA n'est pas disponible, impossible de configurer la quantification CUDA")
+        logger.warning(
+            "CUDA n'est pas disponible, impossible de configurer la quantification CUDA"
+        )
         return False
-        
+
     try:
         # Activer les optimisations cudnn
         torch.backends.cudnn.benchmark = True
-        
+
         # Activer TF32 pour Ampere+ GPUs (si disponible)
-        if hasattr(torch.backends.cuda, "matmul") and hasattr(torch.backends.cuda.matmul, "allow_tf32"):
+        if hasattr(torch.backends.cuda, "matmul") and hasattr(
+            torch.backends.cuda.matmul, "allow_tf32"
+        ):
             torch.backends.cuda.matmul.allow_tf32 = True
-            
+
         if hasattr(torch.backends.cudnn, "allow_tf32"):
             torch.backends.cudnn.allow_tf32 = True
-            
+
         logger.info("Configuration CUDA pour quantification réussie")
         return True
     except Exception as e:
@@ -600,48 +608,48 @@ def setup_cuda_quantization(force_setup=False):
 
 def configure_cuda_quantization_env(model, device="cuda"):
     """Configuration complète de l'environnement pour la quantification CUDA.
-    
+
     Cette fonction effectue une configuration complète pour la quantification
     CUDA, y compris la détection, la configuration des optimisations, et la
     préparation du modèle.
-    
+
     Args:
         model: Le modèle PyTorch à préparer pour la quantification CUDA
         device: Le périphérique cible ('cuda' par défaut)
-        
+
     Returns:
         tuple: (modèle configuré, succès de la configuration)
     """
     # Force la configuration CUDA même si les vérifications échouent
     force_cuda = True
-    
+
     # Vérifier si CUDA est disponible
     if not torch.cuda.is_available() and device == "cuda":
         logger.warning("CUDA n'est pas disponible, utilisation du CPU à la place")
         device = "cpu"
-        
+
     # Configurer l'environnement CUDA
     if device == "cuda":
         setup_successful = setup_cuda_quantization(force_setup=force_cuda)
         if not setup_successful and not force_cuda:
             logger.warning("Configuration CUDA échouée, passage au CPU")
             device = "cpu"
-    
+
     # Préparer le modèle
     try:
         # Déplacer le modèle vers le dispositif approprié
         model = model.to(device)
         model.eval()  # Mettre en mode évaluation
-        
+
         # Pour CUDA, configurer pour la précision mixte
         if device == "cuda":
             # Désactiver le calcul de gradient
             torch.set_grad_enabled(False)
-            
+
             # Configurer le modèle pour la précision mixte
             if hasattr(torch.cuda, "amp") and hasattr(torch.cuda.amp, "autocast"):
                 logger.info("Précision mixte automatique configurée")
-                
+
             logger.info(f"Modèle configuré pour l'inférence quantifiée sur {device}")
             return model, True
         else:
@@ -655,16 +663,16 @@ def configure_cuda_quantization_env(model, device="cuda"):
 def quantize_model_for_inference(model, dtype=torch.float16, device="cuda"):
     """
     Quantifie un modèle pour l'inférence, en utilisant la méthode optimale pour le périphérique.
-    
+
     Cette fonction choisit automatiquement la méthode de quantification la plus appropriée:
     - Pour CUDA: Utilise la précision mixte (float16/bfloat16)
     - Pour CPU: Utilise la quantification dynamique (int8)
-    
+
     Args:
         model: Le modèle PyTorch à quantifier
         dtype: Type de données pour la quantification CUDA (torch.float16 par défaut)
         device: Le périphérique cible ("cuda" ou "cpu")
-        
+
     Returns:
         tuple: (modèle quantifié, méthode utilisée)
     """
@@ -672,56 +680,62 @@ def quantize_model_for_inference(model, dtype=torch.float16, device="cuda"):
     if device == "cuda" and not torch.cuda.is_available():
         logger.warning("CUDA demandé mais non disponible, utilisation du CPU")
         device = "cpu"
-    
+
     # Pour CUDA, utiliser la précision mixte
     if device == "cuda":
         try:
             # Configurer l'environnement
             setup_cuda_quantization(force_setup=True)
-            
+
             # Déplacer le modèle sur CUDA
             model = model.to(device)
             model.eval()
-            
+
             # Convertir le modèle en float16/bfloat16 si demandé
             if dtype in [torch.float16, torch.bfloat16]:
                 model = model.to(dtype)
                 logger.info(f"Modèle converti en {dtype} sur {device}")
-            
+
             # Activer l'optimisation de fusion des opérations si possible
             if hasattr(torch, "jit"):
                 try:
                     # Tentative de script JIT avec tracé
-                    example_input = torch.randn(1, *model.input_shape[1:], device=device)
+                    example_input = torch.randn(
+                        1, *model.input_shape[1:], device=device
+                    )
                     traced_model = torch.jit.trace(model, example_input)
                     logger.info("Modèle optimisé avec JIT tracing")
                     return traced_model, "cuda_jit_trace"
                 except Exception as e:
-                    logger.warning(f"JIT tracing échoué: {e}, utilisation du modèle standard")
-            
+                    logger.warning(
+                        f"JIT tracing échoué: {e}, utilisation du modèle standard"
+                    )
+
             return model, "cuda_" + str(dtype).split(".")[-1]
         except Exception as e:
             logger.error(f"Quantification CUDA échouée: {e}, retour au CPU")
             device = "cpu"
-    
+
     # Pour CPU, utiliser la quantification dynamique standard
     if device == "cpu":
         try:
             model = model.cpu()
             model.eval()
-            
+
             # Vérifier si la quantification dynamique est supportée
             if is_dynamic_quantization_supported():
                 quantized_model = quantize_model_dynamic(model)
                 logger.info("Modèle quantifié dynamiquement sur CPU")
                 return quantized_model, "cpu_dynamic_int8"
             else:
-                logger.warning("Quantification dynamique non supportée, utilisation du modèle non quantifié")
+                logger.warning(
+                    "Quantification dynamique non supportée, utilisation du modèle non quantifié"
+                )
                 return model, "cpu_float32"
         except Exception as e:
             logger.error(f"Quantification CPU échouée: {e}")
             return model, "cpu_float32"
-    
+
     # Cas par défaut
     return model, "original"
 

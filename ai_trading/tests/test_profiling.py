@@ -138,7 +138,7 @@ class TestProfiling(unittest.TestCase):
                     return self.fc(x)
 
             model = SimpleModel()
-            
+
             # Préparer les données d'entrée sur le bon appareil
             device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
             model = model.to(device)

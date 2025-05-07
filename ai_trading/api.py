@@ -14,7 +14,10 @@ from ai_trading.rl_agent import CryptoTradingEnv, RLAgent
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.FileHandler("ai_trading/info_retour/logs/api.log", mode="a"), logging.StreamHandler()],
+    handlers=[
+        logging.FileHandler("ai_trading/info_retour/logs/api.log", mode="a"),
+        logging.StreamHandler(),
+    ],
 )
 
 logger = logging.getLogger("trading_api")

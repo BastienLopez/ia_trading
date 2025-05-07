@@ -210,10 +210,10 @@ class MultiPeriodTrainer:
 
     def create_agent(self, env):
         """Crée un agent RL adapté à l'environnement et aux paramètres choisis.
-        
+
         Args:
             env: L'environnement de trading
-            
+
         Returns:
             Agent de trading (SACAgent ou GRUSACAgent)
         """
@@ -221,10 +221,10 @@ class MultiPeriodTrainer:
         state_size = env.observation_space.shape[0]
         action_size = env.action_space.shape[0]
         action_bounds = (
-            float(env.action_space.low[0]), 
-            float(env.action_space.high[0])
+            float(env.action_space.low[0]),
+            float(env.action_space.high[0]),
         )
-        
+
         # Stocker la référence à l'agent pour pouvoir le sauvegarder/charger
         if self.use_gru:
             # Utiliser GRUSACAgent si use_gru est True
@@ -252,7 +252,7 @@ class MultiPeriodTrainer:
                 batch_size=self.batch_size,
                 buffer_size=self.buffer_size,
             )
-            
+
         return self.current_agent
 
     def prepare_datasets(self, market_data, sentiment_data, validation_ratio):

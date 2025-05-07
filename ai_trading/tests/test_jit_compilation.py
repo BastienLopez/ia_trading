@@ -32,7 +32,7 @@ class TestJitCompilation(unittest.TestCase):
     def setUp(self):
         """Configuration avant chaque test."""
         self.temp_dir = tempfile.TemporaryDirectory()
-        
+
         # Créer le répertoire info_retour/models/jit pour les tests
         self.info_retour_dir = Path("ai_trading/info_retour/models/jit").absolute()
         os.makedirs(self.info_retour_dir, exist_ok=True)
@@ -40,7 +40,7 @@ class TestJitCompilation(unittest.TestCase):
     def tearDown(self):
         """Nettoyage après chaque test."""
         self.temp_dir.cleanup()
-        
+
         # Nettoyer les fichiers de test créés dans info_retour/models/jit
         for file in self.info_retour_dir.glob("test_*.pt"):
             if file.exists():
@@ -58,16 +58,16 @@ class TestJitCompilation(unittest.TestCase):
 
         # Vérifier que le répertoire existe
         self.assertTrue(os.path.exists(self.temp_dir.name))
-        
+
         # Initialiser le compilateur sans répertoire personnalisé (utilise info_retour/models/jit par défaut)
         compiler_default = TorchScriptCompiler()
-        
+
         # Vérifier que le répertoire par défaut est correctement configuré (en tenant compte des backslashes sur Windows)
         default_path = str(compiler_default.save_dir)
         self.assertTrue(
-            "info_retour/models/jit" in default_path.replace("\\", "/") or
-            "info_retour\\models\\jit" in default_path,
-            f"Chemin attendu non trouvé dans {default_path}"
+            "info_retour/models/jit" in default_path.replace("\\", "/")
+            or "info_retour\\models\\jit" in default_path,
+            f"Chemin attendu non trouvé dans {default_path}",
         )
 
     @unittest.skipIf(not TORCH_AVAILABLE, "PyTorch n'est pas disponible")
@@ -151,10 +151,11 @@ class TestJitCompilation(unittest.TestCase):
     @unittest.skipIf(not TORCH_AVAILABLE, "PyTorch n'est pas disponible")
     def test_benchmark_model(self):
         """Teste le benchmark entre modèle original et compilé."""
-        import torch
-        import torch.nn as nn
         import os
         from pathlib import Path
+
+        import torch
+        import torch.nn as nn
 
         # Créer un modèle simple mais avec suffisamment de calculs pour être mesurable
         class BenchmarkModel(nn.Module):
@@ -188,7 +189,7 @@ class TestJitCompilation(unittest.TestCase):
         model_file_path = info_retour_dir / "benchmark_test_model.pt"
         self.assertTrue(
             os.path.exists(model_file_path),
-            f"Le fichier de modèle n'a pas été créé à l'emplacement attendu: {model_file_path}"
+            f"Le fichier de modèle n'a pas été créé à l'emplacement attendu: {model_file_path}",
         )
 
         # Exécuter le benchmark

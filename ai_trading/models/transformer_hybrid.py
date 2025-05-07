@@ -1,9 +1,6 @@
 import gc
 import logging
-import os
-from typing import Dict, List, Optional, Tuple, Union
 
-import numpy as np
 import tensorflow as tf
 from tensorflow.keras.layers import (
     GRU,
@@ -22,16 +19,19 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
 # Définir une fonction pour obtenir le décorateur register_keras_serializable selon la version de TF
 def get_register_keras_serializable(package=None):
     """Retourne le décorateur register_keras_serializable compatible avec la version de TensorFlow actuelle."""
-    if hasattr(tf.keras, 'saving') and hasattr(tf.keras.saving, 'register_keras_serializable'):
+    if hasattr(tf.keras, "saving") and hasattr(
+        tf.keras.saving, "register_keras_serializable"
+    ):
         # Versions plus récentes de TensorFlow
         if package:
             return tf.keras.saving.register_keras_serializable(package=package)
         else:
             return tf.keras.saving.register_keras_serializable()
-    elif hasattr(tf.keras.utils, 'register_keras_serializable'):
+    elif hasattr(tf.keras.utils, "register_keras_serializable"):
         # Versions plus anciennes de TensorFlow
         if package:
             return tf.keras.utils.register_keras_serializable(package=package)
@@ -39,10 +39,15 @@ def get_register_keras_serializable(package=None):
             return tf.keras.utils.register_keras_serializable()
     else:
         # Si le décorateur n'est pas disponible, retourner une fonction d'identité
-        logger.warning("register_keras_serializable n'est pas disponible. Utilisation d'une implémentation de secours.")
+        logger.warning(
+            "register_keras_serializable n'est pas disponible. Utilisation d'une implémentation de secours."
+        )
+
         def identity(cls):
             return cls
+
         return identity
+
 
 def optimize_memory():
     """
@@ -60,6 +65,7 @@ def optimize_memory():
 
 # Utiliser la fonction pour obtenir le décorateur
 register_serializable = get_register_keras_serializable()
+
 
 @register_serializable
 class TransformerBlock(tf.keras.layers.Layer):
@@ -80,7 +86,7 @@ class TransformerBlock(tf.keras.layers.Layer):
         self.layernorm2 = LayerNormalization(epsilon=1e-6)
         self.dropout1 = Dropout(rate)
         self.dropout2 = Dropout(rate)
-        
+
         # Pour la sérialisation
         self.embed_dim = embed_dim
         self.num_heads = num_heads
@@ -97,15 +103,17 @@ class TransformerBlock(tf.keras.layers.Layer):
         ffn_output = self.ffn(out1)
         ffn_output = self.dropout2(ffn_output, training=training)
         return self.layernorm2(out1 + ffn_output)
-        
+
     def get_config(self):
         config = super().get_config()
-        config.update({
-            "embed_dim": self.embed_dim,
-            "num_heads": self.num_heads,
-            "ff_dim": self.ff_dim,
-            "rate": self.rate,
-        })
+        config.update(
+            {
+                "embed_dim": self.embed_dim,
+                "num_heads": self.num_heads,
+                "ff_dim": self.ff_dim,
+                "rate": self.rate,
+            }
+        )
         return config
 
 
@@ -149,17 +157,20 @@ class PositionalEncoding(tf.keras.layers.Layer):
             self.pos_encoding[:, : tf.shape(inputs)[1], :], input_dtype
         )
         return inputs + pos_encoding_cast
-        
+
     def get_config(self):
         config = super().get_config()
-        config.update({
-            "position": self.position,
-            "d_model": self.d_model,
-        })
+        config.update(
+            {
+                "position": self.position,
+                "d_model": self.d_model,
+            }
+        )
         return config
 
 
 register_serializable = get_register_keras_serializable(package="ai_trading.models")
+
 
 @register_serializable
 class TransformerGRUModel(Model):
@@ -318,22 +329,24 @@ class TransformerGRUModel(Model):
         self.compile(optimizer=optimizer, loss=loss, metrics=metrics)
 
         return self
-        
+
     def get_config(self):
         config = super().get_config()
-        config.update({
-            "input_shape": self.input_shape_val,
-            "output_dim": self.output_dim,
-            "embed_dim": self.embed_dim,
-            "num_heads": self.num_heads,
-            "ff_dim": self.ff_dim,
-            "num_transformer_blocks": self.num_transformer_blocks,
-            "gru_units": self.gru_units,
-            "dropout_rate": self.dropout_rate,
-            "recurrent_dropout": self.recurrent_dropout,
-            "sequence_length": self.sequence_length,
-            "use_mixed_precision": False,  # Pour éviter de redéfinir la politique
-        })
+        config.update(
+            {
+                "input_shape": self.input_shape_val,
+                "output_dim": self.output_dim,
+                "embed_dim": self.embed_dim,
+                "num_heads": self.num_heads,
+                "ff_dim": self.ff_dim,
+                "num_transformer_blocks": self.num_transformer_blocks,
+                "gru_units": self.gru_units,
+                "dropout_rate": self.dropout_rate,
+                "recurrent_dropout": self.recurrent_dropout,
+                "sequence_length": self.sequence_length,
+                "use_mixed_precision": False,  # Pour éviter de redéfinir la politique
+            }
+        )
         return config
 
 
@@ -465,24 +478,26 @@ class TransformerLSTMModel(Model):
         # Dropout et couche de sortie
         x = self.dropout(x, training=training)
         return self.output_layer(x)
-        
+
     def get_config(self):
         config = super().get_config()
-        config.update({
-            "input_shape": self.input_shape_val,
-            "output_dim": self.output_dim,
-            "embed_dim": self.embed_dim,
-            "num_heads": self.num_heads,
-            "ff_dim": self.ff_dim,
-            "num_transformer_blocks": self.num_transformer_blocks,
-            "lstm_units": self.lstm_units,
-            "dropout_rate": self.dropout_rate,
-            "recurrent_dropout": self.recurrent_dropout,
-            "sequence_length": self.sequence_length,
-            "use_mixed_precision": False,  # Pour éviter de redéfinir la politique
-        })
+        config.update(
+            {
+                "input_shape": self.input_shape_val,
+                "output_dim": self.output_dim,
+                "embed_dim": self.embed_dim,
+                "num_heads": self.num_heads,
+                "ff_dim": self.ff_dim,
+                "num_transformer_blocks": self.num_transformer_blocks,
+                "lstm_units": self.lstm_units,
+                "dropout_rate": self.dropout_rate,
+                "recurrent_dropout": self.recurrent_dropout,
+                "sequence_length": self.sequence_length,
+                "use_mixed_precision": False,  # Pour éviter de redéfinir la politique
+            }
+        )
         return config
-        
+
     def compile_model(self, optimizer="adam", loss="mse", metrics=None):
         """
         Compile le modèle avec les paramètres spécifiés et active les optimisations de performance.

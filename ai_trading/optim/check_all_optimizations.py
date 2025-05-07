@@ -1145,7 +1145,6 @@ def test_deepspeed():
     """Teste si DeepSpeed est disponible et fonctionne correctement."""
     try:
         # D'abord essayer d'importer DeepSpeed directement
-        import deepspeed
         import json
         import os
         from pathlib import Path
@@ -1153,44 +1152,64 @@ def test_deepspeed():
         # Vérifier si le répertoire de configuration DeepSpeed existe
         config_dir = Path("ai_trading/info_retour/config/deepspeed")
         config_file = config_dir / "ds_config_default.json"
-        
+
         # Vérifier si la configuration par défaut existe
         if os.path.exists(config_file):
             # Vérifier si c'est un JSON valide
             try:
                 with open(config_file, "r") as f:
                     config = json.load(f)
-                
+
                 # Vérifier quelques champs obligatoires
-                required_fields = ["train_batch_size", "optimizer", "scheduler", "gradient_clipping"]
-                missing_fields = [field for field in required_fields if field not in config]
-                
+                required_fields = [
+                    "train_batch_size",
+                    "optimizer",
+                    "scheduler",
+                    "gradient_clipping",
+                ]
+                missing_fields = [
+                    field for field in required_fields if field not in config
+                ]
+
                 if not missing_fields:
                     return (True, "DeepSpeed est correctement configuré")
                 else:
-                    return (False, f"Configuration DeepSpeed invalide, champs manquants: {', '.join(missing_fields)}")
+                    return (
+                        False,
+                        f"Configuration DeepSpeed invalide, champs manquants: {', '.join(missing_fields)}",
+                    )
             except json.JSONDecodeError:
-                return (False, f"Fichier de configuration DeepSpeed invalide: {config_file}")
+                return (
+                    False,
+                    f"Fichier de configuration DeepSpeed invalide: {config_file}",
+                )
         else:
             # Essayer de créer la configuration
             try:
                 from ai_trading.utils.deepspeed_optimizer import create_deepspeed_config
-                
+
                 # Créer le répertoire s'il n'existe pas
                 config_dir.mkdir(parents=True, exist_ok=True)
-                
+
                 # Créer la configuration par défaut
                 create_deepspeed_config(output_file=str(config_file))
-                
-                return (True, f"Configuration DeepSpeed créée avec succès: {config_file}")
+
+                return (
+                    True,
+                    f"Configuration DeepSpeed créée avec succès: {config_file}",
+                )
             except Exception as e:
-                return (False, f"Erreur lors de la création de la configuration DeepSpeed: {str(e)}")
+                return (
+                    False,
+                    f"Erreur lors de la création de la configuration DeepSpeed: {str(e)}",
+                )
 
     except ImportError:
         # DeepSpeed n'est pas installé directement
         try:
             # Vérifier si notre wrapper compatible est disponible
             import torch.nn as nn
+
             from ai_trading.utils.deepspeed_wrapper import DeepSpeedCompatModel
 
             model = nn.Linear(10, 5)

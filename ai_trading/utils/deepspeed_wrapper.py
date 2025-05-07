@@ -9,9 +9,8 @@ du package DeepSpeed, tout en maintenant une interface cohérente.
 """
 
 import logging
-import os
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional, Union
+from typing import Any, Dict, Optional, Union
 
 import torch
 import torch.nn as nn
@@ -46,18 +45,23 @@ if not DEFAULT_CONFIG_PATH.exists() and HAVE_DEEPSPEED:
         # Importer la fonction create_deepspeed_config depuis le même répertoire
         # Utiliser une importation relative pour éviter les erreurs d'importation circulaire
         from .deepspeed_optimizer import create_deepspeed_config
-        
+
         # Créer la configuration par défaut
         create_deepspeed_config(
             zero_stage=2,
             fp16=True,
             offload_optimizer=False,
             offload_parameters=False,
-            output_file=str(DEFAULT_CONFIG_PATH)
+            output_file=str(DEFAULT_CONFIG_PATH),
         )
-        logger.info(f"Configuration DeepSpeed par défaut créée dans {DEFAULT_CONFIG_PATH}")
+        logger.info(
+            f"Configuration DeepSpeed par défaut créée dans {DEFAULT_CONFIG_PATH}"
+        )
     except ImportError:
-        logger.warning("Impossible de créer le fichier de configuration DeepSpeed par défaut")
+        logger.warning(
+            "Impossible de créer le fichier de configuration DeepSpeed par défaut"
+        )
+
 
 class DeepSpeedCompatModel:
     """
@@ -65,7 +69,9 @@ class DeepSpeedCompatModel:
     Cela permet au code de fonctionner même si DeepSpeed n'est pas installé.
     """
 
-    def __init__(self, model: nn.Module, optimizer: Optional[torch.optim.Optimizer] = None):
+    def __init__(
+        self, model: nn.Module, optimizer: Optional[torch.optim.Optimizer] = None
+    ):
         """
         Initialise un modèle compatible DeepSpeed.
 

@@ -3,31 +3,31 @@
 
 """Tests pour la classe NoisySACAgent."""
 
+import logging
 import os
 import tempfile
-import time
 import unittest
 import warnings
-from unittest.mock import MagicMock, patch
 
 import numpy as np
 import torch
-import logging
 
 # Configuration du logger
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Importer la classe à tester
-from ai_trading.rl.agents.noisy_sac_agent import NoisyLinear, NoisySACAgent
+from ai_trading.rl.agents.noisy_sac_agent import NoisySACAgent
 
 # Mise à jour des filtres d'avertissement pour utiliser des approches plus modernes
 # Ces filtres sont plus précis et évitent de masquer tous les avertissements TF
 warnings.filterwarnings("ignore", message=".*jax.xla_computation is deprecated.*")
-warnings.filterwarnings("ignore", message=".*tensorflow.*deprecated.*") 
+warnings.filterwarnings("ignore", message=".*tensorflow.*deprecated.*")
 warnings.filterwarnings("ignore", message=".*tensorflow.*removed in a future version.*")
 # Ignorer l'avertissement concernant distutils.version.LooseVersion dans tensorflow_probability
-warnings.filterwarnings("ignore", message=".*distutils Version classes are deprecated.*")
+warnings.filterwarnings(
+    "ignore", message=".*distutils Version classes are deprecated.*"
+)
 warnings.filterwarnings("ignore", message=".*'imghdr' is deprecated.*")
 
 
@@ -217,7 +217,7 @@ class TestNoisySACAgent(unittest.TestCase):
                 # Modifier les poids de l'acteur pour tester le chargement
                 old_weights = self.agent.actor.state_dict()
                 for name, param in self.agent.actor.named_parameters():
-                    if 'weight' in name:
+                    if "weight" in name:
                         # Ajouter un petit bruit aux poids
                         with torch.no_grad():
                             param.add_(0.1 * torch.randn_like(param))
@@ -258,7 +258,7 @@ class TestNoisySACAgent(unittest.TestCase):
         has_target_networks = hasattr(self.agent, "critic_1_target") and hasattr(
             self.agent, "critic_2_target"
         )
-        
+
         try:
             if has_target_networks:
                 # Test original pour les réseaux cibles
@@ -266,69 +266,83 @@ class TestNoisySACAgent(unittest.TestCase):
                 # Utiliser des copies profondes des poids pour la comparaison
                 before_critic_1_target = {}
                 before_critic_2_target = {}
-                
+
                 # Copier les poids en utilisant state_dict pour éviter les références partagées
                 for name, param in self.agent.critic_1_target.named_parameters():
                     before_critic_1_target[name] = param.clone().detach().cpu()
-                
+
                 for name, param in self.agent.critic_2_target.named_parameters():
                     before_critic_2_target[name] = param.clone().detach().cpu()
-                
+
                 # Faire plusieurs étapes d'entraînement
                 for _ in range(5):
                     self.agent.train()
-                
+
                 # Vérifier si les poids ont changé
                 any_weight_changed = False
-                
+
                 for name, param in self.agent.critic_1_target.named_parameters():
-                    if not torch.allclose(before_critic_1_target[name], param.detach().cpu()):
+                    if not torch.allclose(
+                        before_critic_1_target[name], param.detach().cpu()
+                    ):
                         any_weight_changed = True
                         break
-                
+
                 if not any_weight_changed:
                     for name, param in self.agent.critic_2_target.named_parameters():
-                        if not torch.allclose(before_critic_2_target[name], param.detach().cpu()):
+                        if not torch.allclose(
+                            before_critic_2_target[name], param.detach().cpu()
+                        ):
                             any_weight_changed = True
                             break
-                
-                self.assertTrue(any_weight_changed, "Les poids des réseaux cibles n'ont pas été mis à jour")
+
+                self.assertTrue(
+                    any_weight_changed,
+                    "Les poids des réseaux cibles n'ont pas été mis à jour",
+                )
             else:
                 # Test alternatif pour les implémentations sans réseaux cibles
                 # Vérifier que l'agent peut s'entraîner sans erreurs
                 # et que les poids des réseaux principaux changent après l'entraînement
-                
+
                 # Capturer les poids des critiques avant l'entraînement
                 before_critic_1 = {}
                 before_critic_2 = {}
-                
+
                 for name, param in self.agent.critic_1.named_parameters():
                     before_critic_1[name] = param.clone().detach().cpu()
-                
+
                 for name, param in self.agent.critic_2.named_parameters():
                     before_critic_2[name] = param.clone().detach().cpu()
-                
+
                 # Effectuer plusieurs étapes d'entraînement
                 for _ in range(5):
                     self.agent.train()
-                
+
                 # Vérifier si les poids ont changé
                 any_weight_changed = False
-                
+
                 for name, param in self.agent.critic_1.named_parameters():
                     if not torch.allclose(before_critic_1[name], param.detach().cpu()):
                         any_weight_changed = True
                         break
-                
+
                 if not any_weight_changed:
                     for name, param in self.agent.critic_2.named_parameters():
-                        if not torch.allclose(before_critic_2[name], param.detach().cpu()):
+                        if not torch.allclose(
+                            before_critic_2[name], param.detach().cpu()
+                        ):
                             any_weight_changed = True
                             break
-                
-                self.assertTrue(any_weight_changed, "Les poids des réseaux critiques n'ont pas été mis à jour")
-                logger.info("Test exécuté en mode alternatif car les réseaux cibles ne sont pas présents")
-        
+
+                self.assertTrue(
+                    any_weight_changed,
+                    "Les poids des réseaux critiques n'ont pas été mis à jour",
+                )
+                logger.info(
+                    "Test exécuté en mode alternatif car les réseaux cibles ne sont pas présents"
+                )
+
         except Exception as e:
             # Si l'erreur est liée à CUDA quand le GPU n'est pas disponible, ignorer le test
             if "CUDA" in str(e) and not torch.cuda.is_available():

@@ -286,11 +286,13 @@ class RLTradingSystem:
                         state_for_agent = padded_state
                     else:
                         # Tronquer si l'état est plus grand
-                        state_for_agent = np.reshape(state[:agent.state_size], (1, agent.state_size))
+                        state_for_agent = np.reshape(
+                            state[: agent.state_size], (1, agent.state_size)
+                        )
                 else:
                     # Bonne taille, juste redimensionner
                     state_for_agent = np.reshape(state, (1, agent.state_size))
-                
+
                 # Obtenir l'action de l'agent
                 action = agent.act(state_for_agent)
                 episode_actions.append(action)

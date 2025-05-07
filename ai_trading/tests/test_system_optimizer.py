@@ -97,26 +97,28 @@ class TestSystemOptimizer(unittest.TestCase):
             # sans faire d'opérations spécifiques à Unix
             optimizer = SystemOptimizer(self.temp_config_file.name)
             result = optimizer.configure_system_limits()
-            
+
             # Vérifier les résultats de base
             self.assertIsInstance(result, dict)
             # Sur Windows, la fonction devrait retourner des valeurs par défaut ou des infos Windows
             # plutôt que de lever une exception ou retourner None
             self.assertIsNotNone(result)
-            
+
             # Vérifier que le dictionnaire contient au moins certaines clés
             # (même si elles peuvent avoir des valeurs par défaut ou None sur Windows)
             if "memory_limit" in optimizer.config.get("system_limits", {}):
                 self.assertIn("memory_limit", result)
-            
+
             # Vérifier que les optimisations appliquées sont correctement enregistrées
-            if result and any(result.values()):  # Si des optimisations ont été appliquées
+            if result and any(
+                result.values()
+            ):  # Si des optimisations ont été appliquées
                 self.assertIn("system_limits", optimizer.applied_optimizations)
         else:
             # Sur Unix/Linux où resource est disponible
             try:
-                import resource
-                
+                pass
+
                 with patch("resource.setrlimit") as mock_setrlimit, patch(
                     "resource.getrlimit"
                 ) as mock_getrlimit, patch(

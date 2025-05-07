@@ -190,14 +190,14 @@ class TestModelOffloading(unittest.TestCase):
         # Ignorer ce test s'il n'est pas pertinent
         if not is_accelerate_available():
             self.skipTest("Accelerate non disponible, test ignoré")
-            
+
         if not self.cuda_available:
             self.skipTest("CUDA non disponible, test ignoré")
-        
+
         # Vérifier si les périphériques sont compatibles avec Accelerate
         try:
             from accelerate import Accelerator
-            
+
             # Créer un modèle tout sur GPU avec les dimensions adaptées
             layer_size = 512
             input_size = 512  # Au lieu de 784, pour correspondre aux dimensions du test
@@ -206,77 +206,87 @@ class TestModelOffloading(unittest.TestCase):
                 nn.ReLU(),
                 nn.Linear(layer_size, layer_size),
                 nn.ReLU(),
-                nn.Linear(layer_size, 10)
+                nn.Linear(layer_size, 10),
             ).cuda()  # Tout le modèle sur CUDA
-            
+
             # Créer l'accélérateur en forçant l'utilisation de CUDA uniquement
             try:
                 accelerator = Accelerator(
                     cpu=False,  # Ne pas utiliser le CPU
                     mixed_precision=None,  # Pas de précision mixte pour éviter les complications
-                    device_placement=True  # Placer explicitement les tenseurs sur les périphériques
+                    device_placement=True,  # Placer explicitement les tenseurs sur les périphériques
                 )
-                logger.info(f"Accelerator créé avec succès sur le périphérique: {accelerator.device}")
-                
+                logger.info(
+                    f"Accelerator créé avec succès sur le périphérique: {accelerator.device}"
+                )
+
                 # Vérifier que l'accélérateur utilise CUDA
-                if not str(accelerator.device).startswith('cuda'):
-                    self.skipTest(f"Accelerator n'utilise pas CUDA mais {accelerator.device}")
+                if not str(accelerator.device).startswith("cuda"):
+                    self.skipTest(
+                        f"Accelerator n'utilise pas CUDA mais {accelerator.device}"
+                    )
                     return
-                    
+
                 # Test simple pour confirmer la compatibilité
                 tiny_model = nn.Linear(10, 10).cuda()
-                input_tensor = torch.randn(1, 10, device='cuda')
-                
+                input_tensor = torch.randn(1, 10, device="cuda")
+
                 # Préparer les deux avec l'accélérateur
                 accelerated_model = accelerator.prepare(tiny_model)
                 accelerated_input = accelerator.prepare(input_tensor)
-                
+
                 # Vérifier que tout est sur le même périphérique
                 model_device = next(accelerated_model.parameters()).device
                 input_device = accelerated_input.device
-                
+
                 if model_device != input_device:
-                    self.skipTest(f"Les périphériques ne correspondent pas: modèle sur {model_device}, entrée sur {input_device}")
+                    self.skipTest(
+                        f"Les périphériques ne correspondent pas: modèle sur {model_device}, entrée sur {input_device}"
+                    )
                     return
-                
+
                 # Tester l'inférence
                 with torch.no_grad():
                     output = accelerated_model(accelerated_input)
-                
-                logger.info("Test simple d'Accelerate réussi, tous les tenseurs sur CUDA")
+
+                logger.info(
+                    "Test simple d'Accelerate réussi, tous les tenseurs sur CUDA"
+                )
             except Exception as e:
                 logger.warning(f"Erreur lors du test simple d'Accelerate: {e}")
                 self.skipTest(f"Problème avec Accelerate: {e}")
                 return
-            
+
             # Maintenant, testons avec le ModelOffloader en utilisant l'option use_all_cuda
             try:
                 # Créer un offloader qui utilise la stratégie Accelerate mais force l'utilisation de CUDA uniquement
                 offloader = ModelOffloader(
                     model=test_model,  # Modèle avec les bonnes dimensions
-                    offload_strategy="accelerate", 
-                    use_all_cuda=True  # Utiliser notre option pour forcer CUDA partout
+                    offload_strategy="accelerate",
+                    use_all_cuda=True,  # Utiliser notre option pour forcer CUDA partout
                 )
-                
+
                 # Vérifier l'initialisation
                 self.assertEqual(offloader.strategy, "accelerate")
-                
+
                 # Entrée avec les dimensions correspondantes (batch_size, input_size)
-                input_data = torch.randn(16, input_size, device='cuda')
-                
+                input_data = torch.randn(16, input_size, device="cuda")
+
                 # Exécuter l'inférence
                 with torch.no_grad():
                     output = offloader(input_data)
-                
+
                 # Vérifier que la sortie a la bonne forme
                 self.assertEqual(output.shape, (16, 10))
                 self.assertTrue(output.is_cuda)
-                
-                logger.info("Test avec Accelerate et ModelOffloader réussi en mode all-CUDA")
+
+                logger.info(
+                    "Test avec Accelerate et ModelOffloader réussi en mode all-CUDA"
+                )
             except Exception as e:
                 logger.error(f"Erreur lors du test avec ModelOffloader: {e}")
                 self.skipTest(f"Le test avec ModelOffloader a échoué: {e}")
-            
+
         except ImportError:
             self.skipTest("Le module accelerate n'est pas importable correctement")
         except Exception as e:

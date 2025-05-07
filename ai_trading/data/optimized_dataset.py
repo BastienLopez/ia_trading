@@ -2,19 +2,19 @@
 Module pour l'optimisation des datasets financiers avec compression zstd.
 """
 
-import os
 import logging
+import os
 import tempfile
 from pathlib import Path
-from typing import Callable, Optional, Tuple, Union, Dict, Any, List
+from typing import Any, Callable, List, Optional, Union
 
 import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import DataLoader
 
-from ai_trading.data.financial_dataset import FinancialDataset, get_financial_dataloader
 from ai_trading.data.compressed_storage import CompressedStorage
+from ai_trading.data.financial_dataset import FinancialDataset, get_financial_dataloader
 
 logger = logging.getLogger(__name__)
 
@@ -118,12 +118,16 @@ class OptimizedFinancialDataset(FinancialDataset):
             numpy_data = data.cpu().numpy()
             self.storage.save_numpy(numpy_data, file_path)
         else:
-            raise TypeError(f"Type de données non pris en charge pour la mise en cache: {type(data)}")
+            raise TypeError(
+                f"Type de données non pris en charge pour la mise en cache: {type(data)}"
+            )
 
         logger.info(f"Données '{name}' mises en cache dans {file_path}")
         return file_path
 
-    def load_cached_data(self, name: str, format: str = "pickle", tensor_dtype=None) -> Any:
+    def load_cached_data(
+        self, name: str, format: str = "pickle", tensor_dtype=None
+    ) -> Any:
         """
         Charge des données depuis le cache compressé.
 
@@ -171,7 +175,9 @@ class OptimizedFinancialDataset(FinancialDataset):
             Tenseur des caractéristiques précalculées.
         """
         # Vérifier si les caractéristiques sont déjà en cache
-        features = self.load_cached_data(name, format="numpy", tensor_dtype=torch.float32)
+        features = self.load_cached_data(
+            name, format="numpy", tensor_dtype=torch.float32
+        )
         if features is not None:
             return features
 
@@ -209,10 +215,14 @@ class OptimizedFinancialDataset(FinancialDataset):
                         os.remove(file_path)
                         logger.info(f"Cache supprimé: {file_path}")
                     except OSError as e:
-                        logger.error(f"Erreur lors de la suppression du cache {file_path}: {e}")
+                        logger.error(
+                            f"Erreur lors de la suppression du cache {file_path}: {e}"
+                        )
                 del self.cache_files[name]
 
-    def optimize_dataframe(self, df: pd.DataFrame, cache_name: str = "optimized_df") -> pd.DataFrame:
+    def optimize_dataframe(
+        self, df: pd.DataFrame, cache_name: str = "optimized_df"
+    ) -> pd.DataFrame:
         """
         Optimise un DataFrame en mettant en cache la version compressée.
 
@@ -229,10 +239,10 @@ class OptimizedFinancialDataset(FinancialDataset):
         try:
             # Mettre en cache le DataFrame
             self.cache_data(cache_name, df, format="parquet")
-            
+
             # Charger depuis le cache pour vérifier
             cached_df = self.load_cached_data(cache_name, format="parquet")
-            
+
             if cached_df is not None and cached_df.shape == df.shape:
                 return cached_df
             else:
@@ -242,7 +252,11 @@ class OptimizedFinancialDataset(FinancialDataset):
             logger.error(f"Erreur lors de l'optimisation du DataFrame: {e}")
             return df
 
-    def compress_raw_data(self, data_path: Union[str, Path], output_path: Optional[Union[str, Path]] = None) -> Path:
+    def compress_raw_data(
+        self,
+        data_path: Union[str, Path],
+        output_path: Optional[Union[str, Path]] = None,
+    ) -> Path:
         """
         Compresse un fichier de données brutes et retourne le chemin du fichier compressé.
 
@@ -255,7 +269,9 @@ class OptimizedFinancialDataset(FinancialDataset):
         """
         return self.storage.compress_file(data_path, output_path)
 
-    def load_from_compressed(self, path: Union[str, Path], format: str = "parquet") -> pd.DataFrame:
+    def load_from_compressed(
+        self, path: Union[str, Path], format: str = "parquet"
+    ) -> pd.DataFrame:
         """
         Charge un DataFrame directement depuis un fichier compressé.
 
@@ -307,8 +323,11 @@ def get_optimized_dataloader(
     )
 
 
-def convert_to_compressed(input_path: Union[str, Path], output_path: Optional[Union[str, Path]] = None,
-                        compression_level: int = 3) -> Path:
+def convert_to_compressed(
+    input_path: Union[str, Path],
+    output_path: Optional[Union[str, Path]] = None,
+    compression_level: int = 3,
+) -> Path:
     """
     Convertit un fichier de données financières en format compressé zstd.
 
@@ -325,7 +344,9 @@ def convert_to_compressed(input_path: Union[str, Path], output_path: Optional[Un
 
 
 def load_market_data_compressed(
-    path: Union[str, Path], format: str = "parquet", cache_dir: Optional[Union[str, Path]] = None
+    path: Union[str, Path],
+    format: str = "parquet",
+    cache_dir: Optional[Union[str, Path]] = None,
 ) -> pd.DataFrame:
     """
     Charge des données de marché à partir d'un fichier compressé.
@@ -339,4 +360,4 @@ def load_market_data_compressed(
         DataFrame des données de marché.
     """
     storage = CompressedStorage()
-    return storage.load_dataframe(path, format=format) 
+    return storage.load_dataframe(path, format=format)

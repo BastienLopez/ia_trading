@@ -22,11 +22,11 @@ os.makedirs(os.path.join(os.getcwd(), "web_app", "info_retour"), exist_ok=True)
 log_file = os.path.join(os.getcwd(), "web_app", "info_retour", "reward_test.log")
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[
         logging.StreamHandler(),
         logging.FileHandler(log_file),
-    ]
+    ],
 )
 logger = logging.getLogger(__name__)
 

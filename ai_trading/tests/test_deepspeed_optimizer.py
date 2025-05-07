@@ -5,13 +5,13 @@
 Tests pour le module d'optimisation DeepSpeed.
 """
 
+import json
+import logging
 import os
 import shutil
 import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
-import json
-import logging
 
 import torch
 import torch.nn as nn
@@ -20,12 +20,12 @@ from ai_trading.utils.deepspeed_optimizer import (
     HAVE_DEEPSPEED,
     DeepSpeedOptimizer,
     create_deepspeed_config,
-    DeepSpeedStub
 )
 
 # Configuration du logger de test
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
 
 # Modèle simple pour les tests
 class SimpleModel(nn.Module):
@@ -52,15 +52,17 @@ class TestDeepSpeedOptimizer(unittest.TestCase):
         """Initialisation avant chaque test."""
         # Informer l'utilisateur si DeepSpeed n'est pas disponible mais continuer les tests
         if not HAVE_DEEPSPEED:
-            logger.warning("DeepSpeed n'est pas installé. Utilisation de l'implémentation stub pour les tests.")
+            logger.warning(
+                "DeepSpeed n'est pas installé. Utilisation de l'implémentation stub pour les tests."
+            )
             # Note: On n'utilise plus self.skipTest() pour permettre aux tests de s'exécuter
-            
+
         self.model = SimpleModel()
         self.temp_dir = tempfile.mkdtemp()
 
     def tearDown(self):
         """Nettoyage après chaque test."""
-        if hasattr(self, 'temp_dir') and os.path.exists(self.temp_dir):
+        if hasattr(self, "temp_dir") and os.path.exists(self.temp_dir):
             shutil.rmtree(self.temp_dir)
 
     def test_init(self):
@@ -120,10 +122,11 @@ class TestDeepSpeedOptimizer(unittest.TestCase):
             self.assertEqual(optimizer.zero_stage, 2)
             self.assertEqual(optimizer.train_batch_size, 32)
             self.assertEqual(optimizer.checkpoint_dir, self.temp_dir)
-            
+
             # Vérifier que ds_model est une instance de DeepSpeedModelStub
             if not HAVE_DEEPSPEED:
                 from ai_trading.utils.deepspeed_optimizer import DeepSpeedModelStub
+
                 self.assertIsInstance(optimizer.ds_model, DeepSpeedModelStub)
 
     def test_create_ds_config(self):
@@ -177,16 +180,20 @@ class TestDeepSpeedOptimizer(unittest.TestCase):
         self.assertEqual(config["gradient_accumulation_steps"], 1)
         self.assertEqual(config["gradient_clipping"], 1.0)
         self.assertEqual(config["zero_optimization"]["stage"], 2)
-        
+
         # Adapter la vérification en fonction de la structure
         if isinstance(config["zero_optimization"]["offload_optimizer"], bool):
             self.assertEqual(config["zero_optimization"]["offload_optimizer"], True)
         else:
             # Si c'est un dict, vérifier que c'est bien configuré
-            self.assertIsInstance(config["zero_optimization"]["offload_optimizer"], dict)
+            self.assertIsInstance(
+                config["zero_optimization"]["offload_optimizer"], dict
+            )
             self.assertIn("device", config["zero_optimization"]["offload_optimizer"])
-            self.assertEqual(config["zero_optimization"]["offload_optimizer"]["device"], "cpu")
-        
+            self.assertEqual(
+                config["zero_optimization"]["offload_optimizer"]["device"], "cpu"
+            )
+
         self.assertTrue(config["fp16"]["enabled"])
         self.assertEqual(config["checkpoint"]["save_interval"], 1000)
 
@@ -223,25 +230,25 @@ class TestDeepSpeedOptimizer(unittest.TestCase):
         else:
             # Créer l'optimiseur avec le stub
             optimizer = DeepSpeedOptimizer(model=self.model)
-            
+
             # Sauvegarder l'implémentation originale de compute_loss pour la restaurer plus tard
             original_compute_loss = self.model.compute_loss
-            
+
             try:
                 # Remplacer compute_loss par un mock qui retourne un tensor avec requires_grad=True
                 mock_loss = torch.tensor(0.5, requires_grad=True)
                 self.model.compute_loss = MagicMock(return_value=mock_loss)
-                
+
                 # Créer des données factices
                 batch = torch.randn(2, 10)
                 labels = torch.randn(2, 2)
-                
+
                 # Exécuter une étape d'entraînement
                 loss = optimizer.train_step(batch, labels)
-                
+
                 # Vérifier que compute_loss a été appelé
                 self.model.compute_loss.assert_called_once()
-                
+
                 # Vérifier que la perte a été calculée correctement
                 self.assertEqual(loss, 0.5)
             finally:
@@ -278,23 +285,23 @@ class TestDeepSpeedOptimizer(unittest.TestCase):
         else:
             # Créer l'optimiseur avec le stub
             optimizer = DeepSpeedOptimizer(model=self.model)
-            
+
             # Sauvegarder et remplacer forward pour vérification
             original_forward = self.model.forward
             try:
                 # Simuler une valeur de sortie
                 expected_output = torch.tensor([[1.0, 2.0]])
                 self.model.forward = MagicMock(return_value=expected_output)
-                
+
                 # Créer des données factices
                 batch = torch.randn(1, 10)
-                
+
                 # Exécuter une étape d'inférence
                 output = optimizer.eval_step(batch)
-                
+
                 # Vérifier que forward a été appelé
                 self.model.forward.assert_called_once()
-                
+
                 # Vérifier que l'output est celui attendu
                 self.assertTrue(torch.allclose(output, expected_output))
             finally:
@@ -311,7 +318,9 @@ class TestDeepSpeedOptimizer(unittest.TestCase):
                 mock_initialize.return_value = (mock_model, mock_optimizer, None, None)
 
                 # Créer l'optimiseur
-                optimizer = DeepSpeedOptimizer(model=self.model, checkpoint_dir=self.temp_dir)
+                optimizer = DeepSpeedOptimizer(
+                    model=self.model, checkpoint_dir=self.temp_dir
+                )
 
                 # Créer un chemin de checkpoint
                 checkpoint_path = os.path.join(self.temp_dir, "test_checkpoint")
@@ -336,36 +345,40 @@ class TestDeepSpeedOptimizer(unittest.TestCase):
                 self.assertEqual(client_state, {"test": "data"})
         else:
             # Créer l'optimiseur avec le stub
-            optimizer = DeepSpeedOptimizer(model=self.model, checkpoint_dir=self.temp_dir)
-            
+            optimizer = DeepSpeedOptimizer(
+                model=self.model, checkpoint_dir=self.temp_dir
+            )
+
             # Créer un chemin de checkpoint
             checkpoint_path = os.path.join(self.temp_dir, "test_checkpoint")
             os.makedirs(checkpoint_path, exist_ok=True)
-            
+
             # Sauvegarder l'état du modèle avant modification
             original_params = {}
             for name, param in self.model.named_parameters():
                 original_params[name] = param.data.clone()
-                
+
             # Sauvegarder le checkpoint
             optimizer.save_checkpoint(checkpoint_path, client_state={"test": "data"})
-            
+
             # Vérifier que le fichier a été créé
             self.assertTrue(os.path.exists(os.path.join(checkpoint_path, "model.pt")))
-            self.assertTrue(os.path.exists(os.path.join(checkpoint_path, "client_state.pt")))
-            
+            self.assertTrue(
+                os.path.exists(os.path.join(checkpoint_path, "client_state.pt"))
+            )
+
             # Modifier le modèle
             with torch.no_grad():
                 for param in self.model.parameters():
                     param.add_(0.1)
-                    
+
             # Charger le checkpoint
             client_state = optimizer.load_checkpoint(checkpoint_path)
-            
+
             # Vérifier que les poids ont été restaurés
             for name, param in self.model.named_parameters():
                 self.assertTrue(torch.allclose(param.data, original_params[name]))
-                
+
             # Vérifier l'état client (adapter pour notre implémentation stub qui peut modifier l'état client)
             self.assertIn("test", client_state)
             self.assertEqual(client_state["test"], "data")
@@ -378,14 +391,16 @@ class TestCreateDeepSpeedConfig(unittest.TestCase):
         """Initialisation avant chaque test."""
         # Informer l'utilisateur si DeepSpeed n'est pas disponible mais continuer les tests
         if not HAVE_DEEPSPEED:
-            logger.warning("DeepSpeed n'est pas installé. Utilisation de l'implémentation stub pour les tests.")
+            logger.warning(
+                "DeepSpeed n'est pas installé. Utilisation de l'implémentation stub pour les tests."
+            )
             # Note: On n'utilise plus self.skipTest() pour permettre aux tests de s'exécuter
-            
+
         self.temp_dir = tempfile.mkdtemp()
 
     def tearDown(self):
         """Nettoyage après chaque test."""
-        if hasattr(self, 'temp_dir') and os.path.exists(self.temp_dir):
+        if hasattr(self, "temp_dir") and os.path.exists(self.temp_dir):
             shutil.rmtree(self.temp_dir)
 
     def test_create_config_basic(self):

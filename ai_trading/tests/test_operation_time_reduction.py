@@ -26,10 +26,8 @@ try:
 except ImportError:
     TORCH_AVAILABLE = False
 
-from ai_trading.optim.operation_time_reduction import (
+from ai_trading.optim.operation_time_reduction import (  # Pour les tests uniquement
     _RESULT_CACHE,
-)  # Pour les tests uniquement
-from ai_trading.optim.operation_time_reduction import (
     ParallelOperations,
     PredictionCache,
     get_optimal_batch_size,

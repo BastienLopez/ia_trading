@@ -72,7 +72,7 @@ class TorchScriptCompiler:
         else:
             # Sinon, utiliser le chemin complet
             self.save_dir = Path("ai_trading/info_retour/models/jit")
-        
+
         self.save_dir.mkdir(parents=True, exist_ok=True)
         logger.info(f"Les modèles compilés seront sauvegardés dans {self.save_dir}")
 
