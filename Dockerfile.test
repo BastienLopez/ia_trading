@@ -3,7 +3,7 @@ FROM nvidia/cuda:12.2.0-runtime-ubuntu22.04
 
 WORKDIR /app
 
-# Variables d'environnement
+# Variables d'environnement essentielles
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     DEBIAN_FRONTEND=noninteractive \
@@ -11,13 +11,13 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     CUDA_HOME="/usr/local/cuda" \
     NVIDIA_VISIBLE_DEVICES=all \
     XLA_FLAGS=--xla_gpu_cuda_data_dir=/usr/local/cuda \
-    PYTORCH_USE_SAFE_MODE=0
+    PYTORCH_USE_SAFE_MODE=0 \
+    TF_FORCE_GPU_ALLOW_GROWTH=true
 
-# Installation des dépendances système
+# Installation des dépendances système en une seule étape
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3.11 \
-    python3.11-dev \
-    python3.11-venv \
+    python3 \
+    python3-dev \
     python3-pip \
     git \
     build-essential \
@@ -28,45 +28,35 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxext6 \
     libhdf5-dev \
     wget \
-    curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Liaison symbolique de Python 3.11
-RUN ln -sf /usr/bin/python3.11 /usr/bin/python3 && \
-    ln -sf /usr/bin/python3 /usr/bin/python && \
-    ln -sf /usr/bin/pip3 /usr/bin/pip
+# Installation de TA-Lib depuis les sources
+RUN wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz && \
+    tar -xzf ta-lib-0.4.0-src.tar.gz && \
+    cd ta-lib/ && \
+    ./configure && \
+    make && \
+    make install && \
+    cd .. && \
+    rm -rf ta-lib-0.4.0-src.tar.gz ta-lib/
 
-# Installation de TA-Lib (nécessaire pour certains tests)
-RUN wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz \
-    && tar -xvzf ta-lib-0.4.0-src.tar.gz \
-    && cd ta-lib/ \
-    && ./configure --prefix=/usr \
-    && make \
-    && make install \
-    && cd .. \
-    && rm -rf ta-lib-0.4.0-src.tar.gz ta-lib/
+# Mise à jour du ldconfig
+RUN echo "/usr/local/lib" > /etc/ld.so.conf.d/local.conf && ldconfig
 
-# Copier les requirements
+# Installation des packages Python
 COPY requirements.txt .
+RUN pip3 install --upgrade pip && \
+    pip3 install wheel setuptools numpy && \
+    pip3 install --no-cache-dir -r requirements.txt && \
+    pip3 install pytest pytest-cov pytest-sugar pytest-timeout && \
+    pip3 install --no-cache-dir ray[default]==2.7.1 ray[tune]==2.7.1 h5py==3.9.0 tables==3.8.0
 
-# Installer les dépendances Python
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Installer les packages de test supplémentaires
-RUN pip install pytest pytest-cov pytest-sugar pytest-timeout pytest-repeat pytest-mock pytest-xdist pytest-benchmark pytest-profiling
-
-# Installer Ray et h5py explicitement pour les tests
-RUN pip install --no-cache-dir ray[default]==2.7.1 ray[rllib]==2.7.1 ray[tune]==2.7.1 h5py==3.9.0 tables==3.8.0
-
-# Installation du package cuda-nvcc qui inclut libdevice
+# Installation du package cuda-nvcc
 RUN apt-get update && apt-get install -y --no-install-recommends \
     cuda-nvcc-12-2 \
     && rm -rf /var/lib/apt/lists/*
 
-# Configuration de TensorFlow pour utiliser le GPU
-ENV TF_FORCE_GPU_ALLOW_GROWTH=true
-
-# Configuration de l'environnement pour les tests
+# Configuration des répertoires
 RUN mkdir -p /app/test-reports \
     /app/ai_trading/info_retour/data \
     /app/ai_trading/info_retour/logs \
@@ -75,23 +65,19 @@ RUN mkdir -p /app/test-reports \
 # Copier le code source
 COPY . .
 
-# Patcher le test de quantification pour utiliser weights_only=False
+# Créer un fichier pour le patch
 RUN echo "import torch.serialization" > /tmp/torch_patch.py && \
     echo "torch.serialization.add_safe_globals(['ai_trading.tests.test_model_quantization.SimpleModel'])" >> /tmp/torch_patch.py && \
-    echo "# Patcher le test pour utiliser weights_only=False pour charger le modèle" >> /tmp/torch_patch.py && \
-    echo "def torch_load_override(path, *args, **kwargs):" >> /tmp/torch_patch.py && \
-    echo "    try:" >> /tmp/torch_patch.py && \
-    echo "        return original_torch_load(path, weights_only=False)" >> /tmp/torch_patch.py && \
-    echo "    except Exception as e:" >> /tmp/torch_patch.py && \
-    echo "        print(f'Erreur lors du chargement avec weights_only=False: {e}')" >> /tmp/torch_patch.py && \
-    echo "        return original_torch_load(path, *args, **kwargs)" >> /tmp/torch_patch.py && \
     echo "original_torch_load = torch.load" >> /tmp/torch_patch.py && \
+    echo "def torch_load_override(path, *args, **kwargs):" >> /tmp/torch_patch.py && \
+    echo "    return original_torch_load(path, weights_only=False)" >> /tmp/torch_patch.py && \
     echo "torch.load = torch_load_override" >> /tmp/torch_patch.py && \
-    cat /tmp/torch_patch.py >> /app/ai_trading/tests/test_model_quantization.py
+    cat /tmp/torch_patch.py >> /app/ai_trading/tests/test_model_quantization.py && \
+    rm /tmp/torch_patch.py
 
 # Vérifier que CUDA est disponible
-RUN python -c "import torch; print(f'PyTorch CUDA available: {torch.cuda.is_available()}'); import tensorflow as tf; print(f'TensorFlow GPU available: {len(tf.config.list_physical_devices(\"GPU\"))>0}')"
+RUN python3 -c "import torch; print('PyTorch CUDA available:', torch.cuda.is_available()); import tensorflow as tf; print('TensorFlow GPU devices:', tf.config.list_physical_devices('GPU'))"
 
-# Par défaut, exécuter tous les tests avec génération de rapport de couverture
-ENTRYPOINT ["python", "-m", "pytest", "-v", "-rs", "--cov=ai_trading", "--cov-report=html:/app/test-reports/coverage"]
+# Commande par défaut
+ENTRYPOINT ["python3", "-m", "pytest", "-xvs", "--cov=ai_trading", "--cov-report=html:/app/test-reports/coverage"]
 CMD ["ai_trading/tests/", "web_app/tests/"] 
