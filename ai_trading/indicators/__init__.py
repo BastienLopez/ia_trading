@@ -1,1 +1,1 @@
-# Package indicators
+﻿# -*- coding: utf-8 -*-

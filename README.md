@@ -163,9 +163,9 @@ Ce module contient l'implémentation d'un système de trading de cryptomonnaies 
   - [ ] Apprentissage distribué
 
   ### 4. **Optimisation de portefeuille**
-  - [ ] Système d'allocation complet
-  - [ ] Arbitrage, pairs trading
-  - [ ] Modèles multi-facteurs
+  - [x] Système d'allocation complet
+  - [x] Arbitrage, pairs trading
+  - [x] Modèles multi-facteurs
 
   ### 5. **Intégration plateforme réelle**
   - [ ] Connexion avec exchanges
