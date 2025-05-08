@@ -37,6 +37,7 @@ test_data/
 prof/
 .pytest_cache/
 pytest.xml
+test-reports/
 
 # Environnements virtuels
 venv/
@@ -67,6 +68,12 @@ ai_trading/.env.example
 *.sublime-workspace
 .settings/
 .vs/
+*.iml
+*.iws
+.idea_modules/
+out/
+.history/
+.ionide/
 
 # Jupyter Notebook
 .ipynb_checkpoints
@@ -104,6 +111,7 @@ ai_trading/models/*.h5
 *.joblib
 model_checkpoints/
 saved_models/
+onnx_models/
 
 # Images et graphiques générés
 *.png
@@ -116,7 +124,7 @@ saved_models/
 !web_app/static/images/**
 !docs/images/**
 
-# TensorFlow
+# TensorFlow et autres frameworks ML
 *.pb
 *.pbtxt
 *.ckpt
@@ -127,6 +135,15 @@ tensorboard/
 events.out.tfevents.*
 .tf_profile/
 .keras/
+tflite_models/
+keras_metadata.pb
+assets/
+variables/
+lightning_logs/
+mlruns/
+catboost_info/
+.torch_jit_trace/
+nohup.out
 
 # Système
 .DS_Store
@@ -137,6 +154,48 @@ events.out.tfevents.*
 Thumbs.db
 ehthumbs.db
 Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# Spécifique à Windows
+*.exe
+*.dll
+*.sys
+*.obj
+*.pdb
+*.user
+*.aps
+*.pch
+*.vspscc
+*.vssscc
+*_i.c
+*_p.c
+*.ncb
+*.suo
+*.tlb
+*.tlh
+*.bak
+*.cache
+*.ilk
+*.lib
+*.sbr
+*.sdf
+*.msi
+*.msm
+*.msp
+
+# Spécifique à Linux
+*.o
+*.ko
+*.elf
+*.a
+*.la
+*.lo
+*.out
+*.deb
+*.rpm
+core
+*.core
 
 # Fichiers de nettoyage et temporaires
 *.bak
@@ -179,6 +238,9 @@ ai_trading/info_retour/data/*
 !ai_trading/info_retour/models/
 ai_trading/info_retour/models/*
 !ai_trading/info_retour/models/.gitkeep
+!ai_trading/info_retour/models/jit/
+ai_trading/info_retour/models/jit/*
+!ai_trading/info_retour/models/jit/.gitkeep
 
 !ai_trading/info_retour/logs/
 ai_trading/info_retour/logs/*
@@ -204,15 +266,53 @@ yarn.lock
 .yarn
 
 # Docker
-.docker/
-docker-compose.override.yml
-*.env
 .dockerignore
-docker-compose.*.yml
-!docker-compose.yml
-!docker-compose.example.yml
-docker-volumes/
-.docker-sync/
+docker-compose.override.yml
+docker-compose.override.yaml
+docker-data/
+docker_volume/
+*.tar
+*.tar.gz
+.docker/
+
+# CUDA et optimisations GPU
+.cuda-profile/
+*.nvvp
+*.nsight
+*.nsys-rep
+*.qdrep
+*.sqlite-journal
+nvprof_output/
+cuda_profile/
+nvcc_output/
+profile_output/
+.nv/
+build/temp.*
+
+# Fichiers spécifiques à setup_cuda_quantization
+setup_cuda_results/
+cuda_quantization_logs/
+cuda_test_results/
+docker_cuda_tests/
+
+# Répertoires de test Docker
+test-with-docker-*/
+test-reports/
+docker-test-volume/
+
+# Fichiers générés automatiquement
+version.txt
+build_info.json
+.build_cache/
+
+# CJSON files (configuration avancée)
+*.cjson
+*.qcjson
+
+# VSCode spécifiques à CUDA
+.vscode/c_cpp_properties.json
+.vscode/launch.json
+.vscode/settings.json
 
 # MLflow
 mlruns/
@@ -230,12 +330,33 @@ wandb/
 # Ray
 ray_results/
 ray_logs/
+ray_tune_results/
+ray_tune_logs/
+ray_checkpoints/
+
+# Pylint
+.pylintrc
+
+# Pytype
+.pytype/
+
+# Cython
+*.c
+*.cpp
 
 # Autres
-.history/
 .vim/
 *.pyc
-__pycache__/
 .python-version
 .tool-versions
-.direnv/ 
+.direnv/
+
+# DeepSpeed
+.deepspeed/
+deepspeed_config.json
+zero_to_fp32.py
+zero_checkpoint/
+*_ds_config.json
+*_ds_model/
+ds_config*.json
+ds_report/ 

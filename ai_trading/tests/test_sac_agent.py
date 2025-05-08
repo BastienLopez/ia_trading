@@ -11,10 +11,18 @@ import shutil
 import sys
 import tempfile
 import unittest
+import warnings
 
 import numpy as np
 import pandas as pd
 import tensorflow as tf
+
+# Filtres pour ignorer les avertissements de dépréciation connus
+warnings.filterwarnings(
+    "ignore", message=".*distutils Version classes are deprecated.*"
+)
+warnings.filterwarnings("ignore", message=".*'imghdr' is deprecated.*")
+warnings.filterwarnings("ignore", message=".*tensorflow.*deprecated.*")
 
 # Configurer le logger pour les tests
 logging.basicConfig(level=logging.INFO)
@@ -78,10 +86,16 @@ class TestSACAgent(unittest.TestCase):
         self.agent = SACAgent(
             state_size=self.state_size,
             action_size=1,  # L'environnement a un espace d'action de dimension 1
-            action_bounds=(-1, 1),  # Les actions sont normalisées entre -1 et 1
-            batch_size=32,
-            buffer_size=5000,
             hidden_size=64,
+            learning_rate=3e-4,
+            gamma=0.99,
+            tau=0.005,
+            alpha=0.2,
+            buffer_size=5000,
+            batch_size=32,
+            sequence_length=1,
+            use_gru=False,
+            device="cpu",  # Utiliser CPU pour les tests
         )
 
         # Collecter quelques expériences pour le tampon de replay
@@ -114,13 +128,13 @@ class TestSACAgent(unittest.TestCase):
         state, _ = self.env.reset()
 
         # Test mode stochastique
-        action = self.agent.act(state)
+        action = self.agent.select_action(state)
         self.assertIsInstance(action, np.ndarray)
         self.assertEqual(action.shape, (1,))
         self.assertTrue(-1 <= action[0] <= 1)
 
         # Test mode déterministe (évaluation)
-        action_det = self.agent.act(state, evaluate=True)
+        action_det = self.agent.select_action(state, evaluate=True)
         self.assertIsInstance(action_det, np.ndarray)
         self.assertEqual(action_det.shape, (1,))
         self.assertTrue(-1 <= action_det[0] <= 1)
@@ -174,8 +188,16 @@ class TestSACAgent(unittest.TestCase):
             new_agent = SACAgent(
                 state_size=self.state_size,
                 action_size=1,
-                action_bounds=(-1, 1),
-                hidden_size=64,  # Utiliser le même hidden_size que l'agent original
+                hidden_size=64,
+                learning_rate=3e-4,
+                gamma=0.99,
+                tau=0.005,
+                alpha=0.2,
+                buffer_size=5000,
+                batch_size=32,
+                sequence_length=1,
+                use_gru=False,
+                device="cpu",  # Utiliser CPU pour les tests
             )
 
             # Charger les poids
@@ -183,8 +205,8 @@ class TestSACAgent(unittest.TestCase):
 
             # Tester une action avec l'agent original et l'agent chargé
             state, _ = self.env.reset()
-            action_original = self.agent.act(state, evaluate=True)
-            action_loaded = new_agent.act(state, evaluate=True)
+            action_original = self.agent.select_action(state, evaluate=True)
+            action_loaded = new_agent.select_action(state, evaluate=True)
 
             # Les actions devraient être similaires (pas forcément identiques)
             # Différence relative faible
@@ -200,13 +222,12 @@ class TestSACAgent(unittest.TestCase):
             # Nettoyer
             shutil.rmtree(temp_dir)
 
-    @unittest.skip("Ignoré jusqu'à la correction de l'interface du replay buffer")
     def test_replay_buffer(self):
         """Teste le fonctionnement du tampon de replay"""
         # Vérifier si l'agent a un tampon de replay
-        if not hasattr(self.agent, "replay_buffer") and hasattr(self.agent, "memory"):
-            # Utiliser memory à la place de replay_buffer
-            initial_size = len(self.agent.memory)
+        if hasattr(self.agent, "replay_buffer"):
+            # Utiliser replay_buffer
+            initial_size = len(self.agent.replay_buffer)
 
             # Ajouter une expérience
             state = np.random.random(self.state_size)
@@ -218,21 +239,25 @@ class TestSACAgent(unittest.TestCase):
             self.agent.remember(state, action, reward, next_state, done)
 
             # Vérifier que la taille a augmenté
-            self.assertEqual(len(self.agent.memory), initial_size + 1)
+            self.assertEqual(len(self.agent.replay_buffer), initial_size + 1)
 
             # Échantillonner un lot si possible
-            if hasattr(self.agent.memory, "sample") and len(self.agent.memory) >= 10:
-                batch_size = 10
-                states, actions, rewards, next_states, dones = self.agent.memory.sample(
-                    batch_size
-                )
+            if (
+                hasattr(self.agent.replay_buffer, "sample")
+                and len(self.agent.replay_buffer) >= self.agent.batch_size
+            ):
+                batch = self.agent.replay_buffer.sample(self.agent.batch_size)
 
-                # Vérifier les dimensions
-                self.assertEqual(states.shape[0], batch_size)
-                self.assertEqual(actions.shape[0], batch_size)
-                self.assertEqual(rewards.shape[0], batch_size)
-                self.assertEqual(next_states.shape[0], batch_size)
-                self.assertEqual(dones.shape[0], batch_size)
+                # Vérifier que le lot a le bon format (peut varier selon l'implémentation)
+                self.assertIsNotNone(batch)
+                if isinstance(batch, tuple) and len(batch) == 5:
+                    states, actions, rewards, next_states, dones = batch
+                    # Vérifier les dimensions
+                    self.assertEqual(len(states), self.agent.batch_size)
+                    self.assertEqual(len(actions), self.agent.batch_size)
+                    self.assertEqual(len(rewards), self.agent.batch_size)
+                    self.assertEqual(len(next_states), self.agent.batch_size)
+                    self.assertEqual(len(dones), self.agent.batch_size)
 
     def test_scale_unscale_actions(self):
         """Teste les fonctions de mise à l'échelle et déséchelonnage des actions"""

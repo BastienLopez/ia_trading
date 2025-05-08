@@ -236,9 +236,13 @@ class EnhancedDataCollector:
 
             # Conversion des types
             df["value"] = pd.to_numeric(df["value"])
-            # Correction du FutureWarning - conversion explicite en numérique avant to_datetime
+
+            # Conversion sécurisée du timestamp
             df["timestamp"] = pd.to_numeric(df["timestamp"], errors="coerce")
-            df["timestamp"] = pd.to_datetime(df["timestamp"], unit="s")
+            df = df.dropna(
+                subset=["timestamp"]
+            )  # Supprimer les lignes avec timestamp invalide
+            df["timestamp"] = pd.to_datetime(df["timestamp"], unit="s", utc=True)
 
             # Renommage des colonnes
             df = df.rename(columns={"value_classification": "classification"})

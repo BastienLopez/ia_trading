@@ -67,6 +67,7 @@ class NStepSACAgent(SACAgent):
         """
         # Stocker n_steps avant d'appeler le constructeur parent
         self.n_steps = n_steps
+        self.discount_factor = discount_factor  # Stocker le facteur d'actualisation
 
         # Initialiser la classe parente sans créer le tampon de replay standard
         # Nous allons créer notre propre tampon de replay avec retours multi-étapes
@@ -78,15 +79,16 @@ class NStepSACAgent(SACAgent):
         self.alpha_loss_history = []
         self.entropy_history = []
 
+        # Utiliser le même taux d'apprentissage pour tous les réseaux pour la compatibilité
+        learning_rate = actor_learning_rate
+
         # Appel au constructeur parent
         super(NStepSACAgent, self).__init__(
             state_size=state_size,
             action_size=action_size,
             action_bounds=action_bounds,
-            actor_learning_rate=actor_learning_rate,
-            critic_learning_rate=critic_learning_rate,
-            alpha_learning_rate=alpha_learning_rate,
-            discount_factor=discount_factor,
+            learning_rate=learning_rate,
+            gamma=discount_factor,
             tau=tau,
             batch_size=batch_size,
             buffer_size=buffer_size,
@@ -277,6 +279,12 @@ class NStepSACAgent(SACAgent):
         Args:
             filepath (str): Chemin de base pour la sauvegarde
         """
+        # Créer le répertoire si nécessaire
+        os.makedirs(
+            os.path.dirname(filepath) if os.path.dirname(filepath) else ".",
+            exist_ok=True,
+        )
+
         super(NStepSACAgent, self).save(filepath)
 
         # Sauvegarder les informations sur les étapes multiples

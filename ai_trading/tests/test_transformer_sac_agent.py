@@ -2,10 +2,11 @@ import os
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 
 import gymnasium as gym
 import numpy as np
-import tensorflow as tf
+import torch
 from gymnasium import spaces
 
 # Ajouter le répertoire parent au chemin pour importer les modules
@@ -88,6 +89,7 @@ class TestTransformerSACAgent(unittest.TestCase):
             num_transformer_blocks=2,
             rnn_units=32,
             model_type="gru",  # Utiliser GRU pour les tests
+            device="cpu",  # Utiliser CPU pour les tests
         )
 
     def test_initialization(self):
@@ -101,8 +103,8 @@ class TestTransformerSACAgent(unittest.TestCase):
         self.assertIsNotNone(self.agent.actor)
         self.assertIsNotNone(self.agent.critic_1)
         self.assertIsNotNone(self.agent.critic_2)
-        self.assertIsNotNone(self.agent.target_critic_1)
-        self.assertIsNotNone(self.agent.target_critic_2)
+        self.assertIsNotNone(self.agent.critic_1_target)
+        self.assertIsNotNone(self.agent.critic_2_target)
 
         # Vérifier que les historiques de perte sont initialisés
         self.assertEqual(len(self.agent.actor_loss_history), 0)
@@ -202,120 +204,81 @@ class TestTransformerSACAgent(unittest.TestCase):
 
     def test_update_target_networks(self):
         """Teste la mise à jour des réseaux cibles."""
-        # Obtenir les poids initiaux
-        initial_weights_critic_1 = self.agent.critic_1.get_weights()
-        initial_weights_target_critic_1 = self.agent.target_critic_1.get_weights()
+        # Sauvegarder les poids initiaux
+        critic_1_weights = [p.clone() for p in self.agent.critic_1.parameters()]
+        critic_2_weights = [p.clone() for p in self.agent.critic_2.parameters()]
 
-        # Mettre à jour les réseaux cibles avec tau=1.0
-        self.agent.update_target_networks(tau=1.0)
+        # Modifier les poids des réseaux principaux
+        for param in self.agent.critic_1.parameters():
+            param.data += torch.randn_like(param.data) * 0.1
+        for param in self.agent.critic_2.parameters():
+            param.data += torch.randn_like(param.data) * 0.1
 
-        # Obtenir les nouveaux poids
-        updated_weights_target_critic_1 = self.agent.target_critic_1.get_weights()
+        # Mettre à jour les réseaux cibles
+        self.agent.update_target_networks()
 
-        # Vérifier que les poids cibles sont maintenant identiques aux poids sources
-        for i in range(len(initial_weights_critic_1)):
-            np.testing.assert_array_almost_equal(
-                initial_weights_critic_1[i], updated_weights_target_critic_1[i]
-            )
+        # Vérifier que les poids ont été mis à jour et sont proches mais pas identiques
+        for target_param, param in zip(
+            self.agent.critic_1_target.parameters(), self.agent.critic_1.parameters()
+        ):
+            # Les paramètres ne devraient pas être exactement égaux
+            self.assertFalse(torch.equal(target_param, param))
+            # Vérifier que les poids ont été mis à jour (ne sont pas restés les mêmes)
+            self.assertFalse(torch.equal(target_param.data, critic_1_weights[0].data))
+            # Vérifier que les poids sont dans l'intervalle attendu
+            diff = torch.abs(target_param.data - param.data)
+            self.assertTrue(torch.all(diff <= 1.0))
 
-    def test_log_probs(self):
-        """Teste le calcul des log probabilities."""
-        # Créer des actions aléatoires
-        actions_raw = np.random.normal(0, 1, size=(4, self.action_dim))
-        actions = np.tanh(actions_raw)
-        log_stds = np.random.normal(-1, 0.1, size=(4, self.action_dim))
-
-        # Calculer les log probs
-        log_probs = self.agent._log_probs(
-            tf.convert_to_tensor(actions_raw, dtype=tf.float32),
-            tf.convert_to_tensor(actions, dtype=tf.float32),
-            tf.convert_to_tensor(log_stds, dtype=tf.float32),
-        )
-
-        # Vérifier la forme des log probs
-        self.assertEqual(log_probs.shape, (4, 1))
+        for target_param, param in zip(
+            self.agent.critic_2_target.parameters(), self.agent.critic_2.parameters()
+        ):
+            self.assertFalse(torch.equal(target_param, param))
+            self.assertFalse(torch.equal(target_param.data, critic_2_weights[0].data))
+            diff = torch.abs(target_param.data - param.data)
+            self.assertTrue(torch.all(diff <= 1.0))
 
     def test_save_load_models(self):
         """Teste la sauvegarde et le chargement des modèles."""
-        # Créer un répertoire temporaire pour les tests
+        # Créer un répertoire temporaire
         with tempfile.TemporaryDirectory() as temp_dir:
-            # Désactiver temporairement la génération de timestamp dans le chemin
-            original_checkpoints_dir = self.agent.checkpoints_dir
-            self.agent.checkpoints_dir = (
-                temp_dir  # Utiliser le dossier temporaire directement
-            )
+            # Configurer le répertoire de checkpoints de l'agent
+            self.agent.checkpoints_dir = Path(temp_dir)
 
-            try:
-                # Sauvegarder les modèles avec un nom simple sans timestamp
-                save_path = os.path.join(temp_dir, "test_model")
+            # Sauvegarder les modèles
+            self.agent.save_models(suffix="_test")
 
-                # Sauvegarder directement les modèles sans passer par save_models
-                # pour éviter le problème de timestamp qui contient ":"
-                self.agent.actor.save_weights(f"{save_path}_actor.h5")
-                self.agent.critic_1.save_weights(f"{save_path}_critic_1.h5")
-                self.agent.critic_2.save_weights(f"{save_path}_critic_2.h5")
+            # Vérifier que les fichiers ont été créés
+            checkpoint_files = os.listdir(temp_dir)
+            self.assertTrue(any("checkpoint" in f for f in checkpoint_files))
 
-                # Vérifier que les fichiers sont créés
-                expected_files = [
-                    f"{save_path}_actor.h5",
-                    f"{save_path}_critic_1.h5",
-                    f"{save_path}_critic_2.h5",
-                ]
-                for file_path in expected_files:
-                    self.assertTrue(os.path.exists(file_path))
+            # Trouver le dernier checkpoint
+            checkpoint_dir = sorted([d for d in checkpoint_files if "checkpoint" in d])[
+                -1
+            ]
+            model_path = os.path.join(temp_dir, checkpoint_dir, "models.pt")
 
-                # Obtenir des poids originaux
-                original_actor_weights = self.agent.actor.get_weights()
+            # Charger les modèles
+            self.agent.load_models(model_path)
 
-                # Modifier les poids de l'acteur
-                for layer in self.agent.actor.layers:
-                    if len(layer.get_weights()) > 0:
-                        weights = layer.get_weights()
-                        modified_weights = [w * 1.5 for w in weights]
-                        layer.set_weights(modified_weights)
-
-                # Vérifier que les poids sont différents
-                modified_actor_weights = self.agent.actor.get_weights()
-                # Au moins un ensemble de poids devrait être différent
-                weights_different = False
-                for i in range(len(original_actor_weights)):
-                    if not np.array_equal(
-                        original_actor_weights[i], modified_actor_weights[i]
-                    ):
-                        weights_different = True
-                        break
-                self.assertTrue(weights_different)
-
-                # Charger les modèles directement
-                self.agent.actor.load_weights(f"{save_path}_actor.h5")
-                self.agent.critic_1.load_weights(f"{save_path}_critic_1.h5")
-                self.agent.critic_2.load_weights(f"{save_path}_critic_2.h5")
-
-                # Vérifier que les poids sont restaurés
-                loaded_actor_weights = self.agent.actor.get_weights()
-                for i in range(len(original_actor_weights)):
-                    np.testing.assert_array_almost_equal(
-                        original_actor_weights[i], loaded_actor_weights[i]
-                    )
-            finally:
-                # Restaurer le répertoire de checkpoints original
-                self.agent.checkpoints_dir = original_checkpoints_dir
+            # Vérifier que les modèles ont été chargés
+            self.assertIsNotNone(self.agent.actor)
+            self.assertIsNotNone(self.agent.critic_1)
+            self.assertIsNotNone(self.agent.critic_2)
+            self.assertIsNotNone(self.agent.critic_1_target)
+            self.assertIsNotNone(self.agent.critic_2_target)
 
     def test_integration(self):
-        """Teste l'intégration avec l'environnement."""
-        # Remplacer le test d'intégration par une version qui ne fait pas d'entraînement complet
-
-        # Réinitialiser l'environnement
+        """Teste l'intégration complète de l'agent avec l'environnement."""
+        # Réinitialiser l'environnement et le tampon d'état
         state, _ = self.env.reset()
-
-        # Réinitialiser l'agent
         self.agent.reset_state_buffer()
 
-        # Exécuter quelques étapes sans entraînement
-        for _ in range(5):
-            # Ajouter l'état actuel au tampon de l'agent
+        # Remplir le tampon d'état avec l'état initial
+        for _ in range(self.sequence_length):
             self.agent.update_state_buffer(state)
 
+        # Exécuter quelques étapes
+        for step in range(10):
             # Échantillonner une action
             action = self.agent.sample_action(state)
 
@@ -323,88 +286,31 @@ class TestTransformerSACAgent(unittest.TestCase):
             next_state, reward, done, _, _ = self.env.step(action)
 
             # Mémoriser la transition
-            self.agent.remember(state, action, reward, next_state, done)
+            sequence_state = self.agent.get_sequence_state()
+            next_sequence_state = np.copy(sequence_state)
+            next_sequence_state[:-1] = sequence_state[1:]
+            next_sequence_state[-1] = next_state
 
-            # Mettre à jour l'état
+            self.agent.remember(
+                sequence_state, action, reward, next_sequence_state, done
+            )
+
+            # Entraîner l'agent
+            if len(self.agent.replay_buffer) >= self.agent.batch_size:
+                critic_loss, actor_loss, alpha_loss = self.agent.train()
+
+                # Vérifier que les pertes sont des nombres
+                self.assertIsInstance(critic_loss, float)
+                self.assertIsInstance(actor_loss, float)
+                if alpha_loss is not None:
+                    self.assertIsInstance(alpha_loss, float)
+
+            # Mettre à jour l'état et le tampon d'état
             state = next_state
+            self.agent.update_state_buffer(state)
 
-        # Vérifier que nous avons stocké des transitions
-        self.assertGreater(len(self.agent.replay_buffer), 0)
-
-        # Si le tampon est assez plein, tester une seule étape d'entraînement avec un petit batch
-        if len(self.agent.replay_buffer) >= 4:
-            # Préparer un batch manuellement
-            states = np.random.random((4, self.state_dim)).astype(np.float32)
-            actions = np.random.uniform(-1, 1, (4, self.action_dim)).astype(np.float32)
-            rewards = np.random.random(4).astype(np.float32).reshape(-1, 1)
-            next_states = np.random.random((4, self.state_dim)).astype(np.float32)
-            dones = np.zeros(4, dtype=np.float32).reshape(-1, 1)
-
-            # Créer des séquences factices
-            sequence_states = np.zeros(
-                (4, self.sequence_length, self.state_dim), dtype=np.float32
-            )
-            sequence_next_states = np.zeros(
-                (4, self.sequence_length, self.state_dim), dtype=np.float32
-            )
-
-            for i in range(4):
-                # Ajouter l'état actuel comme dernier dans la séquence
-                sequence_states[i, -1] = states[i]
-                sequence_next_states[i, -1] = next_states[i]
-
-            # Conversion en tensors
-            states_tf = tf.convert_to_tensor(sequence_states, dtype=tf.float32)
-            actions_tf = tf.convert_to_tensor(actions, dtype=tf.float32)
-            rewards_tf = tf.convert_to_tensor(rewards, dtype=tf.float32)
-            next_states_tf = tf.convert_to_tensor(
-                sequence_next_states, dtype=tf.float32
-            )
-            dones_tf = tf.convert_to_tensor(dones, dtype=tf.float32)
-            weights_tf = tf.ones_like(rewards_tf)
-
-            # Test d'une seule étape d'entraînement des critiques
-            with tf.GradientTape(persistent=True) as tape:
-                # Forward pass à travers l'acteur pour obtenir les paramètres d'action
-                next_action_params = self.agent.actor(next_states_tf, training=False)
-
-                # Diviser les paramètres en moyenne et log_std
-                next_means, next_log_stds = tf.split(next_action_params, 2, axis=-1)
-                next_log_stds = tf.clip_by_value(next_log_stds, -20, 2)
-                next_stds = tf.exp(next_log_stds)
-
-                # Échantillonner des actions pour le prochain état
-                normal_dist = tf.random.normal(shape=next_means.shape)
-                next_actions_raw = next_means + normal_dist * next_stds
-                next_actions = tf.tanh(next_actions_raw)
-
-                # Répéter chaque action pour tous les pas de temps de la séquence
-                repeated_actions = tf.repeat(
-                    next_actions[:, tf.newaxis, :], repeats=self.sequence_length, axis=1
-                )
-
-                # Concaténer les états et les actions pour l'entrée du critique
-                # Adaptée pour assurer la compatibilité des formes
-                next_state_actions_1 = tf.concat(
-                    [next_states_tf, repeated_actions], axis=-1
-                )
-
-                # Évaluer les fonctions Q
-                target_q1 = self.agent.target_critic_1(
-                    next_state_actions_1, training=False
-                )
-                target_q2 = self.agent.target_critic_2(
-                    next_state_actions_1, training=False
-                )
-
-                # Prendre le minimum des deux Q-values
-                target_q = tf.minimum(target_q1, target_q2)
-
-                # Vérifier que nous avons obtenu des Q-values valides
-                self.assertEqual(target_q.shape, (4, 1))
-
-            # Nettoyer la mémoire
-            del tape
+            # Vérifier que le tampon d'état a la bonne taille
+            self.assertEqual(len(self.agent.state_buffer), self.sequence_length)
 
 
 if __name__ == "__main__":

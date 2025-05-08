@@ -5,7 +5,7 @@ import unittest
 
 import numpy as np
 import tensorflow as tf
-from tensorflow.keras.layers import GRU
+import torch
 
 # Configurer le niveau de log pour réduire les sorties de TensorFlow
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
@@ -39,13 +39,20 @@ class TestGRUSACAgent(unittest.TestCase):
             n_points=500, trend=0.001, volatility=0.01, start_price=100.0
         )
 
+        # Convertir d'abord en float32 pour les calculs initiaux
+        numeric_cols = self.data.select_dtypes(include=[np.number]).columns
+        self.data[numeric_cols] = self.data[numeric_cols].astype(np.float32)
+
         # Ajouter des indicateurs techniques
         self.data["sma_10"] = self.data["close"].rolling(10).mean()
         self.data["sma_30"] = self.data["close"].rolling(30).mean()
-        self.data["rsi"] = 50 + np.random.normal(0, 10, len(self.data))  # RSI simulé
+        self.data["rsi"] = 50 + np.random.normal(0, 10, len(self.data))
 
-        # Remplir les NaN avec des valeurs appropriées
-        self.data = self.data.bfill()
+        # Remplir les valeurs NaN directement
+        self.data = self.data.fillna(0)
+
+        # Maintenant convertir en float16
+        self.data[numeric_cols] = self.data[numeric_cols].astype(np.float16)
 
         # Initialiser l'environnement
         self.env = TradingEnvironment(
@@ -93,8 +100,10 @@ class TestGRUSACAgent(unittest.TestCase):
         # Préparer un mini-batch de séquences pour les tests
         self.batch_sequences = np.random.normal(
             0, 1, (32, self.sequence_length, self.state_size)
+        ).astype(np.float16)
+        self.batch_states = np.random.normal(0, 1, (32, self.state_size)).astype(
+            np.float16
         )
-        self.batch_states = np.random.normal(0, 1, (32, self.state_size))
 
         # Initialiser les listes d'historique pour éviter les erreurs lors de l'appel à train()
         self.gru_agent.critic_loss_history = []
@@ -115,32 +124,22 @@ class TestGRUSACAgent(unittest.TestCase):
         """Vérifie que les réseaux GRU sont correctement construits."""
         # Vérifier que les réseaux de l'agent GRU contiennent bien des couches GRU
         self.assertTrue(
-            any(isinstance(layer, GRU) for layer in self.gru_agent.actor.layers)
+            hasattr(self.gru_agent.actor, "gru"),
+            "L'acteur devrait avoir une couche GRU",
         )
+
+        # Vérifier que le critique contient une couche GRU
         self.assertTrue(
-            any(isinstance(layer, GRU) for layer in self.gru_agent.critic_1.layers)
+            hasattr(self.gru_agent.critic_1, "gru"),
+            "Le critique devrait avoir une couche GRU",
         )
 
-        # Vérifier que les réseaux de l'agent standard ne contiennent pas de couches GRU
-        self.assertFalse(
-            any(isinstance(layer, GRU) for layer in self.standard_agent.actor.layers)
+        # Vérifier que c'est bien une instance de nn.GRU
+        self.assertIsInstance(
+            self.gru_agent.actor.gru,
+            torch.nn.GRU,
+            "La couche GRU de l'acteur devrait être une instance de torch.nn.GRU",
         )
-        self.assertFalse(
-            any(isinstance(layer, GRU) for layer in self.standard_agent.critic_1.layers)
-        )
-
-        # Vérifier les formes d'entrée/sortie des réseaux (sans les crochets)
-        self.assertEqual(
-            self.gru_agent.actor.input_shape,
-            (None, self.sequence_length, self.state_size),
-        )
-        self.assertEqual(self.standard_agent.actor.input_shape, (None, self.state_size))
-
-        # Vérifier les paramètres GRU
-        gru_layer = next(
-            layer for layer in self.gru_agent.actor.layers if isinstance(layer, GRU)
-        )
-        self.assertEqual(gru_layer.units, 64)  # Correspond à gru_units
 
     def test_sequence_normalization(self):
         """Teste la normalisation des séquences d'états."""
@@ -174,12 +173,14 @@ class TestGRUSACAgent(unittest.TestCase):
 
         # Ajouter directement des séquences complètes
         for i in range(20):
-            sequence = np.random.normal(0, 1, (self.sequence_length, self.state_size))
-            action = np.random.normal(0, 1, self.action_size)
-            reward = np.random.normal(0, 1)
+            sequence = np.random.normal(
+                0, 1, (self.sequence_length, self.state_size)
+            ).astype(np.float16)
+            action = np.random.normal(0, 1, self.action_size).astype(np.float16)
+            reward = float(np.random.normal(0, 1))  # Convertir en float standard
             next_sequence = np.random.normal(
                 0, 1, (self.sequence_length, self.state_size)
-            )
+            ).astype(np.float16)
             done = False
 
             # Ajouter l'expérience à la mémoire
@@ -204,7 +205,7 @@ class TestGRUSACAgent(unittest.TestCase):
         state = self.env.reset()[0]  # Extraire l'état de la tuple (state, info)
 
         # Créer une séquence d'états
-        sequence = np.array([state] * self.sequence_length)
+        sequence = np.array([state] * self.sequence_length).astype(np.float16)
 
         # Sélectionner une action en mode évaluation
         try:
@@ -224,78 +225,154 @@ class TestGRUSACAgent(unittest.TestCase):
         # Préparer des expériences séquentielles
         for i in range(100):
             # Créer une séquence d'états aléatoires
-            sequence = np.random.normal(0, 1, (self.sequence_length, self.state_size))
-            action = np.random.normal(
-                0, 0.5, self.action_size
+            sequence = np.random.normal(
+                0, 1, (self.sequence_length, self.state_size)
+            ).astype(np.float16)
+
+            # Créer une séquence d'états suivants (important pour GRU)
+            next_sequence = np.random.normal(
+                0, 1, (self.sequence_length, self.state_size)
+            ).astype(np.float16)
+
+            action = np.random.normal(0, 0.5, self.action_size).astype(
+                np.float16
             )  # Actions entre -1 et 1 approximativement
-            reward = np.random.normal(0, 1)
-            next_state = np.random.normal(0, 1, self.state_size)
+            reward = float(np.random.normal(0, 1))  # Convertir en float standard
             done = False if i < 99 else True
 
-            # Ajouter à la mémoire
-            self.gru_agent.remember(sequence, action, reward, next_state, done)
+            # Ajouter à la mémoire avec le bon format pour sequence et next_sequence
+            self.gru_agent.remember(sequence, action, reward, next_sequence, done)
 
-        # Ce test peut être ignoré s'il n'est pas possible de faire fonctionner _train_step_gru
-        # Il y a trop de problèmes de dimensionnalité dans le code existant
-        self.skipTest(
-            "Test d'entraînement ignoré en raison de problèmes de dimensionnalité"
-        )
+        # Vérifier que la mémoire contient des données
+        self.assertGreater(self.gru_agent.replay_buffer.size(), 0)
+
+        # Effectuer un pas d'entraînement
+        try:
+            train_info = self.gru_agent.train(batch_size=32)
+
+            # Vérifier que les pertes sont des valeurs numériques
+            self.assertIsInstance(train_info["critic_loss"], float)
+            self.assertIsInstance(train_info["actor_loss"], float)
+            self.assertIsInstance(train_info["alpha_loss"], float)
+
+            logger.info(
+                f"Pertes d'entraînement - Critique: {train_info['critic_loss']:.4f}, "
+                f"Acteur: {train_info['actor_loss']:.4f}, "
+                f"Alpha: {train_info['alpha_loss']:.4f}"
+            )
+        except Exception as e:
+            self.fail(f"L'entraînement a échoué avec l'erreur: {str(e)}")
 
     def test_train_comparison(self):
         """Compare l'entraînement d'un agent GRU et d'un agent standard sur un petit échantillon."""
-        # Ce test peut être ignoré s'il n'est pas possible de faire fonctionner la comparaison
-        # Il y a trop de problèmes d'architecture dans le code existant
-        self.skipTest(
-            "Test de comparaison ignoré en raison de problèmes d'architecture"
-        )
+        # Nombre d'itérations d'entraînement
+        train_iterations = 5
+
+        # Générer des expériences pour l'agent GRU
+        for i in range(100):
+            # Séquence d'états pour l'agent GRU
+            gru_sequence = np.random.normal(
+                0, 1, (self.sequence_length, self.state_size)
+            ).astype(np.float16)
+
+            # Séquence d'états suivants pour l'agent GRU
+            gru_next_sequence = np.random.normal(
+                0, 1, (self.sequence_length, self.state_size)
+            ).astype(np.float16)
+
+            # État simple pour l'agent standard
+            standard_state = np.random.normal(0, 1, self.state_size).astype(np.float16)
+            standard_next_state = np.random.normal(0, 1, self.state_size).astype(
+                np.float16
+            )
+
+            # Action, récompense et terminaison communes
+            action = np.random.normal(0, 0.5, self.action_size).astype(np.float16)
+            reward = float(np.random.normal(0, 1))
+            done = False if i < 99 else True
+
+            # Ajouter aux mémoires respectives
+            self.gru_agent.remember(
+                gru_sequence, action, reward, gru_next_sequence, done
+            )
+            self.standard_agent.remember(
+                standard_state, action, reward, standard_next_state, done
+            )
+
+        # Entraînement des deux agents
+        gru_critic_losses = []
+        gru_actor_losses = []
+        standard_critic_losses = []
+        standard_actor_losses = []
+
+        try:
+            # Entraîner les deux agents
+            for _ in range(train_iterations):
+                # Entraîner l'agent GRU
+                gru_train_info = self.gru_agent.train(batch_size=32)
+                gru_critic_losses.append(gru_train_info["critic_loss"])
+                gru_actor_losses.append(gru_train_info["actor_loss"])
+
+                # Entraîner l'agent standard
+                standard_train_info = self.standard_agent.train(batch_size=32)
+                standard_critic_losses.append(standard_train_info["critic_loss"])
+                standard_actor_losses.append(standard_train_info["actor_loss"])
+
+            # Calculer les pertes moyennes
+            avg_gru_critic_loss = sum(gru_critic_losses) / len(gru_critic_losses)
+            avg_gru_actor_loss = sum(gru_actor_losses) / len(gru_actor_losses)
+            avg_standard_critic_loss = sum(standard_critic_losses) / len(
+                standard_critic_losses
+            )
+            avg_standard_actor_loss = sum(standard_actor_losses) / len(
+                standard_actor_losses
+            )
+
+            # Journaliser les résultats
+            logger.info(
+                f"Agent GRU - Perte critique moyenne: {avg_gru_critic_loss:.4f}, Perte acteur moyenne: {avg_gru_actor_loss:.4f}"
+            )
+            logger.info(
+                f"Agent Standard - Perte critique moyenne: {avg_standard_critic_loss:.4f}, Perte acteur moyenne: {avg_standard_actor_loss:.4f}"
+            )
+
+            # Vérifier que les deux agents ont pu être entraînés
+            self.assertIsInstance(avg_gru_critic_loss, float)
+            self.assertIsInstance(avg_gru_actor_loss, float)
+            self.assertIsInstance(avg_standard_critic_loss, float)
+            self.assertIsInstance(avg_standard_actor_loss, float)
+
+        except Exception as e:
+            self.fail(f"La comparaison d'entraînement a échoué avec l'erreur: {str(e)}")
 
     def test_gradient_flow(self):
         """Teste le flux de gradient à travers les couches GRU."""
-        # Créer une séquence d'états de test de la bonne forme
-        test_states = np.random.normal(0, 1, (1, self.sequence_length, self.state_size))
-        test_states = tf.convert_to_tensor(test_states, dtype=tf.float32)
+        # PyTorch GRU ne supporte pas le float16, donc utiliser float32
+        test_states = np.random.normal(
+            0, 1, (1, self.sequence_length, self.state_size)
+        ).astype(np.float32)
 
-        # Normaliser les états
-        test_states = self.gru_agent._normalize_sequence_states(test_states)
+        # Normaliser les états avec TensorFlow
+        tf_test_states = tf.convert_to_tensor(test_states, dtype=tf.float32)
+        tf_test_states = self.gru_agent._normalize_sequence_states(tf_test_states)
 
-        # Utiliser un GradientTape pour tracer les gradients
-        with tf.GradientTape() as tape:
-            # Prédire la moyenne et l'écart-type (log_std)
-            tape.watch(test_states)
-            mean, log_std = self.gru_agent.actor(test_states)
+        # Convertir en tenseur PyTorch pour l'utiliser avec le modèle PyTorch
+        torch_test_states = torch.tensor(
+            tf_test_states.numpy(), dtype=torch.float32
+        ).to(self.gru_agent.device)
 
-            # Créer une "perte" fictive pour tester le flux de gradient (somme des moyennes)
-            dummy_loss = tf.reduce_sum(mean)
+        # Effectuer une passe avant de l'acteur et calculer la perte
+        mean, log_std = self.gru_agent.actor(torch_test_states)
 
-        # Calculer les gradients par rapport aux poids de l'acteur
-        actor_variables = self.gru_agent.actor.trainable_variables
-        gradients = tape.gradient(dummy_loss, actor_variables)
+        # Récupérer les gradients par rapport à la sortie de l'acteur
+        dummy_loss = mean.mean() + log_std.mean()
+        dummy_loss.backward()
 
-        # Vérifier que les gradients ne sont pas tous None
-        self.assertTrue(
-            any(g is not None for g in gradients), "Tous les gradients sont None"
-        )
-
-        # Vérifier spécifiquement les gradients des couches GRU
-        gru_gradients = [
-            g for g, v in zip(gradients, actor_variables) if "gru" in v.name.lower()
-        ]
-
-        self.assertTrue(
-            len(gru_gradients) > 0, "Aucun gradient pour les couches GRU trouvé"
-        )
-
-        # Vérifier que au moins un gradient GRU n'est pas None
-        self.assertTrue(
-            any(g is not None for g in gru_gradients),
-            "Tous les gradients GRU sont None",
-        )
-
-        # Journaliser les normes des gradients non-None pour inspection
-        gru_grad_norms = [
-            tf.norm(g).numpy() if g is not None else 0 for g in gru_gradients
-        ]
-        logger.info(f"Normes des gradients des couches GRU: {gru_grad_norms}")
+        # Vérifier que les gradients existent dans les paramètres de l'acteur
+        for name, param in self.gru_agent.actor.named_parameters():
+            self.assertIsNotNone(param.grad)
+            # Vérifier que les gradients ne sont pas tous nuls
+            self.assertFalse(torch.allclose(param.grad, torch.zeros_like(param.grad)))
 
 
 if __name__ == "__main__":

@@ -188,7 +188,7 @@ class TestTechnicalIndicators(unittest.TestCase):
         self.assertEqual(len(obv), len(self.test_data))
 
         # Vérifier que l'OBV change en fonction des prix
-        self.assertNotEqual(obv[1], obv[0])
+        self.assertNotEqual(obv.iloc[1], obv.iloc[0])
 
     def test_volume_average(self):
         """Teste le calcul de la moyenne mobile du volume."""

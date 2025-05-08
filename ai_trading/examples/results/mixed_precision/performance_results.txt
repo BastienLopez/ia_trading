@@ -1,0 +1,10 @@
+Test de performance Mixed Precision
+=================================
+
+Temps FP32: 0.3950s
+Temps FP16: 0.3305s
+Accélération: 1.20x
+
+Mémoire FP32: 26.99 MB
+Mémoire FP16: 18.86 MB
+Réduction mémoire: 1.43x

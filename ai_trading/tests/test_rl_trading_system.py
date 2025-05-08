@@ -127,11 +127,14 @@ class TestRLTradingSystem(unittest.TestCase):
             window_size=10,
         )
 
-        # Obtenir la taille de l'état à partir de l'environnement
-        state_size = env.observation_space.shape[0]
+        # Réinitialiser l'environnement pour obtenir un état réel
+        initial_state, _ = env.reset()
+
+        # Obtenir la taille de l'état à partir de l'état réel
+        state_size = initial_state.shape[0]
         action_size = env.action_space.n
 
-        # Créer l'agent
+        # Créer l'agent avec la taille d'état correcte
         agent = self.system.create_agent(
             state_size=state_size,
             action_size=action_size,

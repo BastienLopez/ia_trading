@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 class SentimentCache:
     """Gestion centralisée du cache pour les analyses."""
 
-    def __init__(self, cache_dir: str = "data/sentiment/cache"):
+    def __init__(self, cache_dir: str = "ai_trading/info_retour/sentiment_cache"):
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 

@@ -314,7 +314,7 @@ def main():
         return
 
     # Sauvegarde des actualités brutes
-    raw_file = f"data/sentiment/raw/news_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    raw_file = f"ai_trading/info_retour/data/sentiment/raw/news_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
     news_df.to_csv(raw_file, index=False)
     logger.info(f"Actualités brutes sauvegardées dans {raw_file}")
 
@@ -329,7 +329,7 @@ def main():
         return
 
     # Sauvegarde des actualités analysées
-    analyzed_file = f"data/sentiment/analyzed/news_analyzed_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    analyzed_file = f"ai_trading/info_retour/data/sentiment/analyzed/news_analyzed_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
     enriched_df.to_csv(analyzed_file, index=False)
     logger.info(f"Actualités analysées sauvegardées dans {analyzed_file}")
 
@@ -353,7 +353,8 @@ def main():
                     # Créer le répertoire visualizations/sentiment s'il n'existe pas
                     visualization_dir = os.path.join(
                         os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                        "visualizations",
+                        "info_retour",
+                        "visualisations",
                         "sentiment",
                     )
                     if not os.path.exists(visualization_dir):
@@ -374,7 +375,9 @@ def main():
             logger.error(f"Erreur lors de la génération du graphique : {e}")
 
     logger.info("\nAnalyse de sentiment terminée avec succès!")
-    logger.info("Le rapport complet a été sauvegardé dans data/sentiment/reports/")
+    logger.info(
+        "Le rapport complet a été sauvegardé dans ai_trading/info_retour/data/sentiment/reports/"
+    )
 
     analyze_news_demo()
     analyze_social_media()

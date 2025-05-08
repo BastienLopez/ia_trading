@@ -68,7 +68,7 @@ class TestMarketRegimeClassifier:
 
     def test_fit_predict(self, sample_data):
         """Teste l'entraînement et la prédiction des régimes."""
-        classifier = MarketRegimeClassifier(n_regimes=3)
+        classifier = MarketRegimeClassifier(n_regimes=3, n_init=10)
 
         # Entraîner le classifieur
         classifier.fit(sample_data)
@@ -87,7 +87,7 @@ class TestMarketRegimeClassifier:
 
     def test_get_regime_characteristics(self, sample_data):
         """Teste le calcul des caractéristiques des régimes."""
-        classifier = MarketRegimeClassifier(n_regimes=2)
+        classifier = MarketRegimeClassifier(n_regimes=2, n_init=10)
         classifier.fit(sample_data)
 
         regime_stats = classifier.get_regime_characteristics(sample_data)
@@ -162,7 +162,7 @@ class TestRobustnessEvaluator:
         metrics = [mean_return, volatility]
 
         # Créer et entraîner un classifieur
-        classifier = MarketRegimeClassifier(n_regimes=2)
+        classifier = MarketRegimeClassifier(n_regimes=2, n_init=10)
         classifier.fit(df)
 
         # Créer l'évaluateur et exécuter l'évaluation
@@ -200,15 +200,18 @@ class TestRobustnessEvaluator:
             {"close": 1.1, "volume": 1.2},  # Hausse des prix et du volume
         ]
 
-        # Créer l'évaluateur et exécuter les tests de stress
-        evaluator = RobustnessEvaluator()
-        results = evaluator.stress_test(df, simple_strategy, scenarios, metrics)
+        # Créer l'évaluateur avec un classifieur
+        classifier = MarketRegimeClassifier(n_regimes=2, n_init=10)
+        evaluator = RobustnessEvaluator(classifier)
 
-        # Vérifier les résultats
-        assert "base" in results
-        assert "scenario_0" in results
-        assert "scenario_1" in results
+        # Exécuter le test de stress
+        stress_results = evaluator.stress_test(df, simple_strategy, scenarios, metrics)
 
-        for scenario, scenario_metrics in results.items():
-            assert "mean_return" in scenario_metrics
-            assert "volatility" in scenario_metrics
+        # Vérifier les résultats - tenir compte du scénario de base inclus
+        assert len(stress_results) == len(scenarios) + 1  # +1 pour le scénario de base
+        assert "base" in stress_results
+
+        for scenario_name, results in stress_results.items():
+            assert results is not None
+            assert "mean_return" in results
+            assert "volatility" in results

@@ -3,12 +3,12 @@ import sys
 import tempfile
 import time
 import unittest
+from pathlib import Path
 
 import matplotlib
-import pytest
 
-# Ajouter le répertoire parent au chemin pour pouvoir importer les modules
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Ajouter le répertoire parent au path pour importer les modules du projet
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from ai_trading.rl.data_integration import RLDataIntegrator
 from ai_trading.rl.dqn_agent import DQNAgent
@@ -137,16 +137,32 @@ class TestTrain(unittest.TestCase):
                 f"Fichier returns_*.png non trouvé. Fichiers présents: {files_in_dir}",
             )
 
-    @unittest.skip("Incompatibilité de taille d'état")
-    @pytest.mark.skip(reason="Incompatibilité de taille d'état")
     def test_train_agent(self):
         """Teste la fonction d'entraînement de l'agent."""
         # Créer un répertoire temporaire pour les modèles
         with tempfile.TemporaryDirectory() as temp_dir:
+            # Créer l'environnement
+            env = self._create_test_environment()
+
+            # Créer l'agent avec la taille d'état correcte
+            state_size = env.observation_space.shape[0]
+            action_size = env.action_space.n
+            agent = DQNAgent(
+                state_size=state_size,
+                action_size=action_size,
+                learning_rate=0.001,
+                gamma=0.95,
+                epsilon=1.0,
+                epsilon_decay=0.995,
+                epsilon_min=0.01,
+                batch_size=32,
+                memory_size=1000,
+            )
+
             # Entraîner l'agent
             history = train_agent(
-                agent=self.agent,
-                env=self.env,
+                agent=agent,
+                env=env,
                 episodes=5,
                 batch_size=32,
                 save_path=os.path.join(temp_dir, "test_model"),
@@ -184,8 +200,6 @@ class TestTrain(unittest.TestCase):
                         False, f"Aucun modèle trouvé à {final_model_path} ou {alt_path}"
                     )
 
-    @unittest.skip("Incompatibilité de taille d'état")
-    @pytest.mark.skip(reason="Incompatibilité de taille d'état")
     def test_early_stopping(self):
         """Teste la fonctionnalité d'arrêt anticipé."""
         # Créer un environnement et un agent

@@ -805,7 +805,33 @@ def evaluate_agent(agent, env, num_episodes=1, render=False):
 
     for e in tqdm(range(num_episodes), desc="Évaluation"):
         state = env.reset()
-        state = np.reshape(state, [1, agent.state_size])
+
+        # Gérer les différentes versions de Gym/Gymnasium et formats d'états
+        if isinstance(state, tuple):  # Nouvelle API Gymnasium (state, info)
+            state = state[0]
+
+        # Traiter l'état selon son type
+        if isinstance(state, dict):  # Espace d'observation de type Dict
+            # Pas de reshape pour les états dictionnaires
+            pass
+        else:
+            # Pour les états de type ndarray, s'assurer qu'ils sont bien dimensionnés
+            try:
+                state = np.reshape(state, [1, agent.state_size])
+            except ValueError:
+                # Si le reshape échoue, essayer de gérer un tableau de forme différente
+                # par exemple en l'applatissant d'abord
+                if hasattr(state, "flatten"):
+                    flat_state = state.flatten()
+                    state = np.reshape(flat_state, [1, len(flat_state)])
+                else:
+                    # Si ce n'est pas un tableau numpy, essayer de le convertir
+                    state = np.array(state, dtype=np.float32)
+                    if state.size != agent.state_size:
+                        logger.warning(
+                            f"Mismatch in state size: got {state.size}, expected {agent.state_size}"
+                        )
+                    state = np.reshape(state, [1, state.size])
 
         done = False
         episode_actions = []
@@ -813,12 +839,52 @@ def evaluate_agent(agent, env, num_episodes=1, render=False):
 
         while not done:
             # Choisir une action (sans exploration)
-            action = agent.act(state, use_epsilon=False)
+            if isinstance(state, dict):
+                # Pour les espaces d'observation de type Dict, passer le dictionnaire directement
+                action = agent.act(state, use_epsilon=False)
+            else:
+                # Pour les états standards
+                action = agent.act(state, use_epsilon=False)
+
             episode_actions.append(action)
 
             # Exécuter l'action
-            next_state, reward, done, info = env.step(action)
-            next_state = np.reshape(next_state, [1, agent.state_size])
+            step_result = env.step(action)
+
+            # Gérer les différentes API de retour des environnements
+            if (
+                len(step_result) == 5
+            ):  # API Gymnasium (next_state, reward, terminated, truncated, info)
+                next_state, reward, terminated, truncated, info = step_result
+                done = terminated or truncated
+            elif len(step_result) == 4:  # API Gym (next_state, reward, done, info)
+                next_state, reward, done, info = step_result
+            else:
+                # Fallback pour d'autres formats potentiels
+                logger.warning(
+                    f"Format de retour step() inattendu: {len(step_result)} valeurs"
+                )
+                next_state, reward = step_result[0], step_result[1]
+                done = step_result[2] if len(step_result) > 2 else False
+                info = step_result[3] if len(step_result) > 3 else {}
+
+            # Mise en forme de l'état suivant
+            if isinstance(next_state, dict):
+                # Pas de reshape pour les états dictionnaires
+                pass
+            else:
+                try:
+                    next_state = np.reshape(next_state, [1, agent.state_size])
+                except ValueError:
+                    # Si le reshape échoue, essayer de gérer un tableau de forme différente
+                    if hasattr(next_state, "flatten"):
+                        flat_next_state = next_state.flatten()
+                        next_state = np.reshape(
+                            flat_next_state, [1, len(flat_next_state)]
+                        )
+                    else:
+                        next_state = np.array(next_state, dtype=np.float32)
+                        next_state = np.reshape(next_state, [1, next_state.size])
 
             # Enregistrer la récompense
             episode_rewards.append(reward)

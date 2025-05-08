@@ -119,7 +119,7 @@ class TrainingMonitor:
 
         # Afficher les figures
         for fig in self.figs.values():
-            fig.show()
+            fig.tight_layout()
 
     def update(
         self,
@@ -204,8 +204,12 @@ class TrainingMonitor:
 
         # Rafraîchir les figures
         for fig in self.figs.values():
-            fig.canvas.draw()
-            fig.canvas.flush_events()
+            fig.canvas.draw_idle()
+            try:
+                fig.canvas.flush_events()
+            except NotImplementedError:
+                # Ignorer les erreurs sur les backends qui ne supportent pas flush_events
+                pass
 
     def save_plots(self):
         """Sauvegarde tous les graphiques dans le répertoire spécifié."""
@@ -332,7 +336,29 @@ def train_agent(
     # Boucle d'entraînement avec barre de progression
     for e in tqdm(range(episodes), desc="Entraînement"):
         # Réinitialiser l'environnement
-        state = env.reset()
+        reset_result = env.reset()
+
+        # Gérer le cas où reset() retourne (state, info) ou juste state
+        if isinstance(reset_result, tuple) and len(reset_result) == 2:
+            state, _ = reset_result  # Nouvelle API: (state, info)
+        else:
+            state = reset_result  # Ancienne API: state
+
+        # Vérifier si la taille de l'état retourné est différente de celle attendue par l'agent
+        actual_state_size = len(state)
+        if actual_state_size != agent.state_size:
+            logger.warning(
+                f"Taille de l'état retourné ({actual_state_size}) différente de celle attendue par l'agent ({agent.state_size})"
+            )
+            # Adapter l'état à la taille attendue par l'agent
+            if actual_state_size < agent.state_size:
+                # Padding avec des zéros si l'état est plus petit
+                padded_state = np.zeros(agent.state_size)
+                padded_state[:actual_state_size] = state
+                state = padded_state
+            else:
+                # Tronquer si l'état est plus grand
+                state = state[: agent.state_size]
 
         # Redimensionner l'état en utilisant la taille de l'état de l'agent
         # qui a été mise à jour si nécessaire
@@ -353,7 +379,29 @@ def train_agent(
             action = agent.act(state)
 
             # Exécuter l'action
-            next_state, reward, done, info = env.step(action)
+            step_result = env.step(action)
+
+            # Gérer le cas où step() retourne 5 valeurs ou 4 valeurs
+            if len(step_result) == 5:
+                # Nouvelle API: (next_state, reward, terminated, truncated, info)
+                next_state, reward, terminated, truncated, info = step_result
+                done = terminated or truncated
+            else:
+                # Ancienne API: (next_state, reward, done, info)
+                next_state, reward, done, info = step_result
+
+            # Vérifier si la taille de l'état suivant est différente de celle attendue par l'agent
+            actual_state_size = len(next_state)
+            if actual_state_size != agent.state_size:
+                # Adapter l'état à la taille attendue par l'agent
+                if actual_state_size < agent.state_size:
+                    # Padding avec des zéros si l'état est plus petit
+                    padded_state = np.zeros(agent.state_size)
+                    padded_state[:actual_state_size] = next_state
+                    next_state = padded_state
+                else:
+                    # Tronquer si l'état est plus grand
+                    next_state = next_state[: agent.state_size]
 
             # Redimensionner l'état suivant en utilisant la taille de l'état de l'agent
             next_state = np.reshape(next_state, [1, agent.state_size])

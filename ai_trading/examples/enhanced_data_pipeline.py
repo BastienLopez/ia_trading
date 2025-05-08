@@ -55,7 +55,9 @@ def main():
 
         if not price_data.empty:
             # Sauvegarde des données brutes
-            collector.save_data(price_data, f"data/raw/{coin}_prices_{days}d.csv")
+            collector.save_data(
+                price_data, f"ai_trading/info_retour/data/raw/{coin}_prices_{days}d.csv"
+            )
             logger.info(f"Données de prix sauvegardées pour {coin}")
         else:
             logger.warning(f"Aucune donnée de prix disponible pour {coin}")
@@ -64,7 +66,9 @@ def main():
         news = collector.get_crypto_news(limit=10)
         if news:
             news_df = pd.DataFrame(news)
-            news_df.to_csv(f"data/raw/{coin}_news.csv", index=False)
+            news_df.to_csv(
+                f"ai_trading/info_retour/data/raw/{coin}_news.csv", index=False
+            )
             logger.info(f"Actualités sauvegardées pour {coin}")
 
     # 2. Prétraitement des données
@@ -73,7 +77,7 @@ def main():
     text_preprocessor = EnhancedTextDataPreprocessor()
 
     for coin in coins:
-        price_file = f"data/raw/{coin}_prices_{days}d.csv"
+        price_file = f"ai_trading/info_retour/data/raw/{coin}_prices_{days}d.csv"
         if os.path.exists(price_file):
             logger.info(f"Prétraitement des données de prix pour {coin}")
 
@@ -87,20 +91,24 @@ def main():
 
             if processed_data is not None:
                 # Sauvegarde des données prétraitées
-                processed_data.to_csv(f"data/processed/{coin}_processed.csv")
+                processed_data.to_csv(
+                    f"ai_trading/info_retour/data/processed/{coin}_processed.csv"
+                )
                 logger.info(f"Données prétraitées sauvegardées pour {coin}")
 
                 # Division des données pour l'entraînement
                 train_df, val_df, test_df = market_preprocessor.split_data(
                     processed_data
                 )
-                train_df.to_csv(f"data/processed/{coin}_train.csv")
-                val_df.to_csv(f"data/processed/{coin}_val.csv")
-                test_df.to_csv(f"data/processed/{coin}_test.csv")
+                train_df.to_csv(
+                    f"ai_trading/info_retour/data/processed/{coin}_train.csv"
+                )
+                val_df.to_csv(f"ai_trading/info_retour/data/processed/{coin}_val.csv")
+                test_df.to_csv(f"ai_trading/info_retour/data/processed/{coin}_test.csv")
                 logger.info(f"Données divisées pour {coin}")
 
         # Prétraitement des actualités
-        news_file = f"data/raw/{coin}_news.csv"
+        news_file = f"ai_trading/info_retour/data/raw/{coin}_news.csv"
         if os.path.exists(news_file):
             logger.info(f"Prétraitement des actualités pour {coin}")
             news_df = pd.read_csv(news_file)
@@ -115,13 +123,16 @@ def main():
                 )
 
                 # Sauvegarde des actualités prétraitées
-                news_df.to_csv(f"data/processed/{coin}_news_processed.csv", index=False)
+                news_df.to_csv(
+                    f"ai_trading/info_retour/data/processed/{coin}_news_processed.csv",
+                    index=False,
+                )
                 logger.info(f"Actualités prétraitées sauvegardées pour {coin}")
 
     # 3. Visualisation des données (exemple simple)
     logger.info("Étape 3: Visualisation des données")
     for coin in coins:
-        processed_file = f"data/processed/{coin}_processed.csv"
+        processed_file = f"ai_trading/info_retour/data/processed/{coin}_processed.csv"
         if os.path.exists(processed_file):
             df = pd.read_csv(processed_file, index_col=0, parse_dates=True)
 
@@ -137,7 +148,8 @@ def main():
             # Créer le dossier de visualisation s'il n'existe pas
             visualization_dir = os.path.join(
                 os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                "visualizations",
+                "info_retour",
+                "visualisations",
                 "misc",
             )
             os.makedirs(visualization_dir, exist_ok=True)

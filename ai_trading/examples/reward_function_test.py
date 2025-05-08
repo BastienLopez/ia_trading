@@ -17,30 +17,18 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-# Configurer le logger
-logger = logging.getLogger("reward_function_test")
-logger.setLevel(logging.INFO)
-
-# Ajouter un handler pour écrire dans un fichier
-try:
-    # Utiliser le répertoire courant pour le fichier de log
-    log_file = os.path.join(os.getcwd(), "reward_test.log")
-    file_handler = logging.FileHandler(log_file, mode="w")
-    file_handler.setFormatter(
-        logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
-    )
-    logger.addHandler(file_handler)
-    print(f"Fichier de log créé à: {log_file}")
-except Exception as e:
-    print(f"Erreur lors de la création du fichier de log: {e}")
-    traceback.print_exc()
-
-# Ajouter un handler pour la console
-console_handler = logging.StreamHandler()
-console_handler.setFormatter(
-    logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+# Configurer le logger pour enregistrer dans un fichier dans web_app/info_retour
+os.makedirs(os.path.join(os.getcwd(), "web_app", "info_retour"), exist_ok=True)
+log_file = os.path.join(os.getcwd(), "web_app", "info_retour", "reward_test.log")
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler(log_file),
+    ],
 )
-logger.addHandler(console_handler)
+logger = logging.getLogger(__name__)
 
 # Ajouter le répertoire parent au chemin pour pouvoir importer les modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -171,20 +159,12 @@ def preprocess_data(data):
     # Combler les valeurs manquantes si possible au lieu de supprimer les lignes
     logger.info("Comblement des valeurs manquantes...")
 
-    # D'abord forward fill
-    data_filled = data_with_indicators.fillna(method="ffill")
-    # Puis backward fill pour les valeurs manquantes au début
-    data_filled = data_filled.fillna(method="bfill")
-    # Pour toute valeur encore manquante, utiliser la moyenne (pour les indicateurs)
-    # ou zéro (pour les volumes)
-    for col in data_filled.columns:
-        if data_filled[col].isna().any():
-            if "volume" in col.lower():
-                data_filled[col] = data_filled[col].fillna(0)
-            else:
-                data_filled[col] = data_filled[col].fillna(
-                    data_filled[col].mean() if not data_filled[col].isna().all() else 0
-                )
+    # Remplissage des valeurs manquantes
+    data_filled = (
+        data_with_indicators.copy()
+    )  # Pour éviter les avertissements de SettingWithCopyWarning
+    data_filled = data_filled.fillna(data_filled.shift())  # Forward fill
+    data_filled = data_filled.fillna(data_filled.shift(-1))  # Backward fill
 
     # Vérifier s'il reste des NaN
     na_count = data_filled.isna().sum().sum()

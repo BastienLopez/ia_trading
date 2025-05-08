@@ -1,3 +1,4 @@
+import gc
 import logging
 
 import tensorflow as tf
@@ -12,18 +13,61 @@ from tensorflow.keras.layers import (
 )
 from tensorflow.keras.models import Model
 
-# Configuration du logger
-logger = logging.getLogger("TransformerHybrid")
-logger.setLevel(logging.INFO)
-if not logger.handlers:
-    handler = logging.StreamHandler()
-    formatter = logging.Formatter(
-        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    )
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
+# Configurer le logger
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
 
 
+# Définir une fonction pour obtenir le décorateur register_keras_serializable selon la version de TF
+def get_register_keras_serializable(package=None):
+    """Retourne le décorateur register_keras_serializable compatible avec la version de TensorFlow actuelle."""
+    if hasattr(tf.keras, "saving") and hasattr(
+        tf.keras.saving, "register_keras_serializable"
+    ):
+        # Versions plus récentes de TensorFlow
+        if package:
+            return tf.keras.saving.register_keras_serializable(package=package)
+        else:
+            return tf.keras.saving.register_keras_serializable()
+    elif hasattr(tf.keras.utils, "register_keras_serializable"):
+        # Versions plus anciennes de TensorFlow
+        if package:
+            return tf.keras.utils.register_keras_serializable(package=package)
+        else:
+            return tf.keras.utils.register_keras_serializable()
+    else:
+        # Si le décorateur n'est pas disponible, retourner une fonction d'identité
+        logger.warning(
+            "register_keras_serializable n'est pas disponible. Utilisation d'une implémentation de secours."
+        )
+
+        def identity(cls):
+            return cls
+
+        return identity
+
+
+def optimize_memory():
+    """
+    Libère la mémoire non utilisée et vide le cache TensorFlow si disponible.
+    """
+    # Collecter les objets garbage
+    gc.collect()
+
+    # Nettoyer la mémoire TensorFlow
+    try:
+        tf.keras.backend.clear_session()
+    except Exception as e:
+        logger.warning(f"Erreur lors du nettoyage de la session TensorFlow: {e}")
+
+
+# Utiliser la fonction pour obtenir le décorateur
+register_serializable = get_register_keras_serializable()
+
+
+@register_serializable
 class TransformerBlock(tf.keras.layers.Layer):
     """
     Bloc Transformer standard avec multi-head attention et feed forward network
@@ -43,6 +87,12 @@ class TransformerBlock(tf.keras.layers.Layer):
         self.dropout1 = Dropout(rate)
         self.dropout2 = Dropout(rate)
 
+        # Pour la sérialisation
+        self.embed_dim = embed_dim
+        self.num_heads = num_heads
+        self.ff_dim = ff_dim
+        self.rate = rate
+
     def call(self, inputs, training=False):
         # Application de l'auto-attention
         attn_output = self.att(inputs, inputs)
@@ -54,7 +104,20 @@ class TransformerBlock(tf.keras.layers.Layer):
         ffn_output = self.dropout2(ffn_output, training=training)
         return self.layernorm2(out1 + ffn_output)
 
+    def get_config(self):
+        config = super().get_config()
+        config.update(
+            {
+                "embed_dim": self.embed_dim,
+                "num_heads": self.num_heads,
+                "ff_dim": self.ff_dim,
+                "rate": self.rate,
+            }
+        )
+        return config
 
+
+@register_serializable
 class PositionalEncoding(tf.keras.layers.Layer):
     """
     Encodage positionnel pour les séquences dans un Transformer
@@ -62,6 +125,8 @@ class PositionalEncoding(tf.keras.layers.Layer):
 
     def __init__(self, position, d_model):
         super(PositionalEncoding, self).__init__()
+        self.position = position
+        self.d_model = d_model
         self.pos_encoding = self.positional_encoding(position, d_model)
 
     def get_angles(self, position, i, d_model):
@@ -86,9 +151,28 @@ class PositionalEncoding(tf.keras.layers.Layer):
         return tf.cast(pos_encoding, tf.float32)
 
     def call(self, inputs):
-        return inputs + self.pos_encoding[:, : tf.shape(inputs)[1], :]
+        # Correction: Convertir l'encodage positionnel au même type que les inputs pour éviter les erreurs
+        input_dtype = inputs.dtype
+        pos_encoding_cast = tf.cast(
+            self.pos_encoding[:, : tf.shape(inputs)[1], :], input_dtype
+        )
+        return inputs + pos_encoding_cast
+
+    def get_config(self):
+        config = super().get_config()
+        config.update(
+            {
+                "position": self.position,
+                "d_model": self.d_model,
+            }
+        )
+        return config
 
 
+register_serializable = get_register_keras_serializable(package="ai_trading.models")
+
+
+@register_serializable
 class TransformerGRUModel(Model):
     """
     Modèle hybride combinant Transformer et GRU pour l'analyse de séries temporelles financières
@@ -106,6 +190,7 @@ class TransformerGRUModel(Model):
         dropout_rate=0.1,
         recurrent_dropout=0.0,
         sequence_length=None,
+        use_mixed_precision=True,  # Activer la précision mixte par défaut
         **kwargs,
     ):
         """
@@ -122,7 +207,17 @@ class TransformerGRUModel(Model):
             dropout_rate: Taux de dropout
             recurrent_dropout: Taux de dropout récurrent pour GRU
             sequence_length: Longueur de la séquence (pour l'encodage positionnel)
+            use_mixed_precision: Utiliser la précision mixte (float16) pour l'entraînement
         """
+        # Activer la politique de précision mixte si demandé
+        if use_mixed_precision:
+            try:
+                policy = tf.keras.mixed_precision.Policy("mixed_float16")
+                tf.keras.mixed_precision.set_global_policy(policy)
+                logger.info("Précision mixte (float16) activée pour le modèle")
+            except Exception as e:
+                logger.warning(f"Impossible d'activer la précision mixte: {e}")
+
         super(TransformerGRUModel, self).__init__(**kwargs)
 
         # Si la séquence n'est pas spécifiée, utiliser la première dimension de input_shape
@@ -173,13 +268,16 @@ class TransformerGRUModel(Model):
         self.dropout_rate = dropout_rate
         self.recurrent_dropout = recurrent_dropout
         self.output_dim = output_dim
+        self.sequence_length = sequence_length
+        self.input_shape_val = input_shape
 
         logger.info(
             f"Modèle hybride Transformer-GRU initialisé: "
             f"{num_transformer_blocks} blocs transformer, "
             f"{gru_units} unités GRU, "
             f"{embed_dim} dim d'embedding, "
-            f"{num_heads} têtes d'attention"
+            f"{num_heads} têtes d'attention, "
+            f"{'mixed_float16' if use_mixed_precision else 'float32'}"
         )
 
     def call(self, inputs, training=False):
@@ -199,11 +297,60 @@ class TransformerGRUModel(Model):
         # Passer à travers la couche GRU finale
         x = self.gru(x)
 
-        # Dropout et couche de sortie
+        # Dropout final
         x = self.dropout(x, training=training)
+
+        # Couche de sortie
         return self.output_layer(x)
 
+    def compile_model(self, optimizer="adam", loss="mse", metrics=None):
+        """
+        Compile le modèle avec les paramètres spécifiés et active les optimisations de performance.
+        """
+        if metrics is None:
+            metrics = ["mae"]
 
+        # Optimisations TensorFlow pour les performances
+        try:
+            # Activer XLA pour l'accélération de la compilation
+            tf.config.optimizer.set_jit(True)
+
+            # Paralléliser les opérations quand possible
+            tf.config.threading.set_intra_op_parallelism_threads(8)
+            tf.config.threading.set_inter_op_parallelism_threads(8)
+
+            logger.info("Optimisations TensorFlow activées pour le modèle")
+        except Exception as e:
+            logger.warning(
+                f"Erreur lors de l'activation des optimisations TensorFlow: {e}"
+            )
+
+        # Compiler le modèle
+        self.compile(optimizer=optimizer, loss=loss, metrics=metrics)
+
+        return self
+
+    def get_config(self):
+        config = super().get_config()
+        config.update(
+            {
+                "input_shape": self.input_shape_val,
+                "output_dim": self.output_dim,
+                "embed_dim": self.embed_dim,
+                "num_heads": self.num_heads,
+                "ff_dim": self.ff_dim,
+                "num_transformer_blocks": self.num_transformer_blocks,
+                "gru_units": self.gru_units,
+                "dropout_rate": self.dropout_rate,
+                "recurrent_dropout": self.recurrent_dropout,
+                "sequence_length": self.sequence_length,
+                "use_mixed_precision": False,  # Pour éviter de redéfinir la politique
+            }
+        )
+        return config
+
+
+@register_serializable
 class TransformerLSTMModel(Model):
     """
     Modèle hybride combinant Transformer et LSTM pour l'analyse de séries temporelles financières
@@ -221,6 +368,7 @@ class TransformerLSTMModel(Model):
         dropout_rate=0.1,
         recurrent_dropout=0.0,
         sequence_length=None,
+        use_mixed_precision=True,  # Activer la précision mixte par défaut
         **kwargs,
     ):
         """
@@ -228,7 +376,7 @@ class TransformerLSTMModel(Model):
 
         Args:
             input_shape: Forme des données d'entrée (seq_len, features)
-            output_dim: Dimension de sortie (nombre d'actions pour les agents RL)
+            output_dim: Dimension de sortie
             embed_dim: Dimension d'embedding pour le Transformer
             num_heads: Nombre de têtes d'attention
             ff_dim: Dimension du réseau feed-forward dans le Transformer
@@ -237,7 +385,17 @@ class TransformerLSTMModel(Model):
             dropout_rate: Taux de dropout
             recurrent_dropout: Taux de dropout récurrent pour LSTM
             sequence_length: Longueur de la séquence (pour l'encodage positionnel)
+            use_mixed_precision: Utiliser la précision mixte (float16) pour l'entraînement
         """
+        # Activer la politique de précision mixte si demandé
+        if use_mixed_precision:
+            try:
+                policy = tf.keras.mixed_precision.Policy("mixed_float16")
+                tf.keras.mixed_precision.set_global_policy(policy)
+                logger.info("Précision mixte (float16) activée pour le modèle")
+            except Exception as e:
+                logger.warning(f"Impossible d'activer la précision mixte: {e}")
+
         super(TransformerLSTMModel, self).__init__(**kwargs)
 
         # Si la séquence n'est pas spécifiée, utiliser la première dimension de input_shape
@@ -288,13 +446,16 @@ class TransformerLSTMModel(Model):
         self.dropout_rate = dropout_rate
         self.recurrent_dropout = recurrent_dropout
         self.output_dim = output_dim
+        self.sequence_length = sequence_length
+        self.input_shape_val = input_shape
 
         logger.info(
             f"Modèle hybride Transformer-LSTM initialisé: "
             f"{num_transformer_blocks} blocs transformer, "
             f"{lstm_units} unités LSTM, "
             f"{embed_dim} dim d'embedding, "
-            f"{num_heads} têtes d'attention"
+            f"{num_heads} têtes d'attention, "
+            f"{'mixed_float16' if use_mixed_precision else 'float32'}"
         )
 
     def call(self, inputs, training=False):
@@ -317,6 +478,52 @@ class TransformerLSTMModel(Model):
         # Dropout et couche de sortie
         x = self.dropout(x, training=training)
         return self.output_layer(x)
+
+    def get_config(self):
+        config = super().get_config()
+        config.update(
+            {
+                "input_shape": self.input_shape_val,
+                "output_dim": self.output_dim,
+                "embed_dim": self.embed_dim,
+                "num_heads": self.num_heads,
+                "ff_dim": self.ff_dim,
+                "num_transformer_blocks": self.num_transformer_blocks,
+                "lstm_units": self.lstm_units,
+                "dropout_rate": self.dropout_rate,
+                "recurrent_dropout": self.recurrent_dropout,
+                "sequence_length": self.sequence_length,
+                "use_mixed_precision": False,  # Pour éviter de redéfinir la politique
+            }
+        )
+        return config
+
+    def compile_model(self, optimizer="adam", loss="mse", metrics=None):
+        """
+        Compile le modèle avec les paramètres spécifiés et active les optimisations de performance.
+        """
+        if metrics is None:
+            metrics = ["mae"]
+
+        # Optimisations TensorFlow pour les performances
+        try:
+            # Activer XLA pour l'accélération de la compilation
+            tf.config.optimizer.set_jit(True)
+
+            # Paralléliser les opérations quand possible
+            tf.config.threading.set_intra_op_parallelism_threads(8)
+            tf.config.threading.set_inter_op_parallelism_threads(8)
+
+            logger.info("Optimisations TensorFlow activées pour le modèle")
+        except Exception as e:
+            logger.warning(
+                f"Erreur lors de l'activation des optimisations TensorFlow: {e}"
+            )
+
+        # Compiler le modèle
+        self.compile(optimizer=optimizer, loss=loss, metrics=metrics)
+
+        return self
 
 
 def create_transformer_hybrid_model(

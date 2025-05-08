@@ -28,6 +28,7 @@ AI_TRADING_DIR = ROOT_DIR / "ai_trading"
 
 # Dossiers à nettoyer complètement
 DIRS_TO_CLEAN = [
+    AI_TRADING_DIR / "ai_trading",   # Structure redondante
     AI_TRADING_DIR / "tmp_test_models",
     AI_TRADING_DIR / "__pycache__",
     ROOT_DIR / "__pycache__",

@@ -1,0 +1,9 @@
+=== Comparaison des stratégies d'offloading ===
+Sans offloading: 0.0020s
+Offloading standard: 0.0000s
+Offloading auto (none): 0.0010s
+
+Comparaison (en % du temps sans offloading):
+Sans offloading: 100%
+Offloading standard: 0.0%
+Offloading auto: 50.0%

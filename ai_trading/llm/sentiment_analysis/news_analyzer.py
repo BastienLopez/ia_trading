@@ -697,7 +697,9 @@ class EnhancedNewsAnalyzer(NewsAnalyzer):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.cache_dir = kwargs.get("cache_dir", "sentiment_cache")
+        self.cache_dir = kwargs.get(
+            "cache_dir", "ai_trading/info_retour/sentiment_cache"
+        )
         os.makedirs(self.cache_dir, exist_ok=True)
 
     def analyze_news_batch(

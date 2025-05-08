@@ -7,4 +7,4 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent
 INFO_RETOUR_DIR = PROJECT_ROOT / "info_retour"
 
 # Création du répertoire s'il n'existe pas
-INFO_RETOUR_DIR.mkdir(exist_ok=True) 
+INFO_RETOUR_DIR.mkdir(exist_ok=True)

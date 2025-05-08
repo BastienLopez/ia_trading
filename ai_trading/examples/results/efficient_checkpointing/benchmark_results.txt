@@ -1,0 +1,11 @@
+=== Benchmark des méthodes de checkpoint ===
+Taille des données d'entraînement: 1.95 MB
+Méthode standard    : 0.0230s, 0.16 MB
+Poids uniquement    : 0.0230s, 0.15 MB (99.8% de la taille complète)
+Async + poids complet: 0.1281s, 0.15 MB
+
+=== Projections pour un entraînement complet ===
+Estimation pour 100 époques avec 1 checkpoints/époque:
+Taille standard      : 15.51 MB
+Taille optimisée     : 15.47 MB
+Espace économisé     : 0.03 MB (0.2%)

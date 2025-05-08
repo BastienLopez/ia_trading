@@ -787,14 +787,27 @@ class MultiAssetTradingSystem:
                     actions[asset] = 0.0
                     continue
 
-                if "close" not in data.columns:
-                    logger.warning(f"Données de prix manquantes pour {asset}")
+                # Vérification sécurisée des colonnes requises
+                required_columns = ["close"]
+                missing_columns = [
+                    col for col in required_columns if col not in data.columns
+                ]
+
+                if missing_columns:
+                    logger.warning(
+                        f"Colonnes manquantes pour {asset}: {missing_columns}"
+                    )
                     actions[asset] = 0.0
                     continue
 
-                action = self.trading_systems[asset].predict_action(data.iloc[-1:])
-                actions[asset] = action
-                logger.info(f"Action prédite pour {asset}: {action:.4f}")
+                # Accès sécurisé aux données
+                try:
+                    action = self.trading_systems[asset].predict_action(data.iloc[-1:])
+                    actions[asset] = action
+                    logger.info(f"Action prédite pour {asset}: {action:.4f}")
+                except Exception as e:
+                    logger.error(f"Erreur lors de la prédiction pour {asset}: {str(e)}")
+                    actions[asset] = 0.0
 
             except Exception as e:
                 logger.error(f"Erreur lors de la prédiction pour {asset}: {str(e)}")

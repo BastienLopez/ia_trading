@@ -9,6 +9,7 @@ from flask import Flask, render_template, request, jsonify, redirect, url_for
 from datetime import datetime, timedelta
 import random
 import math
+from werkzeug.middleware.proxy_fix import ProxyFix
 from web_app.config import Config
 from web_app.routes.transaction_routes import transaction_bp
 
@@ -17,8 +18,8 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('web_app.log'),
-        logging.StreamHandler()
+        logging.StreamHandler(),
+        logging.FileHandler(os.path.join(os.path.dirname(__file__), 'info_retour', 'web_app.log')),
     ]
 )
 logger = logging.getLogger(__name__)
@@ -28,6 +29,7 @@ os.makedirs(os.path.join(os.path.dirname(__file__), "logs"), exist_ok=True)
 logger.info("Répertoire de logs créé")
 
 app = Flask(__name__)
+app.wsgi_app = ProxyFix(app.wsgi_app)
 app.config.from_object(Config)
 
 # Configuration

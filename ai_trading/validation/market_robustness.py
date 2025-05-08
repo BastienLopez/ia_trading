@@ -11,15 +11,16 @@ class MarketRegimeClassifier:
     le momentum et le volume.
     """
 
-    def __init__(self, n_regimes: int = 4):
+    def __init__(self, n_regimes: int = 4, n_init: int = 10):
         """
         Initialise le classifieur de régimes de marché.
 
         Args:
             n_regimes (int): Nombre de régimes de marché à identifier
+            n_init (int): Nombre d'initialisations de KMeans à exécuter
         """
         self.n_regimes = n_regimes
-        self.model = KMeans(n_clusters=n_regimes, random_state=42)
+        self.model = KMeans(n_clusters=n_regimes, n_init=n_init, random_state=42)
         self.is_fitted = False
 
     def extract_features(self, df: pd.DataFrame) -> pd.DataFrame:

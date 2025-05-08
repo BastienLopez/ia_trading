@@ -25,6 +25,18 @@ services:
     depends_on:
       - redis
       - postgres
+    # Configuration pour DeepSpeed
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - OMP_NUM_THREADS=8
+      - PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
 
   # Base de données PostgreSQL pour le stockage persistant
   postgres:

@@ -25,7 +25,7 @@ logger = logging.getLogger("train_with_curriculum")
 
 def load_data():
     """Charge ou collecte les données pour l'entraînement"""
-    data_path = Path("data/processed/btc_processed.csv")
+    data_path = Path("ai_trading/info_retour/data/processed/btc_processed.csv")
 
     if data_path.exists():
         logger.info(f"Chargement des données depuis {data_path}")
@@ -125,6 +125,12 @@ def plot_training_history(history, save_path=None):
     if save_path:
         plt.savefig(save_path)
         logger.info(f"Graphique sauvegardé dans {save_path}")
+    else:
+        # Créer le répertoire si nécessaire
+        os.makedirs("ai_trading/info_retour/visualisations/rl", exist_ok=True)
+        default_path = f"ai_trading/info_retour/visualisations/rl/curriculum_training_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+        plt.savefig(default_path)
+        logger.info(f"Graphique sauvegardé dans {default_path}")
 
     plt.show()
 
@@ -190,8 +196,8 @@ def main():
     logger.info(f"Entraînement terminé en {training_time}")
 
     # Créer le répertoire des modèles s'il n'existe pas
-    save_dir = Path("models")
-    save_dir.mkdir(exist_ok=True)
+    save_dir = Path("ai_trading/info_retour/models/rl")
+    save_dir.mkdir(exist_ok=True, parents=True)
 
     # Sauvegarder l'agent final
     model_path = (
@@ -201,7 +207,7 @@ def main():
     logger.info(f"Agent sauvegardé dans {model_path}")
 
     # Créer le répertoire des visualisations s'il n'existe pas
-    vis_dir = Path("visualizations")
+    vis_dir = Path("ai_trading/info_retour/visualisations/rl")
     vis_dir.mkdir(exist_ok=True)
 
     # Visualiser les résultats

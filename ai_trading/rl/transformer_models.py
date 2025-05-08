@@ -6,17 +6,8 @@ pour traiter efficacement les séries temporelles dans un contexte d'RL.
 
 import logging
 
-import tensorflow as tf
-from tensorflow.keras.layers import (
-    GRU,
-    LSTM,
-    Dense,
-    Dropout,
-    Input,
-    LayerNormalization,
-    MultiHeadAttention,
-)
-from tensorflow.keras.models import Model
+import torch
+import torch.nn as nn
 
 # Configuration du logger
 logger = logging.getLogger("TransformerModels")
@@ -30,120 +21,141 @@ if not logger.handlers:
     logger.addHandler(handler)
 
 
-def transformer_block(inputs, embed_dim, num_heads, ff_dim, dropout_rate=0.1):
-    """
-    Bloc Transformer standard avec attention multi-têtes et réseau feed-forward.
-
-    Args:
-        inputs: Tensor d'entrée
-        embed_dim: Dimension d'embedding
-        num_heads: Nombre de têtes d'attention
-        ff_dim: Dimension du réseau feed-forward
-        dropout_rate: Taux de dropout
-
-    Returns:
-        Tensor: Sortie du bloc Transformer
-    """
-    # Normalisation de couche
-    attention_input = LayerNormalization(epsilon=1e-6)(inputs)
-
-    # Multi-head attention
-    attention_output = MultiHeadAttention(
-        num_heads=num_heads, key_dim=embed_dim // num_heads
-    )(attention_input, attention_input)
-
-    # Dropout sur la sortie d'attention
-    attention_output = Dropout(dropout_rate)(attention_output)
-
-    # Connexion résiduelle
-    attention_output = tf.keras.layers.add([inputs, attention_output])
-
-    # Feed-forward network
-    ffn_input = LayerNormalization(epsilon=1e-6)(attention_output)
-    ffn_output = Dense(ff_dim, activation="relu")(ffn_input)
-    ffn_output = Dense(embed_dim)(ffn_output)
-
-    # Dropout sur la sortie du feed-forward
-    ffn_output = Dropout(dropout_rate)(ffn_output)
-
-    # Connexion résiduelle finale
-    return tf.keras.layers.add([attention_output, ffn_output])
-
-
-def create_transformer_hybrid_model(
-    model_type,
-    input_shape,
-    output_dim,
-    embed_dim=64,
-    num_heads=4,
-    ff_dim=64,
-    num_transformer_blocks=2,
-    rnn_units=64,
-    dropout_rate=0.1,
-    recurrent_dropout=0.0,
-    sequence_length=20,
-):
-    """
-    Crée un modèle hybride combinant des blocs Transformer et une couche récurrente (GRU ou LSTM).
-
-    Args:
-        model_type: Type de modèle récurrent ('gru' ou 'lstm')
-        input_shape: Forme des entrées (séquence, features)
-        output_dim: Dimension de sortie
-        embed_dim: Dimension d'embedding pour le Transformer
-        num_heads: Nombre de têtes d'attention
-        ff_dim: Dimension du réseau feed-forward dans les blocs Transformer
-        num_transformer_blocks: Nombre de blocs Transformer
-        rnn_units: Nombre d'unités dans la couche récurrente
-        dropout_rate: Taux de dropout
-        recurrent_dropout: Taux de dropout récurrent
-        sequence_length: Longueur de la séquence
-
-    Returns:
-        Model: Modèle Keras
-    """
-    # Définir l'entrée
-    inputs = Input(shape=input_shape)
-
-    # Embedded projection
-    x = Dense(embed_dim)(inputs)
-
-    # Ajouter des blocs Transformer
-    for _ in range(num_transformer_blocks):
-        x = transformer_block(x, embed_dim, num_heads, ff_dim, dropout_rate)
-
-    # Ajouter une couche récurrente (GRU ou LSTM)
-    if model_type.lower() == "gru":
-        rnn_layer = GRU(
-            units=rnn_units,
-            return_sequences=False,
-            dropout=dropout_rate,
-            recurrent_dropout=recurrent_dropout,
+class TransformerBlock(nn.Module):
+    def __init__(self, embed_dim, num_heads, ff_dim, dropout_rate=0.1):
+        super().__init__()
+        self.attention = nn.MultiheadAttention(
+            embed_dim, num_heads, dropout=dropout_rate
         )
-    elif model_type.lower() == "lstm":
-        rnn_layer = LSTM(
-            units=rnn_units,
-            return_sequences=False,
-            dropout=dropout_rate,
-            recurrent_dropout=recurrent_dropout,
+        self.norm1 = nn.LayerNorm(embed_dim)
+        self.norm2 = nn.LayerNorm(embed_dim)
+        self.ffn = nn.Sequential(
+            nn.Linear(embed_dim, ff_dim),
+            nn.ReLU(),
+            nn.Dropout(dropout_rate),
+            nn.Linear(ff_dim, embed_dim),
         )
-    else:
-        raise ValueError(
-            f"Type de modèle non supporté: {model_type}. Utilisez 'gru' ou 'lstm'."
+        self.dropout = nn.Dropout(dropout_rate)
+
+    def forward(self, x):
+        # Multi-head attention
+        attn_output, _ = self.attention(x, x, x)
+        x = x + self.dropout(attn_output)
+        x = self.norm1(x)
+
+        # Feed-forward network
+        ffn_output = self.ffn(x)
+        x = x + self.dropout(ffn_output)
+        x = self.norm2(x)
+
+        return x
+
+
+class TransformerHybridModel(nn.Module):
+    def __init__(
+        self,
+        model_type,
+        input_shape,
+        output_dim,
+        embed_dim=64,
+        num_heads=4,
+        ff_dim=64,
+        num_transformer_blocks=2,
+        rnn_units=64,
+        dropout_rate=0.1,
+        recurrent_dropout=0.0,
+        sequence_length=20,
+        num_rnn_layers=1,
+    ):
+        super().__init__()
+
+        # Projection initiale
+        self.projection = nn.Linear(input_shape[-1], embed_dim)
+
+        # Blocs Transformer
+        self.transformer_blocks = nn.ModuleList(
+            [
+                TransformerBlock(embed_dim, num_heads, ff_dim, dropout_rate)
+                for _ in range(num_transformer_blocks)
+            ]
         )
 
-    x = rnn_layer(x)
+        # Couche récurrente
+        if model_type.lower() == "gru":
+            self.rnn = nn.GRU(
+                embed_dim,
+                rnn_units,
+                batch_first=True,
+                dropout=dropout_rate if num_rnn_layers > 1 else 0,
+                num_layers=num_rnn_layers,
+            )
+        elif model_type.lower() == "lstm":
+            self.rnn = nn.LSTM(
+                embed_dim,
+                rnn_units,
+                batch_first=True,
+                dropout=dropout_rate if num_rnn_layers > 1 else 0,
+                num_layers=num_rnn_layers,
+            )
+        else:
+            raise ValueError(
+                f"Type de modèle non supporté: {model_type}. Utilisez 'gru' ou 'lstm'."
+            )
 
-    # Couche de sortie
-    outputs = Dense(output_dim)(x)
+        # Couche de sortie
+        self.output_layer = nn.Linear(rnn_units, output_dim)
 
-    # Créer le modèle
-    model = Model(inputs=inputs, outputs=outputs)
+        # Optimisations
+        self.sequence_length = sequence_length
 
-    logger.info(
-        f"Modèle hybride Transformer-{model_type.upper()} créé avec "
-        f"{num_transformer_blocks} blocs Transformer, {num_heads} têtes d'attention, "
-        f"dimension d'embedding {embed_dim}, {rnn_units} unités récurrentes"
-    )
+        logger.info(
+            f"Modèle hybride Transformer-{model_type.upper()} créé avec "
+            f"{num_transformer_blocks} blocs Transformer, {num_heads} têtes d'attention, "
+            f"dimension d'embedding {embed_dim}, {rnn_units} unités récurrentes, "
+            f"{num_rnn_layers} couches récurrentes"
+        )
 
-    return model
+    def forward(self, x):
+        # Projection initiale
+        x = self.projection(x)
+
+        # Blocs Transformer
+        for transformer_block in self.transformer_blocks:
+            x = transformer_block(x)
+
+        # Couche récurrente
+        if isinstance(self.rnn, nn.GRU):
+            _, h_n = self.rnn(x)
+        else:  # LSTM
+            _, (h_n, _) = self.rnn(x)
+
+        # Dernière sortie de la séquence
+        x = h_n[-1]
+
+        # Couche de sortie
+        return self.output_layer(x)
+
+    def compile(self, optimizer, loss_fn):
+        """Configure l'optimiseur et la fonction de perte"""
+        self.optimizer = optimizer
+        self.loss_fn = loss_fn
+
+    def train_step(self, batch):
+        """Effectue une étape d'entraînement"""
+        self.train()
+        self.optimizer.zero_grad()
+
+        x, y = batch
+        predictions = self(x)
+        loss = self.loss_fn(predictions, y)
+
+        loss.backward()
+        self.optimizer.step()
+
+        return loss.item()
+
+    def predict(self, x):
+        """Fait des prédictions en mode évaluation"""
+        self.eval()
+        with torch.no_grad():
+            return self(x)

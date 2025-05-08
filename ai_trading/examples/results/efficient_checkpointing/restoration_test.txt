@@ -1,0 +1,3 @@
+=== Test de restauration du modèle ===
+Modèle restauré de l'époque inconnue
+Test Loss: 0.0778, Test Accuracy: 0.9747
