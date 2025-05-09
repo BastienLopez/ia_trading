@@ -1,17 +1,15 @@
-version: '3.8'
+name: aitrading
 
 services:
   # Service Dashboard principal
   dashboard:
     build:
-      context: ..
+      context: ../
       dockerfile: docker/Dockerfile
     container_name: ai_trading_dashboard
-    restart: unless-stopped
+    restart: on-failure
     volumes:
-      - ../data:/app/data
-      - ../logs:/app/logs
-      - ../models:/app/models
+      - ../:/app
     ports:
       - "8050:8050"
     environment:
@@ -29,87 +27,73 @@ services:
       retries: 3
       start_period: 40s
     command: python3 -m ai_trading.dashboard.app
-
-  # Service AI API pour le modèle d'IA
-  ai_api:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile
-    container_name: ai_trading_api
-    restart: unless-stopped
-    volumes:
-      - ../data:/app/data
-      - ../logs:/app/logs
-      - ../models:/app/models
-    ports:
-      - "8000:8000"
-    environment:
-      - PYTHONDONTWRITEBYTECODE=1
-      - PYTHONUNBUFFERED=1
-      - TF_CPP_MIN_LOG_LEVEL=2
-      - PYTHONPATH=/app
-      - API_DEBUG=true
-      - HOST=0.0.0.0
-      - PORT=8000
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
-    # Utilisez la commande appropriée pour démarrer votre API
-    command: python3 -m ai_trading.api.run
-    # Assurez-vous que le GPU est disponible pour l'API
     deploy:
       resources:
         reservations:
           devices:
-            - capabilities: [gpu]
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    depends_on:
+      - db
+      - redis
+
+  # Service AI API pour le modèle d'IA
+  ai_api:
+    container_name: ai_trading_api
+    build:
+      context: ../
+      dockerfile: docker/Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../:/app
+    depends_on:
+      - db
+      - redis
+    command: python3 -m uvicorn ai_trading.api:app --host 0.0.0.0 --port 8000 --reload
+    restart: on-failure:5
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
 
   # Service Web App (Interface utilisateur)
   web_app:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile
     container_name: ai_trading_web_app
-    restart: unless-stopped
-    volumes:
-      - ../data:/app/data
-      - ../logs:/app/logs
-      - ../web_app/data:/app/web_app/data
-      - ../web_app/info_retour:/app/web_app/info_retour
-      - ../web_app/templates:/app/web_app/templates
-      - ../web_app/static:/app/web_app/static
+    build:
+      context: ../
+      dockerfile: docker/Dockerfile
     ports:
       - "5000:5000"
-    environment:
-      - PYTHONDONTWRITEBYTECODE=1
-      - PYTHONUNBUFFERED=1
-      - API_URL=http://ai_api:8000
-      - FLASK_ENV=development
-      - FLASK_DEBUG=1
-      - PYTHONPATH=/app
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
-    command: python3 -m web_app.app
+    volumes:
+      - ../:/app
     depends_on:
       - ai_api
+      - db
+    command: python3 -m web_app.app
+    restart: on-failure
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
 
   # Base de données PostgreSQL
-  postgres:
-    image: postgres:15-alpine
+  db:
     container_name: ai_trading_db
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB:-ai_trading}
-      POSTGRES_USER: ${POSTGRES_USER:-ai_trading}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ai_trading_password}
+    image: postgres:15-alpine
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_DB=ai_trading
     ports:
       - "5432:5432"
     healthcheck:
@@ -120,10 +104,8 @@ services:
 
   # Service Redis pour la mise en cache
   redis:
-    image: redis:7-alpine
     container_name: ai_trading_redis
-    restart: unless-stopped
-    command: redis-server --appendonly yes
+    image: redis:7-alpine
     volumes:
       - redis_data:/data
     ports:

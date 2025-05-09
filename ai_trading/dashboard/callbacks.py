@@ -1336,7 +1336,7 @@ def register_callbacks(app):
             
             # Analyser la performance par actif
             if 'symbol' in trades_data.columns:
-                asset_perf = trades_data.groupby('symbol')['profit'].sum()
+                asset_perf = trades_data.groupby('symbol', observed=False)['profit'].sum()
                 best_asset = asset_perf.idxmax() if not asset_perf.empty else None
                 worst_asset = asset_perf.idxmin() if not asset_perf.empty else None
                 
@@ -1349,7 +1349,7 @@ def register_callbacks(app):
             
             # Analyser la performance par jour
             if 'entry_day' in trades_data.columns:
-                day_perf = trades_data.groupby('entry_day')['profit'].mean()
+                day_perf = trades_data.groupby('entry_day', observed=False)['profit'].mean()
                 best_day = day_perf.idxmax() if not day_perf.empty else None
                 worst_day = day_perf.idxmin() if not day_perf.empty else None
                 

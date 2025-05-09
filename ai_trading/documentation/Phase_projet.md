@@ -195,7 +195,7 @@ Ce module contient l'implémentation d'un système de trading de cryptomonnaies 
   - [x] Parallélisation des calculs
 
   ### 4. Déploiement
-  - [ ] Dockerisation
+  - [x] Dockerisation
   - [ ] Journalisation avancée
   - [ ] Sauvegarde/reprise
 

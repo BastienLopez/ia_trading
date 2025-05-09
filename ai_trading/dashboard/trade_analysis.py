@@ -120,7 +120,7 @@ class TradeAnalyzer:
         
         # 2. Performance par actif
         if 'symbol' in df.columns:
-            asset_perf = df.groupby('symbol')['profit'].agg(['sum', 'mean', 'count'])
+            asset_perf = df.groupby('symbol', observed=False)['profit'].agg(['sum', 'mean', 'count'])
             asset_perf = asset_perf.sort_values('sum', ascending=False)
             
             fig.add_trace(
@@ -142,7 +142,7 @@ class TradeAnalyzer:
             if 'entry_day' in df.columns:
                 df['entry_day_fr'] = df['entry_day'].map(day_map)
                 
-                day_perf = df.groupby('entry_day_fr')['profit'].sum().reindex(day_order_fr)
+                day_perf = df.groupby('entry_day_fr', observed=False)['profit'].sum().reindex(day_order_fr)
                 
                 fig.add_trace(
                     go.Bar(

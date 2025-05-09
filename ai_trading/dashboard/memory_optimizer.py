@@ -90,9 +90,14 @@ def optimize_dataframe(df: pd.DataFrame, verbose: bool = False) -> pd.DataFrame:
         if result[col].nunique() / len(result) < 0.5:  # Si moins de 50% de valeurs uniques
             result[col] = result[col].astype('category')
 
-    # Optimisation des dates
+    # Optimisation des dates - Correction du FutureWarning
     for col in result.select_dtypes(include=['datetime']).columns:
-        result[col] = pd.to_datetime(result[col], errors='ignore')
+        # Remplacer l'utilisation dépréciée de errors='ignore'
+        try:
+            result[col] = pd.to_datetime(result[col])
+        except (ValueError, TypeError):
+            # Conserver les valeurs d'origine si la conversion échoue
+            pass
     
     end_mem = result.memory_usage(deep=True).sum() / 1024**2
     reduction = 100 * (1 - end_mem / start_mem)

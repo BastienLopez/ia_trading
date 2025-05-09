@@ -819,17 +819,47 @@ def delete_transaction():
 @app.route('/api/ema-metrics')
 def get_ema_metrics():
     """Renvoie les dernières métriques EMA"""
-    market_data = get_market_data()
-    processed_data = DataProcessor().process(market_data)
-    
-    return jsonify({
-        'timestamps': processed_data.index.strftime('%Y-%m-%d %H:%M').tolist(),
-        'ema_5': processed_data['ema_5'].tail(100).tolist(),
-        'ema_30': processed_data['ema_30'].tail(100).tolist(),
-        'ema_50': processed_data['ema_50'].tail(100).tolist(),
-        'ribbon_width': processed_data['ema_ribbon_width'].tail(100).tolist(),
-        'gradient': processed_data['ema_gradient'].tail(100).tolist()
-    })
+    try:
+        # Récupérer les données de marché
+        market_data = get_market_data().json
+        
+        # Si les données contiennent une erreur, retourner cette erreur
+        if 'error' in market_data:
+            return jsonify({'error': market_data['error']}), 500
+            
+        # Extraire les prix des données de marché et créer des timestamps
+        prices = [p['price'] for p in market_data['prices']]
+        timestamps = [p['date'] for p in market_data['prices']]
+        
+        # Créer des périodes d'EMA courantes
+        ema_periods = [5, 10, 20, 30, 50, 100]
+        ema_data = {}
+        
+        # Calculer les EMAs pour chaque période
+        for period in ema_periods:
+            alpha = 2 / (period + 1)
+            ema = [prices[0]]  # Initialiser avec le premier prix
+            for i in range(1, len(prices)):
+                ema.append(alpha * prices[i] + (1 - alpha) * ema[i-1])
+            ema_data[f'ema_{period}'] = ema
+            
+        # Calculer le ruban width (différence entre EMA court et long)
+        ribbon_width = [ema_data['ema_5'][i] - ema_data['ema_50'][i] for i in range(len(prices))]
+        
+        # Calculer le gradient
+        gradient = [(ema_data['ema_5'][i] - ema_data['ema_30'][i]) / ema_data['ema_30'][i] for i in range(len(prices))]
+        
+        return jsonify({
+            'timestamps': timestamps,
+            'ema_5': ema_data['ema_5'],
+            'ema_30': ema_data['ema_30'],
+            'ema_50': ema_data['ema_50'],
+            'ribbon_width': ribbon_width,
+            'gradient': gradient
+        })
+    except Exception as e:
+        logger.error(f"Erreur lors du calcul des métriques EMA: {str(e)}")
+        return jsonify({"error": f"Erreur lors du calcul des métriques EMA: {str(e)}"}), 500
 
 @app.errorhandler(404)
 def page_not_found(e):

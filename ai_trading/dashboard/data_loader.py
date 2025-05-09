@@ -730,8 +730,8 @@ class DataLoader:
         df["macd"] = self._calculate_macd(df["close"])
         df["volatility"] = df["close"].rolling(window=20).std() / df["close"] * 100
         
-        # Remplir les valeurs manquantes
-        df.fillna(method="bfill", inplace=True)
+        # Remplir les valeurs manquantes - Correction du FutureWarning
+        df = df.bfill()  # Utilisation de bfill() au lieu de fillna(method="bfill")
         
         return df
 

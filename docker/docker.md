@@ -31,13 +31,13 @@ Le projet utilise les fichiers Docker suivants, situés dans le dossier `docker/
 
 Le projet comprend plusieurs services configurés dans le fichier `docker-compose.yml` :
 
-| Service | Description |
-|---------|-------------|
-| dashboard | Interface graphique pour l'analyse de données et la visualisation (port 8050) |
-| ai_api | API d'intelligence artificielle pour les prédictions et le trading (port 8000) |
-| web_app | Interface web principale pour les utilisateurs finaux (port 5000) |
-| postgres | Base de données PostgreSQL pour le stockage persistant |
-| redis | Cache et file d'attente pour les opérations |
+| Service | Description | Commande |
+|---------|-------------|----------|
+| dashboard | Interface graphique pour l'analyse de données et la visualisation (port 8050) | `python3 -m ai_trading.dashboard.app` |
+| ai_api | API d'intelligence artificielle pour les prédictions et le trading (port 8000) | `python3 -m uvicorn ai_trading.api:app --host 0.0.0.0 --port 8000` |
+| web_app | Interface web principale pour les utilisateurs finaux (port 5000) | `python3 -m web_app.app` |
+| db | Base de données PostgreSQL pour le stockage persistant | |
+| redis | Cache et file d'attente pour les opérations | |
 
 ## Commandes principales
 
@@ -166,34 +166,22 @@ Onglets disponibles dans le dashboard:
 
 ### Variables d'environnement
 
-Les services Docker peuvent être configurés en modifiant le fichier `.env` à la racine du projet ou en passant des variables d'environnement via la ligne de commande.
+Les services Docker sont configurés directement dans le fichier `docker-compose.yml`.
 
-Principales variables :
+Configuration actuelle pour le service de base de données :
 
-```bash
-# Base de données
-POSTGRES_DB=ai_trading
-POSTGRES_USER=ai_trading
-POSTGRES_PASSWORD=changeme
-
-# Dashboard et API
-HOST=0.0.0.0
-PORT=8050
-DASH_DEBUG=true
-
-# Interface Web Flask
-FLASK_ENV=development
-FLASK_DEBUG=1
-API_URL=http://ai_api:8000  # URL interne pour la communication entre services
-
-# API IA
-API_DEBUG=true
-PORT=8000
-
-# GPU et performances
-NVIDIA_VISIBLE_DEVICES=all  # ou spécifier des GPU spécifiques (ex: "0,1")
-OMP_NUM_THREADS=8  # Nombre de threads OpenMP
-PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512  # Configuration allocation CUDA
+```yaml
+db:
+  container_name: ai_trading_db
+  image: postgres:15-alpine
+  volumes:
+    - postgres_data:/var/lib/postgresql/data
+  environment:
+    - POSTGRES_PASSWORD=postgres
+    - POSTGRES_USER=postgres
+    - POSTGRES_DB=ai_trading
+  ports:
+    - "5432:5432"
 ```
 
 ### Volumes persistants
@@ -203,12 +191,12 @@ Les données sont stockées dans les volumes Docker suivants :
 - `postgres_data` : Données PostgreSQL
 - `redis_data` : Données Redis
 
-Les données spécifiques à l'application sont montées depuis les dossiers du projet :
+Tous les services montent le répertoire principal du projet:
 
-- `../data:/app/data` : Données de l'application
-- `../logs:/app/logs` : Logs de l'application
-- `../models:/app/models` : Modèles entraînés
-- `../web_app/data:/app/web_app/data` : Données spécifiques à l'interface web
+```yaml
+volumes:
+  - ../:/app
+```
 
 ## Résolution des problèmes courants
 
@@ -230,6 +218,19 @@ Si vous rencontrez des problèmes avec le GPU :
    ```bash
    docker exec -it ai_trading_api python -c "import torch; print(torch.cuda.is_available()); print(torch.cuda.device_count())"
    ```
+
+### Problème avec l'API (ai_api)
+
+Si l'API ne démarre pas correctement, vérifiez les logs :
+
+```bash
+docker logs ai_trading_api
+```
+
+L'API utilise maintenant la commande:
+```bash
+python3 -m uvicorn ai_trading.api:app --host 0.0.0.0 --port 8000
+```
 
 ### Problèmes de port
 
