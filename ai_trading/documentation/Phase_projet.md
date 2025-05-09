@@ -167,32 +167,32 @@ Ce module contient l'implémentation d'un système de trading de cryptomonnaies 
   - [x] Arbitrage, pairs trading
   - [x] Modèles multi-facteurs
 
-  ### 5. **Intégration plateforme réelle**
+  ### 5. **Visualisations interactives**
+  - [x] Dashboard avec Streamlit/Dash
+  - [x] Visualisations 3D
+  - [x] Analyse post-mortem des trades
+
+  ### 6. **Intégration plateforme réelle**
   - [ ] Connexion avec exchanges
   - [ ] Mode paper trading
   - [ ] Système d'alerte et monitoring
 
-  ### 6. **Visualisations interactives**
-  - [x] Dashboard avec Streamlit/Dash
-  - [ ] Visualisations 3D
-  - [ ] Analyse post-mortem des trades
-
 ## 🧩 **Tâches transversales**
 
   ### 1. Documentation
-  - [ ] Doc du code avec exemples
-  - [ ] Tutoriels
-  - [ ] Documentation des API
+  - [x] Doc du code avec exemples
+  - [x] Tutoriels
+  - [x] Documentation des API
 
   ### 2. Tests
-  - [ ] Tests unitaires
-  - [ ] Tests d'intégration
+  - [x] Tests unitaires
+  - [x] Tests d'intégration
   - [ ] Tests de performance
 
   ### 3. Optimisation
-  - [ ] Optimiser les performances de l'environnement
-  - [ ] Réduction mémoire
-  - [ ] Parallélisation des calculs
+  - [x] Optimiser les performances de l'environnement
+  - [x] Réduction mémoire
+  - [x] Parallélisation des calculs
 
   ### 4. Déploiement
   - [ ] Dockerisation

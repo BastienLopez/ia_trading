@@ -1,6 +1,6 @@
 @echo off
 echo Construction de l'image Docker de test...
-docker build -t ai-trading-test:v1 -f Dockerfile.test .
+docker build -t ai-trading-test:v1 -f docker/Dockerfile.test .
 
 echo.
 echo Execution des tests standards...

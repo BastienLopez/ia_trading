@@ -58,6 +58,16 @@ def create_layout(app):
                         tab_id="tab-factors",
                         children=[create_factors_layout()],
                     ),
+                    dbc.Tab(
+                        label="Visualisations 3D",
+                        tab_id="tab-viz3d",
+                        children=[create_viz3d_layout()],
+                    ),
+                    dbc.Tab(
+                        label="Analyse Post-Mortem",
+                        tab_id="tab-postmortem",
+                        children=[create_postmortem_layout()],
+                    ),
                 ],
                 id="tabs",
                 active_tab="tab-overview",
@@ -1233,6 +1243,505 @@ def create_factors_layout():
                                     dbc.CardBody(
                                         [
                                             html.Div(id="factors-attribution-table"),
+                                        ]
+                                    ),
+                                ]
+                            ),
+                        ]
+                    ),
+                ]
+            ),
+        ]
+    )
+
+
+def create_viz3d_layout():
+    """
+    Crée le layout pour les visualisations 3D.
+
+    Returns:
+        Component Layout
+    """
+    return dbc.Container(
+        [
+            dbc.Row(
+                [
+                    dbc.Col(
+                        [
+                            html.H2("Visualisations 3D"),
+                            html.P(
+                                "Explorez les relations entre les indicateurs et la performance en 3D",
+                                className="lead",
+                            ),
+                        ]
+                    ),
+                ],
+                className="mb-4",
+            ),
+            # Sélecteurs de visualisation
+            dbc.Row(
+                [
+                    dbc.Col(
+                        [
+                            dbc.Card(
+                                [
+                                    dbc.CardBody(
+                                        [
+                                            dbc.Row(
+                                                [
+                                                    dbc.Col(
+                                                        [
+                                                            html.Label("Type de visualisation"),
+                                                            dcc.Dropdown(
+                                                                id="viz3d-type",
+                                                                options=[
+                                                                    {
+                                                                        "label": "Surface d'indicateurs",
+                                                                        "value": "indicator_surface",
+                                                                    },
+                                                                    {
+                                                                        "label": "Trajectoire du portefeuille",
+                                                                        "value": "portfolio_trajectory",
+                                                                    },
+                                                                    {
+                                                                        "label": "Clusters de trades",
+                                                                        "value": "trade_clusters",
+                                                                    },
+                                                                ],
+                                                                value="indicator_surface",
+                                                            ),
+                                                        ],
+                                                        width=4,
+                                                    ),
+                                                    dbc.Col(
+                                                        [
+                                                            html.Label("Période"),
+                                                            dcc.DatePickerRange(
+                                                                id="viz3d-date-range",
+                                                                start_date_placeholder_text="Date de début",
+                                                                end_date_placeholder_text="Date de fin",
+                                                                calendar_orientation="horizontal",
+                                                            ),
+                                                        ],
+                                                        width=4,
+                                                    ),
+                                                    dbc.Col(
+                                                        [
+                                                            html.Label("Paramètres additionnels"),
+                                                            dbc.Button(
+                                                                "Configurer",
+                                                                id="viz3d-config-button",
+                                                                color="primary",
+                                                                className="mt-2",
+                                                            ),
+                                                        ],
+                                                        width=4,
+                                                    ),
+                                                ]
+                                            ),
+                                        ]
+                                    ),
+                                ]
+                            ),
+                        ]
+                    ),
+                ],
+                className="mb-4",
+            ),
+            # Paramètres spécifiques (affichés en fonction de la visualisation sélectionnée)
+            dbc.Row(
+                [
+                    dbc.Col(
+                        [
+                            dbc.Collapse(
+                                dbc.Card(
+                                    [
+                                        dbc.CardBody(
+                                            [
+                                                # Paramètres pour surface d'indicateurs
+                                                html.Div(
+                                                    [
+                                                        dbc.Row(
+                                                            [
+                                                                dbc.Col(
+                                                                    [
+                                                                        html.Label("Axe X"),
+                                                                        dcc.Dropdown(
+                                                                            id="viz3d-x-axis",
+                                                                            options=[],
+                                                                        ),
+                                                                    ],
+                                                                    width=4,
+                                                                ),
+                                                                dbc.Col(
+                                                                    [
+                                                                        html.Label("Axe Y"),
+                                                                        dcc.Dropdown(
+                                                                            id="viz3d-y-axis",
+                                                                            options=[],
+                                                                        ),
+                                                                    ],
+                                                                    width=4,
+                                                                ),
+                                                                dbc.Col(
+                                                                    [
+                                                                        html.Label("Axe Z (hauteur)"),
+                                                                        dcc.Dropdown(
+                                                                            id="viz3d-z-axis",
+                                                                            options=[],
+                                                                        ),
+                                                                    ],
+                                                                    width=4,
+                                                                ),
+                                                            ]
+                                                        ),
+                                                    ],
+                                                    id="viz3d-indicator-params",
+                                                ),
+                                                # Paramètres pour trajectoire du portefeuille
+                                                html.Div(
+                                                    [
+                                                        dbc.Row(
+                                                            [
+                                                                dbc.Col(
+                                                                    [
+                                                                        html.Label("Fenêtre temporelle"),
+                                                                        dcc.Slider(
+                                                                            id="viz3d-window",
+                                                                            min=5,
+                                                                            max=60,
+                                                                            step=5,
+                                                                            value=30,
+                                                                            marks={i: str(i) for i in range(5, 61, 10)},
+                                                                        ),
+                                                                    ],
+                                                                    width=12,
+                                                                ),
+                                                            ]
+                                                        ),
+                                                    ],
+                                                    id="viz3d-trajectory-params",
+                                                    style={"display": "none"},
+                                                ),
+                                                # Paramètres pour clusters de trades
+                                                html.Div(
+                                                    [
+                                                        dbc.Row(
+                                                            [
+                                                                dbc.Col(
+                                                                    [
+                                                                        html.Label("Nombre de clusters"),
+                                                                        dcc.Slider(
+                                                                            id="viz3d-clusters",
+                                                                            min=2,
+                                                                            max=10,
+                                                                            step=1,
+                                                                            value=5,
+                                                                            marks={i: str(i) for i in range(2, 11, 1)},
+                                                                        ),
+                                                                    ],
+                                                                    width=12,
+                                                                ),
+                                                            ]
+                                                        ),
+                                                    ],
+                                                    id="viz3d-clusters-params",
+                                                    style={"display": "none"},
+                                                ),
+                                            ]
+                                        ),
+                                    ]
+                                ),
+                                id="viz3d-config-collapse",
+                                is_open=False,
+                            ),
+                        ]
+                    ),
+                ],
+                className="mb-4",
+            ),
+            # Visualisation 3D
+            dbc.Row(
+                [
+                    dbc.Col(
+                        [
+                            dbc.Card(
+                                [
+                                    dbc.CardHeader(html.H5(id="viz3d-title")),
+                                    dbc.CardBody(
+                                        [
+                                            dcc.Loading(
+                                                id="viz3d-loading",
+                                                type="circle",
+                                                children=[
+                                                    dcc.Graph(
+                                                        id="viz3d-graph",
+                                                        figure={},
+                                                        style={"height": "700px"},
+                                                    ),
+                                                ],
+                                            ),
+                                        ]
+                                    ),
+                                ]
+                            ),
+                        ]
+                    ),
+                ],
+                className="mb-4",
+            ),
+            # Explications et légende
+            dbc.Row(
+                [
+                    dbc.Col(
+                        [
+                            dbc.Card(
+                                [
+                                    dbc.CardHeader(html.H5("Comment interpréter")),
+                                    dbc.CardBody(
+                                        [
+                                            html.Div(id="viz3d-explanation"),
+                                        ]
+                                    ),
+                                ]
+                            ),
+                        ]
+                    ),
+                ]
+            ),
+        ]
+    )
+
+
+def create_postmortem_layout():
+    """
+    Crée le layout pour l'analyse post-mortem des trades.
+
+    Returns:
+        Component Layout
+    """
+    return dbc.Container(
+        [
+            dbc.Row(
+                [
+                    dbc.Col(
+                        [
+                            html.H2("Analyse Post-Mortem des Trades"),
+                            html.P(
+                                "Analyse détaillée de la performance des transactions passées",
+                                className="lead",
+                            ),
+                        ]
+                    ),
+                ],
+                className="mb-4",
+            ),
+            # Sélecteurs de période et filtreurs
+            dbc.Row(
+                [
+                    dbc.Col(
+                        [
+                            dbc.Card(
+                                [
+                                    dbc.CardBody(
+                                        [
+                                            dbc.Row(
+                                                [
+                                                    dbc.Col(
+                                                        [
+                                                            html.Label("Période"),
+                                                            dcc.DatePickerRange(
+                                                                id="postmortem-date-range",
+                                                                start_date_placeholder_text="Date de début",
+                                                                end_date_placeholder_text="Date de fin",
+                                                                calendar_orientation="horizontal",
+                                                            ),
+                                                        ],
+                                                        width=6,
+                                                    ),
+                                                    dbc.Col(
+                                                        [
+                                                            html.Label("Type d'analyse"),
+                                                            dcc.Dropdown(
+                                                                id="postmortem-analysis-type",
+                                                                options=[
+                                                                    {
+                                                                        "label": "Résumé de performance",
+                                                                        "value": "performance_summary",
+                                                                    },
+                                                                    {
+                                                                        "label": "Analyse gains/pertes",
+                                                                        "value": "win_loss_analysis",
+                                                                    },
+                                                                    {
+                                                                        "label": "Attribution de performance",
+                                                                        "value": "trade_attribution",
+                                                                    },
+                                                                ],
+                                                                value="performance_summary",
+                                                            ),
+                                                        ],
+                                                        width=6,
+                                                    ),
+                                                ]
+                                            ),
+                                        ]
+                                    ),
+                                ]
+                            ),
+                        ]
+                    ),
+                ],
+                className="mb-4",
+            ),
+            # Filtres supplémentaires
+            dbc.Row(
+                [
+                    dbc.Col(
+                        [
+                            dbc.Card(
+                                [
+                                    dbc.CardHeader("Filtres"),
+                                    dbc.CardBody(
+                                        [
+                                            dbc.Row(
+                                                [
+                                                    dbc.Col(
+                                                        [
+                                                            html.Label("Actif"),
+                                                            dcc.Dropdown(
+                                                                id="postmortem-asset",
+                                                                options=[
+                                                                    {
+                                                                        "label": "Tous",
+                                                                        "value": "all",
+                                                                    }
+                                                                ],
+                                                                value="all",
+                                                            ),
+                                                        ],
+                                                        width=4,
+                                                    ),
+                                                    dbc.Col(
+                                                        [
+                                                            html.Label("Direction"),
+                                                            dcc.Dropdown(
+                                                                id="postmortem-direction",
+                                                                options=[
+                                                                    {
+                                                                        "label": "Toutes",
+                                                                        "value": "all",
+                                                                    },
+                                                                    {
+                                                                        "label": "Achat",
+                                                                        "value": "buy",
+                                                                    },
+                                                                    {
+                                                                        "label": "Vente",
+                                                                        "value": "sell",
+                                                                    },
+                                                                ],
+                                                                value="all",
+                                                            ),
+                                                        ],
+                                                        width=4,
+                                                    ),
+                                                    dbc.Col(
+                                                        [
+                                                            html.Label("Résultat"),
+                                                            dcc.Dropdown(
+                                                                id="postmortem-result",
+                                                                options=[
+                                                                    {
+                                                                        "label": "Tous",
+                                                                        "value": "all",
+                                                                    },
+                                                                    {
+                                                                        "label": "Gains",
+                                                                        "value": "win",
+                                                                    },
+                                                                    {
+                                                                        "label": "Pertes",
+                                                                        "value": "loss",
+                                                                    },
+                                                                ],
+                                                                value="all",
+                                                            ),
+                                                        ],
+                                                        width=4,
+                                                    ),
+                                                ]
+                                            ),
+                                        ]
+                                    ),
+                                ],
+                                className="mb-4",
+                            ),
+                        ]
+                    ),
+                ]
+            ),
+            # Statistiques globales
+            dbc.Row(
+                [
+                    dbc.Col(
+                        [
+                            dbc.Card(
+                                [
+                                    dbc.CardHeader(html.H5("Statistiques globales")),
+                                    dbc.CardBody(
+                                        [
+                                            html.Div(id="postmortem-stats"),
+                                        ]
+                                    ),
+                                ]
+                            ),
+                        ]
+                    ),
+                ],
+                className="mb-4",
+            ),
+            # Graphique principal
+            dbc.Row(
+                [
+                    dbc.Col(
+                        [
+                            dbc.Card(
+                                [
+                                    dbc.CardHeader(html.H5(id="postmortem-title")),
+                                    dbc.CardBody(
+                                        [
+                                            dcc.Loading(
+                                                id="postmortem-loading",
+                                                type="circle",
+                                                children=[
+                                                    dcc.Graph(
+                                                        id="postmortem-graph",
+                                                        figure={},
+                                                        style={"height": "700px"},
+                                                    ),
+                                                ],
+                                            ),
+                                        ]
+                                    ),
+                                ]
+                            ),
+                        ]
+                    ),
+                ],
+                className="mb-4",
+            ),
+            # Insights et recommandations
+            dbc.Row(
+                [
+                    dbc.Col(
+                        [
+                            dbc.Card(
+                                [
+                                    dbc.CardHeader(html.H5("Insights et recommandations")),
+                                    dbc.CardBody(
+                                        [
+                                            html.Div(id="postmortem-insights"),
                                         ]
                                     ),
                                 ]
