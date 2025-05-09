@@ -8,7 +8,8 @@ from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 from ai_trading.data_processor import DataProcessor
-from ai_trading.rl_agent import CryptoTradingEnv, RLAgent
+from ai_trading.rl_agent import RLAgent
+from ai_trading.rl.trading_environment import TradingEnvironment
 
 # Configuration du logging
 logging.basicConfig(
@@ -134,7 +135,7 @@ async def predict(
         agent.load(model_path)
 
         # Créer un environnement pour la dernière donnée
-        env = CryptoTradingEnv(df.iloc[-20:])  # Utiliser les 20 dernières observations
+        env = TradingEnvironment(df.iloc[-20:])  # Utiliser les 20 dernières observations avec TradingEnvironment au lieu de CryptoTradingEnv
         observation, _ = env.reset()
 
         # Prédire l'action

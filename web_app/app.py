@@ -36,6 +36,12 @@ app.config.from_object(Config)
 API_URL = os.environ.get('API_URL', 'http://localhost:8000')
 logger.info(f"Configuration API_URL: {API_URL}")
 
+# Route de health check
+@app.route('/health')
+def health_check():
+    """Route pour vérifier l'état de santé de l'application"""
+    return jsonify({"status": "ok", "timestamp": datetime.now().isoformat()}), 200
+
 # Chemin vers le fichier de données
 DATA_FILE = os.path.join(os.path.dirname(__file__), 'data', 'transactions.json')
 
