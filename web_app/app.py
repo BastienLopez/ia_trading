@@ -825,6 +825,71 @@ def get_ema_metrics():
         'gradient': processed_data['ema_gradient'].tail(100).tolist()
     })
 
+@app.route('/health')
+def health():
+    """Endpoint de vérification de santé pour les healthchecks Docker"""
+    status = {
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "service": "web_app",
+        "version": "1.0.0"
+    }
+    
+    # Vérifier optionnellement l'accès à l'API
+    api_status = "unavailable"
+    try:
+        api_check = requests.get(f"{API_URL}/health", timeout=2)
+        if api_check.status_code == 200:
+            api_status = "available"
+    except:
+        pass
+    
+    status["dependencies"] = {
+        "api": api_status
+    }
+    
+    return jsonify(status)
+
+@app.route('/status')
+def status():
+    """Page web montrant l'état du système"""
+    status_info = {
+        "web_app": {
+            "status": "running",
+            "version": "1.0.0",
+            "start_time": app.config.get("START_TIME", datetime.now().isoformat())
+        },
+        "api": {
+            "url": API_URL,
+            "status": "unknown"
+        },
+        "database": {
+            "status": "unknown"
+        }
+    }
+    
+    # Vérifier l'API
+    try:
+        api_check = requests.get(f"{API_URL}/health", timeout=2)
+        if api_check.status_code == 200:
+            status_info["api"]["status"] = "running"
+            if hasattr(api_check, "json"):
+                status_info["api"]["details"] = api_check.json()
+    except Exception as e:
+        status_info["api"]["status"] = "error"
+        status_info["api"]["error"] = str(e)
+    
+    # Vérifier la base de données (pour cet exemple, on vérifie juste si on peut charger les données)
+    try:
+        data = load_data()
+        status_info["database"]["status"] = "connected"
+        status_info["database"]["transactions"] = len(data.get("transactions", []))
+    except Exception as e:
+        status_info["database"]["status"] = "error"
+        status_info["database"]["error"] = str(e)
+    
+    return render_template('status.html', status=status_info)
+
 @app.errorhandler(404)
 def page_not_found(e):
     """Gestionnaire pour les erreurs 404"""
@@ -838,5 +903,7 @@ def internal_server_error(e):
     return render_template('500.html'), 500
 
 if __name__ == "__main__":
+    # Stocker le temps de démarrage
+    app.config["START_TIME"] = datetime.now().isoformat()
     logger.info("Démarrage du serveur web Flask")
     app.run(host='0.0.0.0', port=5000, debug=True) 

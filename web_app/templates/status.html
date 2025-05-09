@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+
+{% block title %}État du Système - Crypto Trading AI{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1>État du Système</h1>
+    
+    <div class="row mt-4">
+        <div class="col-md-6">
+            <div class="card shadow-sm mb-4">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="card-title mb-0">Interface Web</h5>
+                </div>
+                <div class="card-body">
+                    <table class="table table-striped">
+                        <tr>
+                            <th>Statut</th>
+                            <td>
+                                <span class="badge bg-success">{{ status.web_app.status }}</span>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th>Version</th>
+                            <td>{{ status.web_app.version }}</td>
+                        </tr>
+                        <tr>
+                            <th>Démarré à</th>
+                            <td>{{ status.web_app.start_time }}</td>
+                        </tr>
+                    </table>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-6">
+            <div class="card shadow-sm mb-4">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="card-title mb-0">API</h5>
+                </div>
+                <div class="card-body">
+                    <table class="table table-striped">
+                        <tr>
+                            <th>URL</th>
+                            <td>{{ status.api.url }}</td>
+                        </tr>
+                        <tr>
+                            <th>Statut</th>
+                            <td>
+                                {% if status.api.status == 'running' %}
+                                    <span class="badge bg-success">{{ status.api.status }}</span>
+                                {% elif status.api.status == 'error' %}
+                                    <span class="badge bg-danger">{{ status.api.status }}</span>
+                                {% else %}
+                                    <span class="badge bg-warning">{{ status.api.status }}</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% if status.api.error %}
+                        <tr>
+                            <th>Erreur</th>
+                            <td class="text-danger">{{ status.api.error }}</td>
+                        </tr>
+                        {% endif %}
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="row">
+        <div class="col-md-6">
+            <div class="card shadow-sm mb-4">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="card-title mb-0">Base de données</h5>
+                </div>
+                <div class="card-body">
+                    <table class="table table-striped">
+                        <tr>
+                            <th>Statut</th>
+                            <td>
+                                {% if status.database.status == 'connected' %}
+                                    <span class="badge bg-success">{{ status.database.status }}</span>
+                                {% elif status.database.status == 'error' %}
+                                    <span class="badge bg-danger">{{ status.database.status }}</span>
+                                {% else %}
+                                    <span class="badge bg-warning">{{ status.database.status }}</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% if status.database.transactions is defined %}
+                        <tr>
+                            <th>Transactions</th>
+                            <td>{{ status.database.transactions }}</td>
+                        </tr>
+                        {% endif %}
+                        {% if status.database.error %}
+                        <tr>
+                            <th>Erreur</th>
+                            <td class="text-danger">{{ status.database.error }}</td>
+                        </tr>
+                        {% endif %}
+                    </table>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-6">
+            <div class="card shadow-sm mb-4">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="card-title mb-0">Actions</h5>
+                </div>
+                <div class="card-body">
+                    <div class="d-grid gap-2">
+                        <a href="/" class="btn btn-primary">Page d'accueil</a>
+                        <a href="/dashboard" class="btn btn-info">Dashboard</a>
+                        <button class="btn btn-warning" id="refresh-status">Rafraîchir l'état</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    document.getElementById('refresh-status').addEventListener('click', function() {
+        location.reload();
+    });
+</script>
+{% endblock %} 

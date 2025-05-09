@@ -9,6 +9,7 @@ Ce module implémente une application web interactif permettant de:
 - Suivre les allocations d'actifs
 """
 
+import os
 import dash
 import dash_bootstrap_components as dbc
 
@@ -35,4 +36,20 @@ register_callbacks(app)
 
 # Point d'entrée pour l'exécution du serveur
 if __name__ == "__main__":
-    app.run(debug=True)
+    # Récupérer les variables d'environnement ou utiliser des valeurs par défaut
+    host = os.environ.get("HOST", "0.0.0.0")
+    port = int(os.environ.get("PORT", 8050))
+    debug = os.environ.get("DASH_DEBUG", "False").lower() == "true"
+    
+    print(f"Démarrage du serveur sur {host}:{port} (debug={debug})")
+    
+    # Création d'une route de santé pour les healthchecks
+    @app.server.route("/health")
+    def health():
+        return "OK"
+
+    app.run_server(
+        host=host,
+        port=port,
+        debug=debug
+    )
