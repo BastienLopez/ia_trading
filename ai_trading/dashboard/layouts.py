@@ -1291,7 +1291,9 @@ def create_viz3d_layout():
                                                 [
                                                     dbc.Col(
                                                         [
-                                                            html.Label("Type de visualisation"),
+                                                            html.Label(
+                                                                "Type de visualisation"
+                                                            ),
                                                             dcc.Dropdown(
                                                                 id="viz3d-type",
                                                                 options=[
@@ -1327,7 +1329,9 @@ def create_viz3d_layout():
                                                     ),
                                                     dbc.Col(
                                                         [
-                                                            html.Label("Paramètres additionnels"),
+                                                            html.Label(
+                                                                "Paramètres additionnels"
+                                                            ),
                                                             dbc.Button(
                                                                 "Configurer",
                                                                 id="viz3d-config-button",
@@ -1365,7 +1369,9 @@ def create_viz3d_layout():
                                                             [
                                                                 dbc.Col(
                                                                     [
-                                                                        html.Label("Axe X"),
+                                                                        html.Label(
+                                                                            "Axe X"
+                                                                        ),
                                                                         dcc.Dropdown(
                                                                             id="viz3d-x-axis",
                                                                             options=[],
@@ -1375,7 +1381,9 @@ def create_viz3d_layout():
                                                                 ),
                                                                 dbc.Col(
                                                                     [
-                                                                        html.Label("Axe Y"),
+                                                                        html.Label(
+                                                                            "Axe Y"
+                                                                        ),
                                                                         dcc.Dropdown(
                                                                             id="viz3d-y-axis",
                                                                             options=[],
@@ -1385,7 +1393,9 @@ def create_viz3d_layout():
                                                                 ),
                                                                 dbc.Col(
                                                                     [
-                                                                        html.Label("Axe Z (hauteur)"),
+                                                                        html.Label(
+                                                                            "Axe Z (hauteur)"
+                                                                        ),
                                                                         dcc.Dropdown(
                                                                             id="viz3d-z-axis",
                                                                             options=[],
@@ -1405,14 +1415,25 @@ def create_viz3d_layout():
                                                             [
                                                                 dbc.Col(
                                                                     [
-                                                                        html.Label("Fenêtre temporelle"),
+                                                                        html.Label(
+                                                                            "Fenêtre temporelle"
+                                                                        ),
                                                                         dcc.Slider(
                                                                             id="viz3d-window",
                                                                             min=5,
                                                                             max=60,
                                                                             step=5,
                                                                             value=30,
-                                                                            marks={i: str(i) for i in range(5, 61, 10)},
+                                                                            marks={
+                                                                                i: str(
+                                                                                    i
+                                                                                )
+                                                                                for i in range(
+                                                                                    5,
+                                                                                    61,
+                                                                                    10,
+                                                                                )
+                                                                            },
                                                                         ),
                                                                     ],
                                                                     width=12,
@@ -1430,14 +1451,25 @@ def create_viz3d_layout():
                                                             [
                                                                 dbc.Col(
                                                                     [
-                                                                        html.Label("Nombre de clusters"),
+                                                                        html.Label(
+                                                                            "Nombre de clusters"
+                                                                        ),
                                                                         dcc.Slider(
                                                                             id="viz3d-clusters",
                                                                             min=2,
                                                                             max=10,
                                                                             step=1,
                                                                             value=5,
-                                                                            marks={i: str(i) for i in range(2, 11, 1)},
+                                                                            marks={
+                                                                                i: str(
+                                                                                    i
+                                                                                )
+                                                                                for i in range(
+                                                                                    2,
+                                                                                    11,
+                                                                                    1,
+                                                                                )
+                                                                            },
                                                                         ),
                                                                     ],
                                                                     width=12,
@@ -1561,7 +1593,9 @@ def create_postmortem_layout():
                                                     ),
                                                     dbc.Col(
                                                         [
-                                                            html.Label("Type d'analyse"),
+                                                            html.Label(
+                                                                "Type d'analyse"
+                                                            ),
                                                             dcc.Dropdown(
                                                                 id="postmortem-analysis-type",
                                                                 options=[
@@ -1738,7 +1772,9 @@ def create_postmortem_layout():
                         [
                             dbc.Card(
                                 [
-                                    dbc.CardHeader(html.H5("Insights et recommandations")),
+                                    dbc.CardHeader(
+                                        html.H5("Insights et recommandations")
+                                    ),
                                     dbc.CardBody(
                                         [
                                             html.Div(id="postmortem-insights"),

@@ -1,9 +1,6 @@
 import logging
-from unittest.mock import patch
 
 import pytest
-
-from ai_trading.tests.mocks import MockNewsAnalyzer, MockSocialAnalyzer
 
 # Configure le logging
 logging.basicConfig(
@@ -28,7 +25,7 @@ def patch_sentiment_analyzers():
     #     MockSocialAnalyzer,
     # ):
     #     yield
-    
+
     # Pas de patch pour l'instant, nous importerons directement les mocks dans les tests
     yield
 
@@ -82,10 +79,10 @@ collect_ignore = [
     "test_lazy_loading.py",  # Problème d'importation de BatchInferenceOptimizer
     "test_sentiment_integration.py",  # Problème d'importation de EnhancedNewsAnalyzer
     "test_visualization_paths.py",  # Problème d'importation de EnhancedNewsAnalyzer
-    "test_data_integration.py",     # Problème d'importation de sentiment_analysis
-    "test_evaluation.py",           # Problème d'importation de sentiment_analysis
+    "test_data_integration.py",  # Problème d'importation de sentiment_analysis
+    "test_evaluation.py",  # Problème d'importation de sentiment_analysis
     "test_multi_asset_trading.py",  # Problème d'importation de sentiment_analysis
-    "test_rl_trading_system.py",    # Problème d'importation de sentiment_analysis
-    "test_social_analyzer.py",      # Problème d'importation de sentiment_analysis
-    "test_train.py",                # Problème d'importation de sentiment_analysis
+    "test_rl_trading_system.py",  # Problème d'importation de sentiment_analysis
+    "test_social_analyzer.py",  # Problème d'importation de sentiment_analysis
+    "test_train.py",  # Problème d'importation de sentiment_analysis
 ]

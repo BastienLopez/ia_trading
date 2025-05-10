@@ -8,8 +8,8 @@ from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 from ai_trading.data_processor import DataProcessor
-from ai_trading.rl_agent import RLAgent
 from ai_trading.rl.trading_environment import TradingEnvironment
+from ai_trading.rl_agent import RLAgent
 
 # Configuration du logging
 logging.basicConfig(
@@ -29,6 +29,7 @@ app = FastAPI(
     description="API pour l'agent de trading par renforcement",
     version="1.0.0",
 )
+
 
 # Ajout d'une route de health check
 @app.get("/health")
@@ -141,7 +142,9 @@ async def predict(
         agent.load(model_path)
 
         # Créer un environnement pour la dernière donnée
-        env = TradingEnvironment(df.iloc[-20:])  # Utiliser les 20 dernières observations avec TradingEnvironment au lieu de CryptoTradingEnv
+        env = TradingEnvironment(
+            df.iloc[-20:]
+        )  # Utiliser les 20 dernières observations avec TradingEnvironment au lieu de CryptoTradingEnv
         observation, _ = env.reset()
 
         # Prédire l'action
@@ -333,23 +336,27 @@ async def get_ema_metrics():
     try:
         # Simuler des données pour la démo
         periods = [5, 10, 15, 20, 25, 30, 50]
-        
+
         # Générer des données fictives de prix
-        timestamps = [(datetime.now() - timedelta(days=i)).isoformat() for i in range(30, 0, -1)]
-        prices = [40000 + (i * 100) + ((-1)**i * i * 50) for i in range(30)]
-        
+        timestamps = [
+            (datetime.now() - timedelta(days=i)).isoformat() for i in range(30, 0, -1)
+        ]
+        prices = [40000 + (i * 100) + ((-1) ** i * i * 50) for i in range(30)]
+
         # Calculer les EMAs
         emas = {}
         for period in periods:
             alpha = 2 / (period + 1)
             ema = [prices[0]]
             for i in range(1, len(prices)):
-                ema.append(alpha * prices[i] + (1 - alpha) * ema[i-1])
+                ema.append(alpha * prices[i] + (1 - alpha) * ema[i - 1])
             emas[f"ema_{period}"] = ema
-        
+
         # Calculer la largeur du ruban (différence entre EMA court et long)
-        ribbon_width = [emas["ema_5"][i] - emas["ema_50"][i] for i in range(len(prices))]
-        
+        ribbon_width = [
+            emas["ema_5"][i] - emas["ema_50"][i] for i in range(len(prices))
+        ]
+
         return {
             "timestamps": timestamps,
             "emas": emas,
@@ -358,7 +365,9 @@ async def get_ema_metrics():
     except Exception as e:
         logger.error(f"Erreur lors de la récupération des métriques EMA: {str(e)}")
         raise HTTPException(
-            status_code=500, detail=f"Erreur lors de la récupération des métriques EMA: {str(e)}")
+            status_code=500,
+            detail=f"Erreur lors de la récupération des métriques EMA: {str(e)}",
+        )
 
 
 def run():

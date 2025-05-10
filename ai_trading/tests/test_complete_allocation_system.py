@@ -12,14 +12,12 @@ Ce module teste:
 import numpy as np
 import pandas as pd
 import pytest
-from unittest.mock import patch
 
 from ai_trading.portfolio.complete_allocation_system import (
     AllocationResult,
     CompleteAllocationSystem,
 )
 from ai_trading.rl.models.portfolio_optimization import FactorModel
-from ai_trading.tests.mocks import MockNewsAnalyzer, MockSocialAnalyzer
 
 
 # Fonctions utilitaires pour générer des données de test

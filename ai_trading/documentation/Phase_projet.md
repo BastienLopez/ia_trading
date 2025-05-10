@@ -187,7 +187,7 @@ Ce module contient l'implémentation d'un système de trading de cryptomonnaies 
   ### 2. Tests
   - [x] Tests unitaires
   - [x] Tests d'intégration
-  - [ ] Tests de performance
+  - [x] Tests de performance
 
   ### 3. Optimisation
   - [x] Optimiser les performances de l'environnement
@@ -196,8 +196,8 @@ Ce module contient l'implémentation d'un système de trading de cryptomonnaies 
 
   ### 4. Déploiement
   - [x] Dockerisation
-  - [ ] Journalisation avancée
-  - [ ] Sauvegarde/reprise
+  - [x] Journalisation avancée
+  - [x] Sauvegarde/reprise
 
   ### 5. Stratégies d'apprentissage avancées
   - [ ] Imitation learning à partir de stratégies de référence

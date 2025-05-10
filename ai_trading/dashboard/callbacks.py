@@ -15,8 +15,8 @@ import plotly.graph_objects as go
 from dash import Input, Output, State, html
 
 from ai_trading.dashboard.data_loader import DataLoader
-from ai_trading.dashboard.visualization_3d import Visualizer3D
 from ai_trading.dashboard.trade_analysis import TradeAnalyzer
+from ai_trading.dashboard.visualization_3d import Visualizer3D
 
 
 def register_callbacks(app):
@@ -476,13 +476,17 @@ def register_callbacks(app):
             tx_type_style = (
                 {"color": "green"} if tx["type"] == "achat" else {"color": "red"}
             )
-            
+
             # Gestion des performances relatives avec vérification correcte des NaN
             if "perf_relative" in tx and pd.notna(tx["perf_relative"]):
                 if tx["perf_relative"] > 0:
-                    perf_cell = html.Td(f"{tx['perf_relative']*100:+.2f}%", style={"color": "green"})
+                    perf_cell = html.Td(
+                        f"{tx['perf_relative']*100:+.2f}%", style={"color": "green"}
+                    )
                 else:
-                    perf_cell = html.Td(f"{tx['perf_relative']*100:+.2f}%", style={"color": "red"})
+                    perf_cell = html.Td(
+                        f"{tx['perf_relative']*100:+.2f}%", style={"color": "red"}
+                    )
             else:
                 perf_cell = html.Td("N/A")
 
@@ -619,19 +623,19 @@ def register_callbacks(app):
     def update_viz3d_params_visibility(viz_type):
         """
         Met à jour la visibilité des paramètres en fonction du type de visualisation.
-        
+
         Args:
             viz_type: Type de visualisation 3D sélectionné
-            
+
         Returns:
             Titre de la visualisation et visibilité des paramètres
         """
         indicator_style = {"display": "none"}
         trajectory_style = {"display": "none"}
         clusters_style = {"display": "none"}
-        
+
         title = ""
-        
+
         if viz_type == "indicator_surface":
             indicator_style = {"display": "block"}
             title = "Surface 3D d'indicateurs techniques"
@@ -641,9 +645,8 @@ def register_callbacks(app):
         elif viz_type == "trade_clusters":
             clusters_style = {"display": "block"}
             title = "Clusters 3D des transactions"
-        
-        return title, indicator_style, trajectory_style, clusters_style
 
+        return title, indicator_style, trajectory_style, clusters_style
 
     @app.callback(
         Output("viz3d-config-collapse", "is_open"),
@@ -653,11 +656,11 @@ def register_callbacks(app):
     def toggle_viz3d_config(n_clicks, is_open):
         """
         Ouvre/ferme le panneau de configuration des visualisations 3D.
-        
+
         Args:
             n_clicks: Nombre de clics sur le bouton
             is_open: État actuel du panneau (ouvert/fermé)
-            
+
         Returns:
             Nouvel état du panneau
         """
@@ -665,20 +668,21 @@ def register_callbacks(app):
             return not is_open
         return is_open
 
-
     @app.callback(
-        [Output("viz3d-x-axis", "options"), 
-         Output("viz3d-y-axis", "options"), 
-         Output("viz3d-z-axis", "options")],
+        [
+            Output("viz3d-x-axis", "options"),
+            Output("viz3d-y-axis", "options"),
+            Output("viz3d-z-axis", "options"),
+        ],
         [Input("shared-data", "data")],
     )
     def update_viz3d_axis_options(shared_data):
         """
         Met à jour les options des axes pour les visualisations 3D.
-        
+
         Args:
             shared_data: Données partagées entre les composants
-            
+
         Returns:
             Options pour les dropdowns des axes
         """
@@ -691,19 +695,21 @@ def register_callbacks(app):
                 {"label": "Price", "value": "close"},
             ]
             return default_options, default_options, default_options
-        
+
         # Charger les données
         market_data = data_loader.get_market_data()
-        
+
         # Créer les options pour les axes
         if market_data is not None and not market_data.empty:
             # Sélectionner les colonnes numériques
-            numeric_cols = market_data.select_dtypes(include=['float64', 'int64']).columns
-            
+            numeric_cols = market_data.select_dtypes(
+                include=["float64", "int64"]
+            ).columns
+
             # Créer les options
             options = [{"label": col, "value": col} for col in numeric_cols]
             return options, options, options
-        
+
         # Valeurs par défaut si pas de données
         default_options = [
             {"label": "RSI", "value": "rsi"},
@@ -713,10 +719,8 @@ def register_callbacks(app):
         ]
         return default_options, default_options, default_options
 
-
     @app.callback(
-        [Output("viz3d-graph", "figure"), 
-         Output("viz3d-explanation", "children")],
+        [Output("viz3d-graph", "figure"), Output("viz3d-explanation", "children")],
         [
             Input("viz3d-type", "value"),
             Input("viz3d-x-axis", "value"),
@@ -730,12 +734,19 @@ def register_callbacks(app):
         [State("shared-data", "data")],
     )
     def update_viz3d_graph(
-        viz_type, x_axis, y_axis, z_axis, window, n_clusters, 
-        start_date, end_date, shared_data
+        viz_type,
+        x_axis,
+        y_axis,
+        z_axis,
+        window,
+        n_clusters,
+        start_date,
+        end_date,
+        shared_data,
     ):
         """
         Met à jour le graphique 3D en fonction des paramètres sélectionnés.
-        
+
         Args:
             viz_type: Type de visualisation
             x_axis, y_axis, z_axis: Axes sélectionnés
@@ -743,7 +754,7 @@ def register_callbacks(app):
             n_clusters: Nombre de clusters pour le clustering
             start_date, end_date: Période sélectionnée
             shared_data: Données partagées
-            
+
         Returns:
             Figure Plotly et explication de la visualisation
         """
@@ -754,70 +765,79 @@ def register_callbacks(app):
                 title="Sélectionnez un type de visualisation",
                 xaxis=dict(showgrid=False, showticklabels=False),
                 yaxis=dict(showgrid=False, showticklabels=False),
-                template="plotly_dark"
+                template="plotly_dark",
             )
             empty_fig.add_annotation(
                 text="Utilisez le menu ci-dessus pour sélectionner un type de visualisation",
                 showarrow=False,
-                font=dict(size=14)
+                font=dict(size=14),
             )
             return empty_fig, "Sélectionnez un type de visualisation pour commencer."
-        
+
         # Récupérer les données
         try:
             # Utiliser get_market_data_for_visualization pour de meilleures performances
             market_data = data_loader.get_market_data_for_visualization()
             trades_data = data_loader.get_trades_data()
-            
-            print(f"Chargement des données: market_data shape={market_data.shape if market_data is not None else 'None'}, trades_data shape={trades_data.shape if trades_data is not None else 'None'}")
-            
+
+            print(
+                f"Chargement des données: market_data shape={market_data.shape if market_data is not None else 'None'}, trades_data shape={trades_data.shape if trades_data is not None else 'None'}"
+            )
+
             # Vérifier que les données ne sont pas vides
             if market_data is None or market_data.empty:
                 print("Erreur: Market data est vide ou None")
                 empty_fig = go.Figure()
                 empty_fig.update_layout(
-                    title="Aucune donnée de marché disponible",
-                    template="plotly_dark"
+                    title="Aucune donnée de marché disponible", template="plotly_dark"
                 )
                 empty_fig.add_annotation(
                     text="Aucune donnée de marché disponible. Veuillez vérifier la connexion aux données.",
                     showarrow=False,
-                    font=dict(size=14)
+                    font=dict(size=14),
                 )
-                return empty_fig, "Aucune donnée de marché disponible pour la visualisation. Vérifiez le chargement des données."
-            
-            if (trades_data is None or trades_data.empty) and viz_type == "trade_clusters":
+                return (
+                    empty_fig,
+                    "Aucune donnée de marché disponible pour la visualisation. Vérifiez le chargement des données.",
+                )
+
+            if (
+                trades_data is None or trades_data.empty
+            ) and viz_type == "trade_clusters":
                 print("Erreur: Trades data est vide ou None pour le clustering")
                 empty_fig = go.Figure()
                 empty_fig.update_layout(
                     title="Aucune donnée de transaction disponible",
-                    template="plotly_dark"
+                    template="plotly_dark",
                 )
                 empty_fig.add_annotation(
                     text="Aucune donnée de transaction disponible pour le clustering.",
                     showarrow=False,
-                    font=dict(size=14)
+                    font=dict(size=14),
                 )
-                return empty_fig, "Aucune donnée de transaction disponible pour la visualisation de clusters."
-            
+                return (
+                    empty_fig,
+                    "Aucune donnée de transaction disponible pour la visualisation de clusters.",
+                )
+
             # Filtrer par date si nécessaire
             if start_date and end_date:
                 try:
-                    if 'timestamp' in market_data.columns:
+                    if "timestamp" in market_data.columns:
                         market_data = market_data[
-                            (market_data['timestamp'] >= pd.to_datetime(start_date)) & 
-                            (market_data['timestamp'] <= pd.to_datetime(end_date))
+                            (market_data["timestamp"] >= pd.to_datetime(start_date))
+                            & (market_data["timestamp"] <= pd.to_datetime(end_date))
                         ]
-                    elif 'date' in market_data.columns:
+                    elif "date" in market_data.columns:
                         market_data = market_data[
-                            (market_data['date'] >= pd.to_datetime(start_date)) & 
-                            (market_data['date'] <= pd.to_datetime(end_date))
+                            (market_data["date"] >= pd.to_datetime(start_date))
+                            & (market_data["date"] <= pd.to_datetime(end_date))
                         ]
-                    
-                    if trades_data is not None and 'entry_time' in trades_data.columns:
+
+                    if trades_data is not None and "entry_time" in trades_data.columns:
                         trades_data = trades_data[
-                            (trades_data['entry_time'] >= pd.to_datetime(start_date)) & 
-                            (trades_data['entry_time'] <= pd.to_datetime(end_date))
+                            (trades_data["entry_time"] >= pd.to_datetime(start_date))
+                            & (trades_data["entry_time"] <= pd.to_datetime(end_date))
                         ]
                 except Exception as date_filter_error:
                     print(f"Erreur lors du filtrage par date: {str(date_filter_error)}")
@@ -825,186 +845,254 @@ def register_callbacks(app):
             print(f"Erreur lors du chargement des données: {str(e)}")
             error_fig = go.Figure()
             error_fig.update_layout(
-                title=f"Erreur lors du chargement des données",
-                template="plotly_dark"
+                title=f"Erreur lors du chargement des données", template="plotly_dark"
             )
             error_fig.add_annotation(
-                text=str(e),
-                showarrow=False,
-                font=dict(size=14, color="red")
+                text=str(e), showarrow=False, font=dict(size=14, color="red")
             )
             return error_fig, f"Erreur: {str(e)}"
-        
+
         # Créer la visualisation en fonction du type
         explanation = ""
-        
+
         try:
             if viz_type == "indicator_surface":
                 # Vérifier les paramètres nécessaires
                 if not all([x_axis, y_axis, z_axis]):
                     empty_fig = go.Figure()
                     empty_fig.update_layout(
-                        title="Paramètres incomplets",
-                        template="plotly_dark"
+                        title="Paramètres incomplets", template="plotly_dark"
                     )
                     empty_fig.add_annotation(
                         text="Veuillez sélectionner les axes X, Y et Z pour la surface 3D",
                         showarrow=False,
-                        font=dict(size=14)
+                        font=dict(size=14),
                     )
-                    return empty_fig, "Veuillez sélectionner les axes X, Y et Z pour la surface 3D."
-                
+                    return (
+                        empty_fig,
+                        "Veuillez sélectionner les axes X, Y et Z pour la surface 3D.",
+                    )
+
                 # Vérifier que les colonnes existent
                 missing_cols = []
                 for col, axis_name in zip([x_axis, y_axis, z_axis], ["X", "Y", "Z"]):
                     if col not in market_data.columns:
                         missing_cols.append(f"{axis_name}:{col}")
-                
+
                 if missing_cols:
                     error_fig = go.Figure()
                     error_fig.update_layout(
                         title=f"Colonnes manquantes: {', '.join(missing_cols)}",
-                        template="plotly_dark"
+                        template="plotly_dark",
                     )
                     error_fig.add_annotation(
                         text=f"Les colonnes suivantes n'existent pas dans les données: {', '.join(missing_cols)}",
                         showarrow=False,
-                        font=dict(size=14, color="red")
+                        font=dict(size=14, color="red"),
                     )
-                    return error_fig, f"Erreur: Colonnes manquantes dans les données: {', '.join(missing_cols)}"
-                
+                    return (
+                        error_fig,
+                        f"Erreur: Colonnes manquantes dans les données: {', '.join(missing_cols)}",
+                    )
+
                 # Vérifier les types de données
                 for col in [x_axis, y_axis, z_axis]:
                     if not pd.api.types.is_numeric_dtype(market_data[col]):
-                        market_data[col] = pd.to_numeric(market_data[col], errors='coerce')
-                
-                print(f"Création de surface d'indicateurs avec axes: X={x_axis}, Y={y_axis}, Z={z_axis}")
+                        market_data[col] = pd.to_numeric(
+                            market_data[col], errors="coerce"
+                        )
+
+                print(
+                    f"Création de surface d'indicateurs avec axes: X={x_axis}, Y={y_axis}, Z={z_axis}"
+                )
                 fig = visualizer_3d.create_multi_indicator_surface(
                     market_data, x_axis, y_axis, z_axis
                 )
-                
-                explanation = html.Div([
-                    html.P([
-                        "Cette visualisation montre la relation entre trois indicateurs techniques sous forme d'une surface 3D. ",
-                        "Les axes X et Y représentent deux indicateurs, tandis que la hauteur (Z) montre un troisième indicateur. ",
-                        "Les couleurs indiquent les valeurs du troisième indicateur, du plus bas (bleu) au plus élevé (jaune)."
-                    ]),
-                    html.P([
-                        "Interprétation: ",
-                        html.Ul([
-                            html.Li("Les pics montrent où le troisième indicateur atteint ses valeurs maximales"),
-                            html.Li("Les vallées indiquent les valeurs minimales"),
-                            html.Li("Les plateaux suggèrent des zones de stabilité"),
-                            html.Li("Les pentes abruptes révèlent des changements rapides"),
-                        ])
-                    ]),
-                    html.P("Utilisez la souris pour faire pivoter la visualisation et explorer les différentes perspectives.")
-                ])
-                
+
+                explanation = html.Div(
+                    [
+                        html.P(
+                            [
+                                "Cette visualisation montre la relation entre trois indicateurs techniques sous forme d'une surface 3D. ",
+                                "Les axes X et Y représentent deux indicateurs, tandis que la hauteur (Z) montre un troisième indicateur. ",
+                                "Les couleurs indiquent les valeurs du troisième indicateur, du plus bas (bleu) au plus élevé (jaune).",
+                            ]
+                        ),
+                        html.P(
+                            [
+                                "Interprétation: ",
+                                html.Ul(
+                                    [
+                                        html.Li(
+                                            "Les pics montrent où le troisième indicateur atteint ses valeurs maximales"
+                                        ),
+                                        html.Li(
+                                            "Les vallées indiquent les valeurs minimales"
+                                        ),
+                                        html.Li(
+                                            "Les plateaux suggèrent des zones de stabilité"
+                                        ),
+                                        html.Li(
+                                            "Les pentes abruptes révèlent des changements rapides"
+                                        ),
+                                    ]
+                                ),
+                            ]
+                        ),
+                        html.P(
+                            "Utilisez la souris pour faire pivoter la visualisation et explorer les différentes perspectives."
+                        ),
+                    ]
+                )
+
             elif viz_type == "portfolio_trajectory":
                 window = window or 30  # Valeur par défaut si None
-                
+
                 print(f"Création de trajectoire de portefeuille avec fenêtre: {window}")
                 fig = visualizer_3d.create_portfolio_trajectory(
                     market_data, window=window, n_components=3
                 )
-                
-                explanation = html.Div([
-                    html.P([
-                        "Cette visualisation montre la trajectoire 3D du portefeuille dans l'espace des caractéristiques au fil du temps. ",
-                        "Une analyse en composantes principales (PCA) a été utilisée pour réduire la dimensionnalité des données ",
-                        "et représenter visuellement l'évolution du marché et du portefeuille."
-                    ]),
-                    html.P([
-                        "Interprétation: ",
-                        html.Ul([
-                            html.Li("Chaque point représente un moment dans le temps"),
-                            html.Li("La ligne connecte les points chronologiquement"),
-                            html.Li("Les couleurs évoluent du début (violet) à la fin (jaune) de la période"),
-                            html.Li("Les regroupements de points indiquent des périodes de stabilité"),
-                            html.Li("Les boucles peuvent suggérer des cycles de marché"),
-                        ])
-                    ]),
-                    html.P([
-                        f"PC1, PC2 et PC3 sont les trois composantes principales qui expliquent ",
-                        f"le plus de variance dans les données multidimensionnelles."
-                    ])
-                ])
-                
+
+                explanation = html.Div(
+                    [
+                        html.P(
+                            [
+                                "Cette visualisation montre la trajectoire 3D du portefeuille dans l'espace des caractéristiques au fil du temps. ",
+                                "Une analyse en composantes principales (PCA) a été utilisée pour réduire la dimensionnalité des données ",
+                                "et représenter visuellement l'évolution du marché et du portefeuille.",
+                            ]
+                        ),
+                        html.P(
+                            [
+                                "Interprétation: ",
+                                html.Ul(
+                                    [
+                                        html.Li(
+                                            "Chaque point représente un moment dans le temps"
+                                        ),
+                                        html.Li(
+                                            "La ligne connecte les points chronologiquement"
+                                        ),
+                                        html.Li(
+                                            "Les couleurs évoluent du début (violet) à la fin (jaune) de la période"
+                                        ),
+                                        html.Li(
+                                            "Les regroupements de points indiquent des périodes de stabilité"
+                                        ),
+                                        html.Li(
+                                            "Les boucles peuvent suggérer des cycles de marché"
+                                        ),
+                                    ]
+                                ),
+                            ]
+                        ),
+                        html.P(
+                            [
+                                f"PC1, PC2 et PC3 sont les trois composantes principales qui expliquent ",
+                                f"le plus de variance dans les données multidimensionnelles.",
+                            ]
+                        ),
+                    ]
+                )
+
             elif viz_type == "trade_clusters":
                 if trades_data is None or trades_data.empty:
                     empty_fig = go.Figure()
                     empty_fig.update_layout(
                         title="Aucune donnée de transaction disponible",
-                        template="plotly_dark"
+                        template="plotly_dark",
                     )
                     empty_fig.add_annotation(
                         text="Données de transactions insuffisantes pour le clustering.",
                         showarrow=False,
-                        font=dict(size=14)
+                        font=dict(size=14),
                     )
-                    return empty_fig, "Aucune donnée de transaction disponible pour l'analyse de clusters."
-                
+                    return (
+                        empty_fig,
+                        "Aucune donnée de transaction disponible pour l'analyse de clusters.",
+                    )
+
                 n_clusters = n_clusters or 5  # Valeur par défaut si None
-                
+
                 print(f"Création de clusters de trades avec {n_clusters} clusters")
                 fig = visualizer_3d.create_trade_clusters_3d(
                     trades_data, n_clusters=n_clusters
                 )
-                
-                explanation = html.Div([
-                    html.P([
-                        "Cette visualisation regroupe les transactions similaires en clusters dans un espace 3D. ",
-                        f"Les {n_clusters} clusters ont été créés avec l'algorithme K-means en utilisant ",
-                        "le pourcentage de profit, la durée de détention et la volatilité à l'entrée comme dimensions."
-                    ]),
-                    html.P([
-                        "Interprétation: ",
-                        html.Ul([
-                            html.Li("Chaque point représente une transaction"),
-                            html.Li("Les points de même couleur appartiennent au même cluster"),
-                            html.Li("Les clusters isolés indiquent des types de trades distincts"),
-                            html.Li("Les clusters denses suggèrent des modèles récurrents"),
-                            html.Li("Les valeurs aberrantes peuvent représenter des opportunités ou des risques exceptionnels"),
-                        ])
-                    ]),
-                    html.P("Utilisez cette visualisation pour identifier les types de transactions qui ont tendance à être profitables.")
-                ])
-            
+
+                explanation = html.Div(
+                    [
+                        html.P(
+                            [
+                                "Cette visualisation regroupe les transactions similaires en clusters dans un espace 3D. ",
+                                f"Les {n_clusters} clusters ont été créés avec l'algorithme K-means en utilisant ",
+                                "le pourcentage de profit, la durée de détention et la volatilité à l'entrée comme dimensions.",
+                            ]
+                        ),
+                        html.P(
+                            [
+                                "Interprétation: ",
+                                html.Ul(
+                                    [
+                                        html.Li(
+                                            "Chaque point représente une transaction"
+                                        ),
+                                        html.Li(
+                                            "Les points de même couleur appartiennent au même cluster"
+                                        ),
+                                        html.Li(
+                                            "Les clusters isolés indiquent des types de trades distincts"
+                                        ),
+                                        html.Li(
+                                            "Les clusters denses suggèrent des modèles récurrents"
+                                        ),
+                                        html.Li(
+                                            "Les valeurs aberrantes peuvent représenter des opportunités ou des risques exceptionnels"
+                                        ),
+                                    ]
+                                ),
+                            ]
+                        ),
+                        html.P(
+                            "Utilisez cette visualisation pour identifier les types de transactions qui ont tendance à être profitables."
+                        ),
+                    ]
+                )
+
             else:
                 error_fig = go.Figure()
                 error_fig.update_layout(
                     title=f"Type de visualisation non reconnu: {viz_type}",
-                    template="plotly_dark"
+                    template="plotly_dark",
                 )
                 error_fig.add_annotation(
                     text=f"Le type de visualisation '{viz_type}' n'est pas supporté.",
                     showarrow=False,
-                    font=dict(size=14, color="red")
+                    font=dict(size=14, color="red"),
                 )
                 return error_fig, f"Type de visualisation non reconnu: {viz_type}"
-                
+
         except Exception as e:
             import traceback
+
             traceback_str = traceback.format_exc()
             print(f"Erreur lors de la création de la visualisation: {str(e)}")
             print(f"Traceback: {traceback_str}")
-            
+
             error_fig = go.Figure()
             error_fig.update_layout(
                 title=f"Erreur lors de la création de la visualisation",
-                template="plotly_dark"
+                template="plotly_dark",
             )
             error_fig.add_annotation(
-                text=str(e),
-                showarrow=False,
-                font=dict(size=12, color="red")
+                text=str(e), showarrow=False, font=dict(size=12, color="red")
             )
-            return error_fig, f"Erreur lors de la création de la visualisation: {str(e)}"
-        
+            return (
+                error_fig,
+                f"Erreur lors de la création de la visualisation: {str(e)}",
+            )
+
         print(f"Visualisation {viz_type} créée avec succès")
         return fig, explanation
-
 
     # ---------- ANALYSE POST-MORTEM CALLBACKS ----------
 
@@ -1015,21 +1103,20 @@ def register_callbacks(app):
     def update_postmortem_title(analysis_type):
         """
         Met à jour le titre de l'analyse post-mortem.
-        
+
         Args:
             analysis_type: Type d'analyse sélectionné
-            
+
         Returns:
             Titre de l'analyse
         """
         titles = {
             "performance_summary": "Résumé des performances des transactions",
             "win_loss_analysis": "Analyse des gains et pertes",
-            "trade_attribution": "Attribution de la performance des transactions"
+            "trade_attribution": "Attribution de la performance des transactions",
         }
-        
-        return titles.get(analysis_type, "Analyse des transactions")
 
+        return titles.get(analysis_type, "Analyse des transactions")
 
     @app.callback(
         Output("postmortem-stats", "children"),
@@ -1047,135 +1134,186 @@ def register_callbacks(app):
     ):
         """
         Met à jour les statistiques de l'analyse post-mortem.
-        
+
         Args:
             analysis_type: Type d'analyse
             asset: Actif sélectionné
             direction: Direction des trades
             result: Résultat des trades
             start_date, end_date: Période sélectionnée
-            
+
         Returns:
             Contenu HTML avec les statistiques
         """
         # Récupérer les données
         trades_data = data_loader.get_trades_data()
-        
+
         # Appliquer les filtres
         trades_data = filter_trades(
             trades_data, asset, direction, result, start_date, end_date
         )
-        
+
         if trades_data.empty:
-            return html.Div("Aucune transaction ne correspond aux critères sélectionnés.")
-        
+            return html.Div(
+                "Aucune transaction ne correspond aux critères sélectionnés."
+            )
+
         # Calculer les statistiques
         total_trades = len(trades_data)
-        winning_trades = trades_data[trades_data['profit'] > 0]
-        losing_trades = trades_data[trades_data['profit'] <= 0]
-        
-        win_rate = len(winning_trades) / total_trades if total_trades > 0 else 0
-        
-        total_profit = trades_data['profit'].sum()
-        avg_profit = trades_data['profit'].mean()
-        
-        avg_win = winning_trades['profit'].mean() if len(winning_trades) > 0 else 0
-        avg_loss = losing_trades['profit'].mean() if len(losing_trades) > 0 else 0
-        
-        profit_factor = abs(winning_trades['profit'].sum() / losing_trades['profit'].sum()) if losing_trades['profit'].sum() != 0 else float('inf')
-        
-        # Créer les statistiques au format HTML
-        return html.Div([
-            dbc.Row([
-                dbc.Col([
-                    html.Div([
-                        html.H4(f"{total_trades}"),
-                        html.P("Total des transactions")
-                    ], className="text-center")
-                ], width=3),
-                dbc.Col([
-                    html.Div([
-                        html.H4(f"{win_rate:.2%}"),
-                        html.P("Taux de réussite")
-                    ], className="text-center")
-                ], width=3),
-                dbc.Col([
-                    html.Div([
-                        html.H4(f"{total_profit:.2f}"),
-                        html.P("Profit total")
-                    ], className="text-center")
-                ], width=3),
-                dbc.Col([
-                    html.Div([
-                        html.H4(f"{profit_factor:.2f}"),
-                        html.P("Facteur de profit")
-                    ], className="text-center")
-                ], width=3),
-            ]),
-            dbc.Row([
-                dbc.Col([
-                    html.Div([
-                        html.H4(f"{avg_profit:.2f}"),
-                        html.P("Profit moyen")
-                    ], className="text-center")
-                ], width=4),
-                dbc.Col([
-                    html.Div([
-                        html.H4(f"{avg_win:.2f}"),
-                        html.P("Gain moyen")
-                    ], className="text-center", style={"color": "green"})
-                ], width=4),
-                dbc.Col([
-                    html.Div([
-                        html.H4(f"{avg_loss:.2f}"),
-                        html.P("Perte moyenne")
-                    ], className="text-center", style={"color": "red"})
-                ], width=4),
-            ]),
-        ])
+        winning_trades = trades_data[trades_data["profit"] > 0]
+        losing_trades = trades_data[trades_data["profit"] <= 0]
 
+        win_rate = len(winning_trades) / total_trades if total_trades > 0 else 0
+
+        total_profit = trades_data["profit"].sum()
+        avg_profit = trades_data["profit"].mean()
+
+        avg_win = winning_trades["profit"].mean() if len(winning_trades) > 0 else 0
+        avg_loss = losing_trades["profit"].mean() if len(losing_trades) > 0 else 0
+
+        profit_factor = (
+            abs(winning_trades["profit"].sum() / losing_trades["profit"].sum())
+            if losing_trades["profit"].sum() != 0
+            else float("inf")
+        )
+
+        # Créer les statistiques au format HTML
+        return html.Div(
+            [
+                dbc.Row(
+                    [
+                        dbc.Col(
+                            [
+                                html.Div(
+                                    [
+                                        html.H4(f"{total_trades}"),
+                                        html.P("Total des transactions"),
+                                    ],
+                                    className="text-center",
+                                )
+                            ],
+                            width=3,
+                        ),
+                        dbc.Col(
+                            [
+                                html.Div(
+                                    [
+                                        html.H4(f"{win_rate:.2%}"),
+                                        html.P("Taux de réussite"),
+                                    ],
+                                    className="text-center",
+                                )
+                            ],
+                            width=3,
+                        ),
+                        dbc.Col(
+                            [
+                                html.Div(
+                                    [
+                                        html.H4(f"{total_profit:.2f}"),
+                                        html.P("Profit total"),
+                                    ],
+                                    className="text-center",
+                                )
+                            ],
+                            width=3,
+                        ),
+                        dbc.Col(
+                            [
+                                html.Div(
+                                    [
+                                        html.H4(f"{profit_factor:.2f}"),
+                                        html.P("Facteur de profit"),
+                                    ],
+                                    className="text-center",
+                                )
+                            ],
+                            width=3,
+                        ),
+                    ]
+                ),
+                dbc.Row(
+                    [
+                        dbc.Col(
+                            [
+                                html.Div(
+                                    [
+                                        html.H4(f"{avg_profit:.2f}"),
+                                        html.P("Profit moyen"),
+                                    ],
+                                    className="text-center",
+                                )
+                            ],
+                            width=4,
+                        ),
+                        dbc.Col(
+                            [
+                                html.Div(
+                                    [html.H4(f"{avg_win:.2f}"), html.P("Gain moyen")],
+                                    className="text-center",
+                                    style={"color": "green"},
+                                )
+                            ],
+                            width=4,
+                        ),
+                        dbc.Col(
+                            [
+                                html.Div(
+                                    [
+                                        html.H4(f"{avg_loss:.2f}"),
+                                        html.P("Perte moyenne"),
+                                    ],
+                                    className="text-center",
+                                    style={"color": "red"},
+                                )
+                            ],
+                            width=4,
+                        ),
+                    ]
+                ),
+            ]
+        )
 
     def filter_trades(trades_df, asset, direction, result, start_date, end_date):
         """
         Filtre les transactions selon les critères spécifiés.
-        
+
         Args:
             trades_df: DataFrame de transactions
             asset: Actif sélectionné
             direction: Direction des trades
             result: Résultat des trades
             start_date, end_date: Période sélectionnée
-            
+
         Returns:
             DataFrame filtré
         """
         # Créer une copie pour éviter de modifier l'original
         filtered_df = trades_df.copy()
-        
-        # Filtrer par date
-        if start_date and end_date and 'entry_time' in filtered_df.columns:
-            filtered_df = filtered_df[
-                (filtered_df['entry_time'] >= start_date) & 
-                (filtered_df['entry_time'] <= end_date)
-            ]
-        
-        # Filtrer par actif
-        if asset and asset != "all" and 'symbol' in filtered_df.columns:
-            filtered_df = filtered_df[filtered_df['symbol'] == asset]
-        
-        # Filtrer par direction
-        if direction and direction != "all" and 'direction' in filtered_df.columns:
-            filtered_df = filtered_df[filtered_df['direction'] == direction]
-        
-        # Filtrer par résultat
-        if result and result != "all" and 'profit' in filtered_df.columns:
-            if result == "win":
-                filtered_df = filtered_df[filtered_df['profit'] > 0]
-            elif result == "loss":
-                filtered_df = filtered_df[filtered_df['profit'] <= 0]
-        
-        return filtered_df
 
+        # Filtrer par date
+        if start_date and end_date and "entry_time" in filtered_df.columns:
+            filtered_df = filtered_df[
+                (filtered_df["entry_time"] >= start_date)
+                & (filtered_df["entry_time"] <= end_date)
+            ]
+
+        # Filtrer par actif
+        if asset and asset != "all" and "symbol" in filtered_df.columns:
+            filtered_df = filtered_df[filtered_df["symbol"] == asset]
+
+        # Filtrer par direction
+        if direction and direction != "all" and "direction" in filtered_df.columns:
+            filtered_df = filtered_df[filtered_df["direction"] == direction]
+
+        # Filtrer par résultat
+        if result and result != "all" and "profit" in filtered_df.columns:
+            if result == "win":
+                filtered_df = filtered_df[filtered_df["profit"] > 0]
+            elif result == "loss":
+                filtered_df = filtered_df[filtered_df["profit"] <= 0]
+
+        return filtered_df
 
     @app.callback(
         Output("postmortem-graph", "figure"),
@@ -1193,14 +1331,14 @@ def register_callbacks(app):
     ):
         """
         Met à jour le graphique de l'analyse post-mortem.
-        
+
         Args:
             analysis_type: Type d'analyse
             asset: Actif sélectionné
             direction: Direction des trades
             result: Résultat des trades
             start_date, end_date: Période sélectionnée
-            
+
         Returns:
             Figure Plotly pour l'analyse
         """
@@ -1211,19 +1349,19 @@ def register_callbacks(app):
                 title="Sélectionnez un type d'analyse",
                 xaxis=dict(showgrid=False, showticklabels=False),
                 yaxis=dict(showgrid=False, showticklabels=False),
-                template="plotly_dark"
+                template="plotly_dark",
             )
             return empty_fig
-        
+
         # Récupérer les données
         try:
             trades_data = data_loader.get_trades_data()
-            
+
             # Appliquer les filtres
             filtered_trades = filter_trades(
                 trades_data, asset, direction, result, start_date, end_date
             )
-            
+
             if filtered_trades.empty:
                 # Retourner un graphique vide avec un message
                 empty_fig = go.Figure()
@@ -1231,40 +1369,42 @@ def register_callbacks(app):
                     title="Aucune transaction ne correspond aux critères sélectionnés",
                     xaxis=dict(showgrid=False, showticklabels=False),
                     yaxis=dict(showgrid=False, showticklabels=False),
-                    template="plotly_dark"
+                    template="plotly_dark",
                 )
                 empty_fig.add_annotation(
                     text="Modifiez les filtres pour voir des résultats",
                     showarrow=False,
-                    font=dict(size=20)
+                    font=dict(size=20),
                 )
                 return empty_fig
-            
+
             # Récupérer les données de marché si nécessaire pour l'attribution
             market_data = None
             if analysis_type == "trade_attribution":
                 market_data = data_loader.get_market_data_for_visualization()
-        
+
         except Exception as e:
             print(f"Erreur lors du chargement des données: {str(e)}")
             error_fig = go.Figure()
             error_fig.update_layout(
                 title=f"Erreur lors du chargement des données: {str(e)}",
-                template="plotly_dark"
+                template="plotly_dark",
             )
             return error_fig
-        
+
         # Créer le graphique en fonction du type d'analyse
         try:
             if analysis_type == "performance_summary":
                 return trade_analyzer.create_performance_summary(filtered_trades)
-            
+
             elif analysis_type == "win_loss_analysis":
                 return trade_analyzer.create_win_loss_analysis(filtered_trades)
-            
+
             elif analysis_type == "trade_attribution":
-                return trade_analyzer.create_trade_attribution(filtered_trades, market_data)
-            
+                return trade_analyzer.create_trade_attribution(
+                    filtered_trades, market_data
+                )
+
             else:
                 # Type d'analyse non reconnu
                 error_fig = go.Figure()
@@ -1272,10 +1412,10 @@ def register_callbacks(app):
                     title="Type d'analyse non reconnu",
                     xaxis=dict(showgrid=False, showticklabels=False),
                     yaxis=dict(showgrid=False, showticklabels=False),
-                    template="plotly_dark"
+                    template="plotly_dark",
                 )
                 return error_fig
-            
+
         except Exception as e:
             print(f"Erreur lors de la création du graphique: {str(e)}")
             error_fig = go.Figure()
@@ -1283,15 +1423,12 @@ def register_callbacks(app):
                 title=f"Erreur lors de la création du graphique",
                 xaxis=dict(showgrid=False, showticklabels=False),
                 yaxis=dict(showgrid=False, showticklabels=False),
-                template="plotly_dark"
+                template="plotly_dark",
             )
             error_fig.add_annotation(
-                text=str(e),
-                showarrow=False,
-                font=dict(size=12, color="red")
+                text=str(e), showarrow=False, font=dict(size=12, color="red")
             )
             return error_fig
-
 
     @app.callback(
         Output("postmortem-insights", "children"),
@@ -1304,133 +1441,184 @@ def register_callbacks(app):
     def update_postmortem_insights(analysis_type, figure, stats):
         """
         Met à jour les insights et recommandations de l'analyse post-mortem.
-        
+
         Args:
             analysis_type: Type d'analyse
             figure: Figure générée
             stats: Statistiques calculées
-            
+
         Returns:
             Contenu HTML avec les insights
         """
         # Récupérer les données
         trades_data = data_loader.get_trades_data()
-        
+
         if trades_data.empty:
             return html.Div("Aucune donnée disponible pour générer des insights.")
-        
+
         # Générer des insights en fonction du type d'analyse
         insights = []
-        
+
         if analysis_type == "performance_summary":
             # Analyser la distribution des profits
-            winning_trades = trades_data[trades_data['profit'] > 0]
-            win_rate = len(winning_trades) / len(trades_data) if len(trades_data) > 0 else 0
-            
+            winning_trades = trades_data[trades_data["profit"] > 0]
+            win_rate = (
+                len(winning_trades) / len(trades_data) if len(trades_data) > 0 else 0
+            )
+
             if win_rate < 0.4:
-                insights.append(html.P([
-                    html.Strong("Taux de réussite faible: "),
-                    f"Votre taux de réussite est de {win_rate:.2%}, ce qui est relativement bas. ",
-                    "Considérez d'ajuster vos critères d'entrée et sortie, ou d'utiliser des stop-loss plus serrés."
-                ]))
-            
+                insights.append(
+                    html.P(
+                        [
+                            html.Strong("Taux de réussite faible: "),
+                            f"Votre taux de réussite est de {win_rate:.2%}, ce qui est relativement bas. ",
+                            "Considérez d'ajuster vos critères d'entrée et sortie, ou d'utiliser des stop-loss plus serrés.",
+                        ]
+                    )
+                )
+
             # Analyser la performance par actif
-            if 'symbol' in trades_data.columns:
-                asset_perf = trades_data.groupby('symbol', observed=False)['profit'].sum()
+            if "symbol" in trades_data.columns:
+                asset_perf = trades_data.groupby("symbol", observed=False)[
+                    "profit"
+                ].sum()
                 best_asset = asset_perf.idxmax() if not asset_perf.empty else None
                 worst_asset = asset_perf.idxmin() if not asset_perf.empty else None
-                
+
                 if best_asset and worst_asset:
-                    insights.append(html.P([
-                        html.Strong("Performance par actif: "),
-                        f"{best_asset} a généré le plus de profits, tandis que {worst_asset} a causé le plus de pertes. ",
-                        "Envisagez d'allouer plus de capital aux actifs les plus performants."
-                    ]))
-            
+                    insights.append(
+                        html.P(
+                            [
+                                html.Strong("Performance par actif: "),
+                                f"{best_asset} a généré le plus de profits, tandis que {worst_asset} a causé le plus de pertes. ",
+                                "Envisagez d'allouer plus de capital aux actifs les plus performants.",
+                            ]
+                        )
+                    )
+
             # Analyser la performance par jour
-            if 'entry_day' in trades_data.columns:
-                day_perf = trades_data.groupby('entry_day', observed=False)['profit'].mean()
+            if "entry_day" in trades_data.columns:
+                day_perf = trades_data.groupby("entry_day", observed=False)[
+                    "profit"
+                ].mean()
                 best_day = day_perf.idxmax() if not day_perf.empty else None
                 worst_day = day_perf.idxmin() if not day_perf.empty else None
-                
+
                 if best_day and worst_day:
-                    insights.append(html.P([
-                        html.Strong("Performance par jour: "),
-                        f"Les transactions ouvertes le {best_day} ont tendance à être plus profitables, ",
-                        f"tandis que celles du {worst_day} sont moins performantes. ",
-                        f"Considérez d'ajuster votre stratégie en fonction du jour de la semaine."
-                    ]))
-        
+                    insights.append(
+                        html.P(
+                            [
+                                html.Strong("Performance par jour: "),
+                                f"Les transactions ouvertes le {best_day} ont tendance à être plus profitables, ",
+                                f"tandis que celles du {worst_day} sont moins performantes. ",
+                                f"Considérez d'ajuster votre stratégie en fonction du jour de la semaine.",
+                            ]
+                        )
+                    )
+
         elif analysis_type == "win_loss_analysis":
             # Analyser le ratio gain/perte
-            winning_trades = trades_data[trades_data['profit'] > 0]
-            losing_trades = trades_data[trades_data['profit'] <= 0]
-            
-            avg_win = winning_trades['profit'].mean() if len(winning_trades) > 0 else 0
-            avg_loss = losing_trades['profit'].mean() if len(losing_trades) > 0 else 0
-            
-            win_loss_ratio = abs(avg_win / avg_loss) if avg_loss != 0 else float('inf')
-            
+            winning_trades = trades_data[trades_data["profit"] > 0]
+            losing_trades = trades_data[trades_data["profit"] <= 0]
+
+            avg_win = winning_trades["profit"].mean() if len(winning_trades) > 0 else 0
+            avg_loss = losing_trades["profit"].mean() if len(losing_trades) > 0 else 0
+
+            win_loss_ratio = abs(avg_win / avg_loss) if avg_loss != 0 else float("inf")
+
             if win_loss_ratio < 1.5:
-                insights.append(html.P([
-                    html.Strong("Ratio gain/perte insuffisant: "),
-                    f"Votre ratio moyen gain/perte est de {win_loss_ratio:.2f}, ce qui est relativement bas. ",
-                    "Pour être rentable avec votre taux de réussite actuel, visez un ratio d'au moins 2.0. ",
-                    "Considérez de laisser courir vos profits plus longtemps et de couper vos pertes plus tôt."
-                ]))
-            
+                insights.append(
+                    html.P(
+                        [
+                            html.Strong("Ratio gain/perte insuffisant: "),
+                            f"Votre ratio moyen gain/perte est de {win_loss_ratio:.2f}, ce qui est relativement bas. ",
+                            "Pour être rentable avec votre taux de réussite actuel, visez un ratio d'au moins 2.0. ",
+                            "Considérez de laisser courir vos profits plus longtemps et de couper vos pertes plus tôt.",
+                        ]
+                    )
+                )
+
             # Analyser les séries de trades
             if len(trades_data) >= 10:
-                insights.append(html.P([
-                    html.Strong("Séquences de trades: "),
-                    "Analysez les séquences de gains et pertes pour identifier d'éventuels biais psychologiques. ",
-                    "Après une série de pertes, vous pourriez être enclin à prendre trop de risques ou à éviter les opportunités valables."
-                ]))
-        
+                insights.append(
+                    html.P(
+                        [
+                            html.Strong("Séquences de trades: "),
+                            "Analysez les séquences de gains et pertes pour identifier d'éventuels biais psychologiques. ",
+                            "Après une série de pertes, vous pourriez être enclin à prendre trop de risques ou à éviter les opportunités valables.",
+                        ]
+                    )
+                )
+
         elif analysis_type == "trade_attribution":
             # Analyser les facteurs de performance
-            if 'holding_period' in trades_data.columns:
+            if "holding_period" in trades_data.columns:
                 # Corrélation entre durée et profit
-                corr = trades_data['holding_period'].corr(trades_data['profit'])
-                
+                corr = trades_data["holding_period"].corr(trades_data["profit"])
+
                 if abs(corr) > 0.3:
                     direction = "positive" if corr > 0 else "négative"
                     recommendation = "plus longtemps" if corr > 0 else "moins longtemps"
-                    
-                    insights.append(html.P([
-                        html.Strong("Impact de la durée: "),
-                        f"Il existe une corrélation {direction} ({corr:.2f}) entre la durée de détention et le profit. ",
-                        f"Considérez de conserver vos positions {recommendation} pour optimiser vos rendements."
-                    ]))
-            
+
+                    insights.append(
+                        html.P(
+                            [
+                                html.Strong("Impact de la durée: "),
+                                f"Il existe une corrélation {direction} ({corr:.2f}) entre la durée de détention et le profit. ",
+                                f"Considérez de conserver vos positions {recommendation} pour optimiser vos rendements.",
+                            ]
+                        )
+                    )
+
             # Analyser l'impact de la taille de position
-            if 'quantity' in trades_data.columns and 'profit_pct' in trades_data.columns:
-                corr = trades_data['quantity'].corr(trades_data['profit_pct'])
-                
+            if (
+                "quantity" in trades_data.columns
+                and "profit_pct" in trades_data.columns
+            ):
+                corr = trades_data["quantity"].corr(trades_data["profit_pct"])
+
                 if abs(corr) > 0.3:
                     direction = "positive" if corr > 0 else "négative"
                     recommendation = "plus grandes" if corr > 0 else "plus petites"
-                    
-                    insights.append(html.P([
-                        html.Strong("Impact de la taille: "),
-                        f"Il existe une corrélation {direction} ({corr:.2f}) entre la taille des positions et le profit en pourcentage. ",
-                        f"Envisagez d'utiliser des positions {recommendation} pour les prochaines transactions."
-                    ]))
-        
+
+                    insights.append(
+                        html.P(
+                            [
+                                html.Strong("Impact de la taille: "),
+                                f"Il existe une corrélation {direction} ({corr:.2f}) entre la taille des positions et le profit en pourcentage. ",
+                                f"Envisagez d'utiliser des positions {recommendation} pour les prochaines transactions.",
+                            ]
+                        )
+                    )
+
         # Si aucun insight n'a été généré
         if not insights:
-            insights.append(html.P("Pas assez de données pour générer des insights spécifiques."))
-        
+            insights.append(
+                html.P("Pas assez de données pour générer des insights spécifiques.")
+            )
+
         # Ajouter des recommandations générales
         insights.append(html.Hr())
         insights.append(html.H6("Recommandations générales:"))
-        insights.append(html.Ul([
-            html.Li("Tenez un journal de trading détaillé et analysez-le régulièrement"),
-            html.Li("Testez différentes heures d'entrée et de sortie pour optimiser vos résultats"),
-            html.Li("Ajustez votre taille de position en fonction de la volatilité de l'actif"),
-            html.Li("Développez un plan de trading clair et respectez-le à chaque transaction"),
-        ]))
-        
+        insights.append(
+            html.Ul(
+                [
+                    html.Li(
+                        "Tenez un journal de trading détaillé et analysez-le régulièrement"
+                    ),
+                    html.Li(
+                        "Testez différentes heures d'entrée et de sortie pour optimiser vos résultats"
+                    ),
+                    html.Li(
+                        "Ajustez votre taille de position en fonction de la volatilité de l'actif"
+                    ),
+                    html.Li(
+                        "Développez un plan de trading clair et respectez-le à chaque transaction"
+                    ),
+                ]
+            )
+        )
+
         return html.Div(insights)
 
 

@@ -1,0 +1,23 @@
+{
+  "checkpoint_id": "simple_model_model_20250510_030134",
+  "type": "model",
+  "timestamp": "2025-05-10T03:01:34.906585",
+  "version": "1.0",
+  "description": "Mod\u00e8le simple pour la d\u00e9monstration",
+  "metrics": {
+    "loss": 0.7153417468070984,
+    "accuracy": 0.47,
+    "epochs": 3,
+    "all_losses": [
+      0.7172610759735107,
+      0.7162917852401733,
+      0.7153417468070984
+    ],
+    "all_accuracies": [
+      0.47,
+      0.47,
+      0.47
+    ]
+  },
+  "custom_data": {}
+}
