@@ -229,7 +229,7 @@ Ce module contient l'implémentation d'un système de trading de cryptomonnaies 
       - Gestion des risques
 
 ### 6. **Optimisation bayésienne**
-  - [] **Optimisation bayésienne des hyperparamètres**
+  - [x] **Optimisation bayésienne des hyperparamètres**
     - Recherche efficace d'hyperparamètres
     - Adaptation dynamique
     - Prise en compte des incertitudes
