@@ -48,7 +48,7 @@ fastparquet>=2023.0.0
 accelerate>=0.24.0
 
 # Compression et traitement d'image
-zstandard>=0.20.0
+zstandard>=0.23.0
 opencv-python>=4.8.0
 opencv-python-headless>=4.8.0
 
@@ -81,6 +81,7 @@ beautifulsoup4>=4.12.3
 tweepy>=4.14.0
 praw>=7.7.1
 newsapi-python>=0.2.7
+jsonschema>=4.20.0
 
 # Traitement du langage naturel
 nltk>=3.8.1
