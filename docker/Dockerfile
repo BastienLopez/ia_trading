@@ -38,8 +38,17 @@ USER appuser
 # 7. Copier le code de l'application
 COPY --chown=appuser:appuser . .
 
+# 7b. Créer les répertoires de données et les liens symboliques
+RUN mkdir -p /app/ai_trading/info_retour/data \
+    /app/ai_trading/info_retour/logs \
+    /app/ai_trading/info_retour/models \
+    /app/ai_trading/info_retour/cache \
+    && ln -sfn /app/ai_trading/info_retour/data /app/data \
+    && ln -sfn /app/ai_trading/info_retour/logs /app/logs \
+    && ln -sfn /app/ai_trading/info_retour/models /app/models
+
 # 8. Déclarations volumes et ports
-VOLUME ["/app/data", "/app/logs", "/app/models"]
+VOLUME ["/app/ai_trading/info_retour/data", "/app/ai_trading/info_retour/logs", "/app/ai_trading/info_retour/models"]
 EXPOSE 5000 8000 8050 8501
 
 # 9. Vérification GPU (optionnelle, en ligne unique pour ne pas casser le parsing)

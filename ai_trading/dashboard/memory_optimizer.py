@@ -368,7 +368,7 @@ def get_global_df_pool() -> DataFramePool:
 
 
 # Configuration par défaut
-CACHE_DIR = os.path.join(os.path.dirname(__file__), "cache")
+CACHE_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "info_retour", "cache")
 
 def configure_cache_dir(path: str):
     """

@@ -10,7 +10,8 @@ class Config:
     
     # Chemins de fichiers
     BASE_DIR = os.path.dirname(__file__)
-    DATA_DIR = os.path.join(BASE_DIR, 'info_retour', 'data')
+    PROJECT_ROOT = Path(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    DATA_DIR = os.path.join(PROJECT_ROOT, 'ai_trading', 'info_retour', 'data')
     
     # S'assurer que le dossier existe
     os.makedirs(DATA_DIR, exist_ok=True)
@@ -73,7 +74,8 @@ class Config:
     }
 
 BASE_DIR = Path(__file__).parent.parent
-LOG_DIR = BASE_DIR / "web_app/logs"
+PROJECT_ROOT = Path(os.path.dirname(os.path.abspath(__file__))).parent
+LOG_DIR = PROJECT_ROOT / "ai_trading" / "info_retour" / "logs"
 
 # Création des dossiers nécessaires
 os.makedirs(LOG_DIR, exist_ok=True) 

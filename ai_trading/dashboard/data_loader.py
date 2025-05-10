@@ -43,7 +43,7 @@ class DataLoader:
         Args:
             data_path: Chemin vers le dossier contenant les données
         """
-        self.data_path = data_path or os.path.join("data", "dashboard")
+        self.data_path = data_path or os.path.join("ai_trading", "info_retour", "data", "dashboard")
         self._ensure_data_path_exists()
 
         # Cache pour les données
