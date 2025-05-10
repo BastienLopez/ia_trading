@@ -144,3 +144,11 @@ arch>=6.0.0
 # Ces packages ne sont pas installés automatiquement car ils dépendent de la configuration matérielle
 # torch-tensorrt  # Optimisation TensorRT pour PyTorch (s'installe séparément)
 # cupy-cuda11x  # Remplacer 11x par votre version CUDA (10.2, 11.x, 12.x)
+
+# Dépendances pour la collecte asynchrone
+aiohttp>=3.8.0
+redis>=4.0.0
+tenacity>=8.0.0
+pytest>=6.2.0
+pytest-asyncio>=0.16.0
+pytest-mock>=3.6.0
