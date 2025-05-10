@@ -72,8 +72,7 @@ onnx>=1.15.0
 onnxruntime>=1.16.0
 onnxruntime-gpu>=1.16.0  # Support GPU pour ONNX Runtime
 tf2onnx>=1.15.0
-hyperopt>=0.2.7
-bayesian-optimization>=1.4.3
+gym-trading==0.0.1
 
 # API et collecte de données
 requests>=2.31.0

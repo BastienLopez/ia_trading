@@ -235,43 +235,12 @@ Ce module contient l'implémentation d'un système de trading de cryptomonnaies 
       - Optimisation de portefeuille
       - Gestion des risques
 
-### 6. **Intégration plateforme réelle**
-  - [ ] Connexion avec exchanges
-  - [ ] Mode paper trading
-  - [ ] Système d'alerte et monitoring
+### 6. **Optimisation bayésienne**
   - [] **Optimisation bayésienne des hyperparamètres**
     - Recherche efficace d'hyperparamètres
     - Adaptation dynamique
     - Prise en compte des incertitudes
     - Optimisation multi-objectifs
-## 🧩 **Tâches transversales**
-
-  ### 1. Documentation
-  - [x] Doc du code avec exemples
-  - [x] Tutoriels
-  - [x] Documentation des API
-
-  ### 2. Tests
-  - [x] Tests unitaires
-  - [x] Tests d'intégration
-  - [x] Tests de performance
-
-  ### 3. Optimisation
-  - [x] Optimiser les performances de l'environnement
-  - [x] Réduction mémoire
-  - [x] Parallélisation des calculs
-
-  ### 4. Déploiement
-  - [x] Dockerisation
-  - [x] Journalisation avancée
-  - [x] Sauvegarde/reprise
-
-  ### 5. Stratégies d'apprentissage avancées
-  - [x] Imitation learning à partir de stratégies de référence
-  - [x] Transfer learning entre actifs/marchés
-  - [x] Meta-learning pour adaptation rapide
-  - [x] Reward shaping dynamique
-  - [x] Parallelization avec vectorized environments
 
 -----------------------------------------------------------------------------------------------------------------------
 
@@ -397,6 +366,11 @@ Ce module contient l'implémentation d'un système de trading de cryptomonnaies 
   - Gestion des pics
   - Optimisation des coûts
 
+### Phase 9: Integration plateforme réelles
+  - [ ] Connexion avec exchanges
+  - [ ] Mode paper trading
+  - [ ] Système d'alerte et monitoring
+  
 ## 🧩 **Tâches transversales**
 
   ### 1. Documentation
