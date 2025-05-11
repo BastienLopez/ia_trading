@@ -92,6 +92,14 @@ emoji>=2.8.0
 spacy>=3.7.0
 huggingface-hub>=0.20.0
 xformers>=0.0.23
+networkx>=3.1
+whois>=0.9.13
+peft>=0.5.0
+
+# Modèles pré-entraînés spécifiques
+# Note: Les modèles spaCy sont installés séparément avec la commande:
+# python -m spacy download fr_core_news_lg
+# python -m spacy download en_core_web_lg
 
 # Web et API
 flask>=2.3.3
