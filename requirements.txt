@@ -171,3 +171,6 @@ yfinance>=0.1.70
 # Si l'installation échoue sur Windows, ne vous inquiétez pas - le module ai_trading/utils/deepspeed_optimizer.py
 # s'adaptera automatiquement pour fonctionner sans DeepSpeed
 deepspeed>=0.6.0; platform_system != "Windows"
+
+# Dépendances pour la communication distribuée
+pyzmq>=25.0.0

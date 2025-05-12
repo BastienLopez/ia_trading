@@ -66,6 +66,18 @@ jobs:
         pip install -e .
         python -m nltk.downloader punkt wordnet
 
+    # Configuration pour pytest-asyncio
+    - name: Create pytest.ini for asyncio configuration
+      run: |
+        if [ ! -f .pytest.ini ]; then
+          echo "[pytest]" > .pytest.ini
+          echo "asyncio_mode = strict" >> .pytest.ini
+          echo "asyncio_default_fixture_loop_scope = function" >> .pytest.ini
+        else
+          grep -q "asyncio_default_fixture_loop_scope" .pytest.ini || echo "asyncio_default_fixture_loop_scope = function" >> .pytest.ini
+        fi
+        cat .pytest.ini
+
     - name: Run all tests
       run: |
         pytest ai_trading/tests/ web_app/tests/ -v -rs
