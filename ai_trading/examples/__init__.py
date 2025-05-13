@@ -1,3 +1,5 @@
+﻿# -*- coding: utf-8 -*-
+
 """
-Package contenant des exemples d'utilisation des fonctionnalités d'IA Trading.
+Package d'exemples d'utilisation des différentes fonctionnalités d'ai_trading.
 """

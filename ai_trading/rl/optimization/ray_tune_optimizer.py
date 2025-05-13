@@ -22,7 +22,6 @@ try:
     from ray.tune import Callback
     from ray.tune.schedulers import ASHAScheduler, PopulationBasedTraining
     from ray.tune.search.basic_variant import BasicVariantGenerator
-    from ray.tune.search.bayesopt import BayesOptSearch
     from ray.tune.search.hyperopt import HyperOptSearch
     from ray.tune.search.optuna import OptunaSearch
 
@@ -165,8 +164,6 @@ class RayTuneOptimizer:
             self.search_alg = OptunaSearch(metric=metric, mode=mode)
         elif search_alg.lower() == "hyperopt":
             self.search_alg = HyperOptSearch(metric=metric, mode=mode)
-        elif search_alg.lower() == "bayesopt":
-            self.search_alg = BayesOptSearch(metric=metric, mode=mode)
         else:
             logger.warning(
                 f"Algorithme de recherche {search_alg} non reconnu, utilisation de la recherche aléatoire par défaut"

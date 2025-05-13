@@ -31,8 +31,12 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Chemin pour les logs et modèles
-LOG_DIR = Path(__file__).parent.parent / "logs" / "gradient_accumulation"
-MODEL_DIR = Path(__file__).parent.parent / "models" / "gradient_accumulation"
+LOG_DIR = (
+    Path(__file__).parent.parent / "info_retour" / "logs" / "gradient_accumulation"
+)
+MODEL_DIR = (
+    Path(__file__).parent.parent / "info_retour" / "models" / "gradient_accumulation"
+)
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 MODEL_DIR.mkdir(parents=True, exist_ok=True)
 

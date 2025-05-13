@@ -1,16 +1,17 @@
 # Bibliothèques d'analyse de données
-numpy>=1.23.5,<2.0.0
-pandas>=2.0.0
-matplotlib>=3.5.0
-seaborn>=0.12.2
-scikit-learn>=1.2.0
+numpy==1.26.4
+pandas>=1.3.0
+matplotlib>=3.4.0
+seaborn>=0.11.0
+scikit-learn>=1.0.0
 scipy>=1.7.0
 statsmodels>=0.13.0
 python-dateutil>=2.8.2
 pytz>=2021.1
+pywavelets>=1.4.1
 
 # Trading et analyse technique
-ccxt>=4.2.0
+ccxt>=1.60.0
 ta>=0.10.0
 # TA-Lib est installé séparément via apt/brew ou le script d'installation
 
@@ -24,9 +25,9 @@ tensorflow_probability>=0.23.0
 keras>=2.12.0
 # tf-keras est nécessaire pour tensorflow_probability avec TensorFlow
 tf-keras>=2.12.0
-gymnasium>=0.29.1
-stable-baselines3>=2.2.1
-torch>=2.0.0
+gym>=0.21.0
+stable-baselines3>=1.5.0
+torch>=1.10.0
 optuna>=3.0.0
 packaging>=23.0
 jax>=0.4.14
@@ -48,7 +49,7 @@ fastparquet>=2023.0.0
 accelerate>=0.24.0
 
 # Compression et traitement d'image
-zstandard>=0.20.0
+zstandard>=0.23.0
 opencv-python>=4.8.0
 opencv-python-headless>=4.8.0
 
@@ -72,8 +73,7 @@ onnx>=1.15.0
 onnxruntime>=1.16.0
 onnxruntime-gpu>=1.16.0  # Support GPU pour ONNX Runtime
 tf2onnx>=1.15.0
-hyperopt>=0.2.7
-bayesian-optimization>=1.4.3
+gym-trading==0.0.1
 
 # API et collecte de données
 requests>=2.31.0
@@ -82,16 +82,26 @@ beautifulsoup4>=4.12.3
 tweepy>=4.14.0
 praw>=7.7.1
 newsapi-python>=0.2.7
+jsonschema>=4.20.0
 
 # Traitement du langage naturel
 nltk>=3.8.1
 textblob>=0.17.1
 transformers>=4.35.0
 sentence-transformers>=2.2.2
+datasets>=2.14.0
 emoji>=2.8.0
 spacy>=3.7.0
 huggingface-hub>=0.20.0
 xformers>=0.0.23
+networkx>=3.1
+whois>=0.9.13
+peft>=0.5.0
+
+# Modèles pré-entraînés spécifiques
+# Note: Les modèles spaCy sont installés séparément avec la commande:
+# python -m spacy download fr_core_news_lg
+# python -m spacy download en_core_web_lg
 
 # Web et API
 flask>=2.3.3
@@ -114,8 +124,8 @@ plotly>=5.3.0
 dash>=2.0.0
 
 # Tests et développement
-pytest>=7.0.0
-pytest-cov>=6.1.0
+pytest>=6.2.5
+pytest-cov>=2.12.0
 pytest-sugar>=0.9.7
 pytest-timeout>=2.1.0
 pytest-repeat>=0.9.1
@@ -123,10 +133,10 @@ pytest-mock>=3.14.0
 pytest-xdist>=3.3.1
 pytest-benchmark>=4.0.0  # Pour les benchmarks de performance
 pytest-profiling>=1.7.0  # Pour le profilage du code pendant les tests
-black>=23.0.0
-isort>=5.12.0
-autoflake>=2.2.0
-jupyter>=1.0.0
+black>=21.12b0
+isort>=5.10.0
+flake8>=4.0.0
+mypy>=0.910
 
 # Utilitaires
 tqdm>=4.66.1
@@ -144,3 +154,44 @@ arch>=6.0.0
 # Ces packages ne sont pas installés automatiquement car ils dépendent de la configuration matérielle
 # torch-tensorrt  # Optimisation TensorRT pour PyTorch (s'installe séparément)
 # cupy-cuda11x  # Remplacer 11x par votre version CUDA (10.2, 11.x, 12.x)
+
+# Dépendances pour la collecte asynchrone
+aiohttp>=3.8.0
+redis==3.5.3  # Version fixe pour la compatibilité avec redis-py-cluster
+tenacity>=8.0.0
+pytest>=6.2.0
+pytest-asyncio>=0.16.0
+pytest-mock>=3.6.0
+
+# Dépendances pour l'optimisation bayésienne
+scikit-optimize>=0.9.0
+bayesian-optimization>=1.2.0
+
+# Dépendances pour le traitement des données
+yfinance>=0.1.70
+
+# Si l'installation échoue sur Windows, ne vous inquiétez pas - le module ai_trading/utils/deepspeed_optimizer.py
+# s'adaptera automatiquement pour fonctionner sans DeepSpeed
+deepspeed>=0.6.0; platform_system != "Windows"
+
+# Dépendances pour la communication distribuée
+pyzmq>=25.0.0
+redis-py-cluster>=2.1.3
+
+# Dépendances pour la parallélisation avancée
+dask>=2023.7.0
+distributed>=2023.7.0  # Client Dask distribué
+dask[dataframe]>=2023.7.0  # Support DataFrame Dask
+dask[array]>=2023.7.0  # Support Array Dask
+dask[bag]>=2023.7.0  # Support Bag Dask
+
+# Dépendances pour le système de tâches asynchrones
+celery==5.3.1
+flower==2.0.0  # Interface web pour Celery
+kombu==5.3.1  # Bibliothèque de messagerie pour Celery
+billiard==4.1.0  # Fork de multiprocessing pour Celery
+
+# Dépendances pour DeepSpeed et Ray
+pydantic==2.5.3
+ray[default]==2.10.0
+ray[tune]==2.10.0

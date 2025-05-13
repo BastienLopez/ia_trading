@@ -6,6 +6,8 @@ import pickle
 from pathlib import Path
 from typing import Any
 
+from transformers import pipeline
+
 logger = logging.getLogger(__name__)
 
 
@@ -45,3 +47,14 @@ class SentimentCache:
 def text_hash(text: str) -> str:
     """Génère un hash unique pour un texte."""
     return hashlib.md5(text.encode("utf-8")).hexdigest()
+
+
+def get_llm_client():
+    """
+    Retourne un client LLM configuré pour l'analyse de sentiment.
+    """
+    return pipeline(
+        "text-classification",
+        model="nlptown/bert-base-multilingual-uncased-sentiment",
+        return_all_scores=True,
+    )

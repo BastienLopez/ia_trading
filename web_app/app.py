@@ -25,7 +25,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Créer le répertoire de logs s'il n'existe pas
-os.makedirs(os.path.join(os.path.dirname(__file__), "logs"), exist_ok=True)
+os.makedirs(os.path.join(os.path.dirname(os.path.dirname(__file__)), "ai_trading", "info_retour", "logs"), exist_ok=True)
 logger.info("Répertoire de logs créé")
 
 app = Flask(__name__)
@@ -36,8 +36,14 @@ app.config.from_object(Config)
 API_URL = os.environ.get('API_URL', 'http://localhost:8000')
 logger.info(f"Configuration API_URL: {API_URL}")
 
+# Route de health check
+@app.route('/health')
+def health_check():
+    """Route pour vérifier l'état de santé de l'application"""
+    return jsonify({"status": "ok", "timestamp": datetime.now().isoformat()}), 200
+
 # Chemin vers le fichier de données
-DATA_FILE = os.path.join(os.path.dirname(__file__), 'data', 'transactions.json')
+DATA_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "ai_trading", "info_retour", "data", "transactions.json")
 
 SUPPORTED_CRYPTOS = [
     "BTC", "ETH", "BNB", "SOL", "XRP", "ADA", "AVAX", "DOT", 
@@ -46,20 +52,48 @@ SUPPORTED_CRYPTOS = [
 ]
 
 def load_data():
+    logger.info(f"Tentative de chargement des données depuis: {DATA_FILE}")
     if os.path.exists(DATA_FILE):
-        with open(DATA_FILE, 'r') as f:
-            data = json.load(f)
-            # S'assurer que la structure des données est correcte
-            if "transactions" not in data:
-                data["transactions"] = []
-            if "portfolio" not in data:
-                data["portfolio"] = {"current_value": 0, "starting_value": 0, "assets": []}
-            return data
-    return {"transactions": [], "portfolio": {"current_value": 0, "starting_value": 0, "assets": []}}
+        logger.info(f"Le fichier {DATA_FILE} existe, lecture du contenu...")
+        try:
+            with open(DATA_FILE, 'r') as f:
+                data = json.load(f)
+                # S'assurer que la structure des données est correcte
+                if "transactions" not in data:
+                    logger.warning("Clé 'transactions' manquante dans les données, initialisation avec un tableau vide.")
+                    data["transactions"] = []
+                if "portfolio" not in data:
+                    logger.warning("Clé 'portfolio' manquante dans les données, initialisation avec des valeurs par défaut.")
+                    data["portfolio"] = {"current_value": 0, "starting_value": 0, "assets": []}
+                logger.info(f"Données chargées avec succès: {json.dumps(data, indent=2)}")
+                return data
+        except Exception as e:
+            logger.error(f"Erreur lors de la lecture du fichier {DATA_FILE}: {str(e)}")
+            return {"transactions": [], "portfolio": {"current_value": 0, "starting_value": 0, "assets": []}}
+    else:
+        logger.warning(f"Le fichier {DATA_FILE} n'existe pas, création d'un nouveau fichier avec des données vides.")
+        data = {"transactions": [], "portfolio": {"current_value": 0, "starting_value": 0, "assets": []}}
+        save_data(data)
+        return data
 
 def save_data(data):
-    with open(DATA_FILE, 'w') as f:
-        json.dump(data, f, indent=4)
+    try:
+        # S'assurer que le répertoire parent existe
+        os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
+        logger.info(f"Enregistrement des données dans {DATA_FILE}")
+        
+        with open(DATA_FILE, 'w') as f:
+            json.dump(data, f, indent=4)
+        
+        logger.info(f"Données enregistrées avec succès dans {DATA_FILE}")
+        # Vérifier que le fichier a bien été créé
+        if os.path.exists(DATA_FILE):
+            logger.info(f"Vérification: le fichier {DATA_FILE} existe après sauvegarde")
+            logger.info(f"Taille du fichier: {os.path.getsize(DATA_FILE)} octets")
+        else:
+            logger.error(f"Erreur: le fichier {DATA_FILE} n'existe pas après tentative de sauvegarde")
+    except Exception as e:
+        logger.error(f"Erreur lors de l'enregistrement des données: {str(e)}", exc_info=True)
 
 def get_real_crypto_prices():
     """Récupère les prix réels des cryptomonnaies depuis CoinGecko"""
@@ -130,6 +164,7 @@ def update_portfolio():
             "starting_value": data["portfolio"].get("starting_value", 0),
             "assets": []
         }
+        logger.info(f"Portefeuille initial: {json.dumps(portfolio, indent=2)}")
 
         # Si pas de transactions, retourner un portfolio vide
         if not data["transactions"]:
@@ -138,6 +173,7 @@ def update_portfolio():
             return portfolio
 
         # Récupérer les prix actuels depuis CoinGecko
+        logger.info("Récupération des prix actuels depuis CoinGecko...")
         current_prices = get_real_crypto_prices()
         if not current_prices:
             logger.error("Impossible de récupérer les prix actuels")
@@ -146,6 +182,7 @@ def update_portfolio():
                 logger.info("Utilisation des derniers prix connus")
                 current_prices = {asset["symbol"]: asset["current_price"] for asset in data["portfolio"]["assets"]}
             else:
+                logger.warning("Aucun prix connu disponible, retour d'un portfolio vide")
                 return portfolio
 
         logger.info("Prix actuels des cryptos:")
@@ -154,19 +191,25 @@ def update_portfolio():
 
         # Calculer les quantités totales par actif
         assets = {}
+        logger.info(f"Calcul des quantités totales à partir de {len(data['transactions'])} transactions")
         for transaction in data["transactions"]:
             symbol = transaction["symbol"]
             amount = float(transaction["amount"])
-            if transaction["action"] == "ACHETER":
+            action = transaction["action"]
+            logger.info(f"Transaction: {action} {amount} {symbol}")
+            if action == "ACHETER":
                 assets[symbol] = assets.get(symbol, 0) + amount
             else:  # VENDRE
                 assets[symbol] = assets.get(symbol, 0) - amount
+        
+        logger.info(f"Actifs après calcul: {json.dumps(assets, indent=2)}")
 
         # Calculer la valeur actuelle de chaque actif et la valeur totale
         total_value = 0
         assets_list = []
         
         for symbol, amount in assets.items():
+            logger.info(f"Traitement de l'actif {symbol} avec montant {amount}")
             if amount > 0 and symbol in current_prices:  # Ne considérer que les actifs avec une quantité positive
                 current_price = float(current_prices[symbol])
                 value = amount * current_price
@@ -180,21 +223,25 @@ def update_portfolio():
                 }
                 assets_list.append(asset_info)
                 logger.info(f"Calcul pour {symbol}: {amount} * ${current_price:,.2f} = ${value:,.2f}")
+            else:
+                logger.info(f"Actif {symbol} ignoré (quantité négative ou prix non disponible)")
 
         # Mettre à jour le portfolio
         portfolio["current_value"] = round(total_value, 2)
         portfolio["assets"] = sorted(assets_list, key=lambda x: x["value_usd"], reverse=True)
 
         logger.info(f"Valeur totale du portfolio: ${total_value:,.2f}")
+        logger.info(f"Portefeuille mis à jour: {json.dumps(portfolio, indent=2)}")
         
         # Sauvegarder les données mises à jour
         data["portfolio"] = portfolio
         save_data(data)
+        logger.info("Données du portefeuille sauvegardées avec succès")
         
         return portfolio
 
     except Exception as e:
-        logger.error(f"Erreur lors de la mise à jour du portfolio: {str(e)}")
+        logger.error(f"Erreur lors de la mise à jour du portfolio: {str(e)}", exc_info=True)
         return {
             "current_value": 0,
             "starting_value": 0,
@@ -790,8 +837,8 @@ def delete_transaction():
         # Mettre à jour le portfolio
         updated_portfolio = update_portfolio()
         
-        # Sauvegarder aussi dans config.json pour la synchronisation
-        config_path = os.path.join(os.path.dirname(__file__), 'data', 'config.json')
+        # Sauvegarder la configuration en JSON
+        config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "ai_trading", "info_retour", "data", "config.json")
         config_data = {
             "transactions": current_data["transactions"],
             "portfolio": updated_portfolio
@@ -813,17 +860,114 @@ def delete_transaction():
 @app.route('/api/ema-metrics')
 def get_ema_metrics():
     """Renvoie les dernières métriques EMA"""
-    market_data = get_market_data()
-    processed_data = DataProcessor().process(market_data)
-    
-    return jsonify({
-        'timestamps': processed_data.index.strftime('%Y-%m-%d %H:%M').tolist(),
-        'ema_5': processed_data['ema_5'].tail(100).tolist(),
-        'ema_30': processed_data['ema_30'].tail(100).tolist(),
-        'ema_50': processed_data['ema_50'].tail(100).tolist(),
-        'ribbon_width': processed_data['ema_ribbon_width'].tail(100).tolist(),
-        'gradient': processed_data['ema_gradient'].tail(100).tolist()
-    })
+    try:
+        # Récupérer les données de marché
+        market_data = get_market_data().json
+        
+        # Si les données contiennent une erreur, retourner cette erreur
+        if 'error' in market_data:
+            return jsonify({'error': market_data['error']}), 500
+            
+        # Extraire les prix des données de marché et créer des timestamps
+        prices = [p['price'] for p in market_data['prices']]
+        timestamps = [p['date'] for p in market_data['prices']]
+        
+        # Créer des périodes d'EMA courantes
+        ema_periods = [5, 10, 20, 30, 50, 100]
+        ema_data = {}
+        
+        # Calculer les EMAs pour chaque période
+        for period in ema_periods:
+            alpha = 2 / (period + 1)
+            ema = [prices[0]]  # Initialiser avec le premier prix
+            for i in range(1, len(prices)):
+                ema.append(alpha * prices[i] + (1 - alpha) * ema[i-1])
+            ema_data[f'ema_{period}'] = ema
+            
+        # Calculer le ruban width (différence entre EMA court et long)
+        ribbon_width = [ema_data['ema_5'][i] - ema_data['ema_50'][i] for i in range(len(prices))]
+        
+        # Calculer le gradient
+        gradient = [(ema_data['ema_5'][i] - ema_data['ema_30'][i]) / ema_data['ema_30'][i] for i in range(len(prices))]
+        
+        return jsonify({
+            'timestamps': timestamps,
+            'ema_5': ema_data['ema_5'],
+            'ema_30': ema_data['ema_30'],
+            'ema_50': ema_data['ema_50'],
+            'ribbon_width': ribbon_width,
+            'gradient': gradient
+        })
+    except Exception as e:
+        logger.error(f"Erreur lors du calcul des métriques EMA: {str(e)}")
+        return jsonify({"error": f"Erreur lors du calcul des métriques EMA: {str(e)}"}), 500
+
+@app.route('/api/diagnostic')
+def diagnostic():
+    """Route de diagnostic pour examiner les problèmes potentiels"""
+    logger.info("Exécution du diagnostic système")
+    try:
+        # Vérification des chemins
+        diagnostic_data = {
+            "paths": {
+                "DATA_FILE": DATA_FILE,
+                "DATA_FILE_exists": os.path.exists(DATA_FILE),
+                "DATA_DIR": os.path.dirname(DATA_FILE),
+                "DATA_DIR_exists": os.path.exists(os.path.dirname(DATA_FILE)),
+                "app_dir": os.path.dirname(__file__),
+                "project_root": os.path.dirname(os.path.dirname(__file__)),
+                "working_directory": os.getcwd()
+            },
+            "docker": {
+                "in_docker": os.path.exists("/.dockerenv"),
+                "volumes": {
+                    "/app/data_exists": os.path.exists("/app/data") if os.path.exists("/.dockerenv") else None,
+                    "/app/ai_trading/info_retour/data_exists": os.path.exists("/app/ai_trading/info_retour/data") if os.path.exists("/.dockerenv") else None
+                }
+            }
+        }
+        
+        # Essayer de charger les données
+        try:
+            if os.path.exists(DATA_FILE):
+                with open(DATA_FILE, 'r') as f:
+                    data = json.load(f)
+                    diagnostic_data["data_file"] = {
+                        "size": os.path.getsize(DATA_FILE),
+                        "content_summary": {
+                            "has_transactions": "transactions" in data,
+                            "transactions_count": len(data.get("transactions", [])),
+                            "has_portfolio": "portfolio" in data,
+                            "portfolio_assets_count": len(data.get("portfolio", {}).get("assets", [])),
+                            "current_value": data.get("portfolio", {}).get("current_value", 0)
+                        }
+                    }
+        except Exception as e:
+            diagnostic_data["data_file_error"] = str(e)
+        
+        # Vérifier les permissions
+        try:
+            diagnostic_data["permissions"] = {
+                "DATA_DIR_writable": os.access(os.path.dirname(DATA_FILE), os.W_OK),
+                "DATA_FILE_writable": os.access(DATA_FILE, os.W_OK) if os.path.exists(DATA_FILE) else None
+            }
+        except Exception as e:
+            diagnostic_data["permissions_error"] = str(e)
+        
+        # Lister les fichiers dans le répertoire
+        try:
+            data_dir = os.path.dirname(DATA_FILE)
+            if os.path.exists(data_dir):
+                diagnostic_data["directory_contents"] = os.listdir(data_dir)
+            else:
+                diagnostic_data["directory_contents"] = "Le répertoire n'existe pas"
+        except Exception as e:
+            diagnostic_data["directory_listing_error"] = str(e)
+        
+        return jsonify(diagnostic_data)
+    except Exception as e:
+        logger.error(f"Erreur lors du diagnostic: {str(e)}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
 
 @app.errorhandler(404)
 def page_not_found(e):

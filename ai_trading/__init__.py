@@ -1,11 +1,4 @@
+﻿# -*- coding: utf-8 -*-
 """
-Module AI Trading
-
-Ce module fournit une suite d'outils pour l'apprentissage par renforcement
-appliqué au trading de cryptomonnaies.
+Module principal pour le trading d'actifs financiers utilisant l'apprentissage par renforcement
 """
-
-__version__ = "1.0.0"
-__author__ = "Crypto Trading AI Team"
-
-# Package ai_trading

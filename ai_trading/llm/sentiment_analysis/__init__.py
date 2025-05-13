@@ -1,4 +1,2 @@
-from .news_analyzer import EnhancedNewsAnalyzer, NewsAnalyzer
-from .social_analyzer import SocialAnalyzer
-
-__all__ = ["EnhancedNewsAnalyzer", "NewsAnalyzer", "SocialAnalyzer"]
+﻿# -*- coding: utf-8 -*-
+"""Module d'analyse de sentiment pour les données financières et crypto."""

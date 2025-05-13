@@ -10,11 +10,11 @@ format:
 	black ai_trading/
 
 docker:
-	docker compose up --build
+	docker compose -f docker/docker-compose.yml up --build
 
 docker-test:
 	# Construction de l'image Docker de test...
-	docker build -t ai-trading-test -f Dockerfile.test .
+	docker build -t ai-trading-test -f docker/Dockerfile.test .
 
 	# Execution des tests standards...
 	docker run --rm --gpus all ai-trading-test
@@ -26,3 +26,14 @@ clean:
 	find . -name '*.pyc' -exec rm -f {} +
 	find . -name '*.pyo' -exec rm -f {} +
 	find . -name '__pycache__' -exec rm -fr {} + 
+
+tests: 
+# Test RL PASSED OR FAILED en ligne
+python -m pytest ai_trading/tests/ -v -rs 
+
+# Optimisation check 
+python -m ai_trading.optim.check_all_optimizations --check-all-opti
+
+# Dashboard 
+python -m ai_trading.dashboard.run
+

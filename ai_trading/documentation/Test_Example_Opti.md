@@ -3,9 +3,18 @@
 python -m ai_trading.optim.check_all_optimizations --check-all-opti
 ```
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# Dashboard 
+```bash	
+python -m ai_trading.dashboard.run
+```
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 # Test RL PASSED OR FAILED en ligne
 ```bash	
 python -m pytest ai_trading/tests/ -v -rs 
+
+python -m pytest ai_trading/utils/tests/ -v -rs 
+
+python -m pytest ai_trading/rl/tests/ -v -rs 
 ```
 # Stop si erreurs 
 ```bash	
@@ -92,3 +101,151 @@ python -m ai_trading.examples.hyperparameter_optimization_example --episodes 20 
 6. **Avertissements concernant des méthodes dépréciées**:
    - Problème: Utilisation de `df.fillna(method='bfill')` qui est déprécié
    - Solution: Remplacez par `df.bfill()` pour le backfill ou `df.ffill()` pour le forward fill
+
+## Test des exemples d'optimisation
+
+Ce document décrit comment tester les différents exemples d'optimisation implémentés dans le projet.
+
+### Optimisation des threads
+
+Pour tester l'optimisation des threads:
+
+```bash
+python -m ai_trading.utils.threading_optimizer --test
+```
+
+Cela affichera les paramètres optimaux pour votre système.
+
+### Optimisation du système
+
+Pour appliquer les optimisations système:
+
+```bash
+python -m ai_trading.utils.system_optimizer --apply
+```
+
+Pour vérifier le statut des optimisations:
+
+```bash
+python -m ai_trading.utils.system_optimizer --status
+```
+
+### Optimisation des performances de PyTorch
+
+Pour tester les optimisations spécifiques à PyTorch:
+
+```bash
+python -m ai_trading.examples.rtx_optimization_example
+```
+
+### Optimisation de la mémoire
+
+Pour tester l'optimisation de la mémoire:
+
+```bash
+python -m ai_trading.examples.model_offloading_example
+```
+
+### Optimisation des checkpoints
+
+Pour tester l'optimisation des checkpoints:
+
+```bash
+python -m ai_trading.examples.efficient_checkpointing_example
+```
+
+### Optimisation des hyperparamètres (Recherche par grille)
+
+Pour tester l'optimisation des hyperparamètres avec recherche par grille:
+
+```bash
+python -m ai_trading.examples.hyperparameter_optimization_example --episodes 20 --symbol BTC --agent sac --save
+```
+
+Pour l'agent GRU-SAC:
+
+```bash
+python -m ai_trading.examples.hyperparameter_optimization_example --episodes 20 --symbol ETH --agent gru_sac --save
+```
+
+### Optimisation bayésienne des hyperparamètres
+
+Pour tester l'optimisation bayésienne des hyperparamètres:
+
+```bash
+python -m ai_trading.examples.bayesian_optimization_example --episodes 20 --symbol BTC --agent sac --save
+```
+
+Options avancées:
+
+```bash
+# Optimisation bayésienne avec plus d'exploration
+python -m ai_trading.examples.bayesian_optimization_example --agent sac --exploration 0.05 --initial-points 10 --iterations 20
+
+# Optimisation bayésienne multi-objectifs
+python -m ai_trading.examples.bayesian_optimization_example --agent gru_sac --multi-objective --save
+```
+
+### Optimisation de la précision mixte
+
+Pour tester l'entraînement en précision mixte:
+
+```bash
+python -m ai_trading.examples.mixed_precision_example
+```
+
+### Optimisation de la quantization des modèles
+
+Pour tester la quantization des modèles:
+
+```bash
+python -m ai_trading.examples.model_quantization_example
+```
+
+### Optimisation de la compilation JIT
+
+Pour tester la compilation JIT:
+
+```bash
+python -m ai_trading.examples.jit_compilation_example
+```
+
+### Optimisation du multiprocessing
+
+Pour tester l'optimisation du multiprocessing:
+
+```bash
+python -m ai_trading.examples.multiprocessing_optimization_example
+```
+
+### Optimisation avec Ray Tune
+
+Pour tester l'optimisation avec Ray Tune:
+
+```bash
+python -m ai_trading.examples.ray_tune_example
+```
+
+### Optimisation de l'accumulation de gradients
+
+Pour tester l'optimisation de l'accumulation de gradients:
+
+```bash
+python -m ai_trading.examples.gradient_accumulation_example
+```
+
+### Tests de performance
+
+Pour exécuter les tests de performance:
+
+```bash
+python -m ai_trading.examples.performance_test_example
+```
+
+### Profiling
+
+Pour exécuter le profiling:
+
+```bash
+python -m ai_trading.examples.profiling_example
+```
