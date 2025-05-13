@@ -530,9 +530,13 @@ class DataCache(SmartCache):
                 data_end = cached_data["date"].max() if len(cached_data) > 0 else None
                 
                 # Si nous avons des données et qu'elles couvrent la période demandée
-                if (len(filtered_data) > 0 and 
-                    data_start is not None and data_start <= start_date and 
-                    data_end is not None and data_end >= end_date):
+                if (
+                    len(filtered_data) > 0
+                    and data_start is not None
+                    and data_start <= start_date
+                    and data_end is not None
+                    and data_end >= end_date
+                ):
                     # Assurons-nous de retourner une copie pour éviter les modifications accidentelles
                     return filtered_data.copy()
 
@@ -541,64 +545,69 @@ class DataCache(SmartCache):
             # Charger les données depuis la source
             data_loader = self.data_sources[source]
             
-            # Pour sources de test/développement, garantir des résultats cohérents
+            # Pour sources de test/développement, générer des données déterministes
             if source == "dummy":
-                # Créer une seed déterministe basée sur les paramètres immutables de la requête
-                # Utiliser uniquement des chaînes sans timestamp pour garantir la même seed à chaque appel
-                seed_components = [
-                    symbol,
-                    interval,
-                    str(start_date.date()),  # Utiliser seulement la date, pas l'heure
-                    str(end_date.date()),
-                    source
-                ]
-                seed_str = ":".join(seed_components)
+                # Au lieu d'utiliser np.random, générer des données déterministes basées sur les paramètres
+                date_range = pd.date_range(start=start_date, end=end_date, freq="D")
+                days = len(date_range)
                 
-                # Calculer un hash déterministe pour la seed
-                seed_value = int(hashlib.md5(seed_str.encode()).hexdigest(), 16) % (2**32)
+                # Générer des séquences déterministes basées sur la combinaison des paramètres
+                seed_str = f"{symbol}:{interval}:{str(start_date.date())}:{str(end_date.date())}"
+                base_hash = int(hashlib.md5(seed_str.encode()).hexdigest(), 16)
                 
-                # Sauvegarde de l'état aléatoire actuel
-                original_state = np.random.get_state() if hasattr(np.random, "get_state") else None
+                # Créer des données prédictibles pour les tests
+                opens = []
+                highs = []
+                lows = []
+                closes = []
+                volumes = []
                 
-                try:
-                    # Définir une seed fixe pour obtenir les mêmes données à chaque appel
-                    np.random.seed(seed_value)
-                    
-                    # Générer les données
-                    data = data_loader(symbol, start_date, end_date, interval)
-                    
-                    # Assurons-nous d'avoir une copie propre des données
-                    data = data.copy()
-                    
-                    # Stocker une copie des données dans le cache
-                    self.set(cache_key, data.copy())
-                    
-                    # Enregistrer les métadonnées pour la validation de cohérence
-                    checksum = self._calculate_data_checksum(data)
-                    self._update_metadata(
-                        cache_key,
-                        {
-                            "symbol": symbol,
-                            "interval": interval,
-                            "source": source,
-                            "last_update": datetime.now(),
-                            "start_date": start_date,
-                            "end_date": end_date,
-                            "row_count": len(data),
-                            "checksum": checksum,
-                            "seed_value": seed_value,  # Stocker la seed pour référence future
-                        },
-                    )
-                    
-                    # Filtrer selon la plage demandée
-                    if isinstance(data, pd.DataFrame) and "date" in data.columns:
-                        return data[(data["date"] >= start_date) & (data["date"] <= end_date)].copy()
-                    
-                    return data.copy()
-                finally:
-                    # Restaurer l'état aléatoire précédent
-                    if original_state is not None:
-                        np.random.set_state(original_state)
+                for i in range(days):
+                    # Générer des valeurs déterministes basées sur la position et la graine
+                    day_seed = (base_hash + i) % 1000
+                    opens.append(100 + (day_seed % 20))
+                    highs.append(105 + (day_seed % 15))
+                    lows.append(95 + (day_seed % 10))
+                    closes.append(100 + (day_seed % 25))
+                    volumes.append(1000 + (day_seed * 10))
+                
+                data = pd.DataFrame({
+                    "date": date_range,
+                    "open": opens,
+                    "high": highs,
+                    "low": lows,
+                    "close": closes,
+                    "volume": volumes
+                })
+                
+                # Stocker une copie des données dans le cache
+                self.set(cache_key, data.copy())
+                
+                # Enregistrer les métadonnées pour la validation de cohérence
+                checksum = self._calculate_data_checksum(data)
+                self._update_metadata(
+                    cache_key,
+                    {
+                        "symbol": symbol,
+                        "interval": interval,
+                        "source": source,
+                        "last_update": datetime.now(),
+                        "start_date": start_date,
+                        "end_date": end_date,
+                        "row_count": len(data),
+                        "checksum": checksum,
+                        "seed_hash": base_hash,  # Stocker la hash pour référence future
+                        "deterministic": True    # Indiquer que c'est une génération déterministe
+                    },
+                )
+                
+                # Filtrer selon la plage demandée
+                if isinstance(data, pd.DataFrame) and "date" in data.columns:
+                    return data[
+                        (data["date"] >= start_date) & (data["date"] <= end_date)
+                    ].copy()
+                
+                return data.copy()
             else:
                 # Pour les sources réelles, pas besoin de gérer la seed
                 data = data_loader(symbol, start_date, end_date, interval)
@@ -623,7 +632,9 @@ class DataCache(SmartCache):
 
                 # Filtrer selon la plage demandée
                 if isinstance(data, pd.DataFrame) and "date" in data.columns:
-                    return data[(data["date"] >= start_date) & (data["date"] <= end_date)].copy()
+                    return data[
+                        (data["date"] >= start_date) & (data["date"] <= end_date)
+                    ].copy()
 
                 return data.copy()
 
@@ -713,14 +724,14 @@ class DataCache(SmartCache):
         """
         with self.lock:
             self.metadata[key] = metadata
-            
+
     def _calculate_data_checksum(self, data: Any) -> str:
         """
         Calcule une somme de contrôle des données pour validation.
-        
+
         Args:
             data: Données à vérifier
-            
+
         Returns:
             str: Checksum des données
         """
@@ -732,7 +743,7 @@ class DataCache(SmartCache):
                 return hashlib.md5(serialized).hexdigest()
             except:
                 pass
-        
+
         # Pour les autres types de données ou en cas d'erreur
         try:
             return hashlib.md5(pickle.dumps(data)).hexdigest()
@@ -770,28 +781,31 @@ class DataCache(SmartCache):
             if not isinstance(data, pd.DataFrame):
                 return False, "Les données ne sont pas un DataFrame"
 
-            # Si c'est une source "dummy" générée aléatoirement, régénérer avec la même seed pour validation
-            if "source" in metadata and metadata["source"] == "dummy" and "seed_value" in metadata:
-                # Pour les tests, nous régénérons les données avec la même seed pour validation
-                seed_value = metadata["seed_value"]
-                symbol = metadata.get("symbol", "")
-                interval = metadata.get("interval", "")
-                start_date = metadata.get("start_date")
-                end_date = metadata.get("end_date")
-                
-                # Nous pouvons vérifier directement le checksum stocké
+            # Si c'est une source "dummy" générée de manière déterministe
+            if (
+                "source" in metadata
+                and metadata["source"] == "dummy"
+                and metadata.get("deterministic", False) is True
+            ):
+                # Vérifier le checksum stocké pour validité
                 current_checksum = self._calculate_data_checksum(data)
                 stored_checksum = metadata.get("checksum")
                 
                 if stored_checksum and current_checksum != stored_checksum:
-                    return False, f"Checksum incohérent: {current_checksum} != {stored_checksum}"
+                    return (
+                        False,
+                        f"Checksum incohérent: {current_checksum} != {stored_checksum}",
+                    )
             else:
                 # Vérifier la cohérence des données standard
                 current_checksum = self._calculate_data_checksum(data)
                 stored_checksum = metadata.get("checksum")
                 
                 if stored_checksum and current_checksum != stored_checksum:
-                    return False, f"Checksum incohérent: {current_checksum} != {stored_checksum}"
+                    return (
+                        False,
+                        f"Checksum incohérent: {current_checksum} != {stored_checksum}",
+                    )
 
             # Vérifier le nombre de lignes
             if len(data) != metadata.get("row_count", 0):
