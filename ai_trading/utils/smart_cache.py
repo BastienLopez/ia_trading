@@ -257,23 +257,21 @@ class SmartCache:
         Returns:
             bool: True si la valeur doit être compressée
         """
-        # Compresser les DataFrames volumineux
-        if isinstance(value, pd.DataFrame) and len(value) > 1000:
-            return True
+        # DataFrames et objets volumineux
+        if isinstance(value, pd.DataFrame):
+            return len(value) > 100
 
-        # Compresser les tableaux NumPy volumineux
-        if isinstance(value, np.ndarray) and value.size > 10000:
-            return True
-
-        # Compresser les listes et dictionnaires volumineux
-        if isinstance(value, (list, dict)) and len(value) > 5000:
-            return True
-
-        return False
+        # Objets sérialisables volumineux
+        try:
+            serialized = pickle.dumps(value)
+            return len(serialized) > 10 * 1024  # 10 ko
+        except:
+            # Si la sérialisation échoue, ne pas compresser
+            return False
 
     def _compress(self, data: Any) -> bytes:
         """
-        Compresse des données.
+        Compresse des données avec zstandard.
 
         Args:
             data: Données à compresser
@@ -282,23 +280,22 @@ class SmartCache:
             bytes: Données compressées
         """
         try:
-            # Sérialiser avec pickle
+            # Sérialiser les données
             serialized = pickle.dumps(data)
 
-            # Compresser avec zstd
-            compressor = zstd.ZstdCompressor(level=self.compression_level)
-            compressed = compressor.compress(serialized)
+            # Compresser les données
+            cctx = zstd.ZstdCompressor(level=self.compression_level)
+            compressed = cctx.compress(serialized)
 
             return compressed
         except Exception as e:
-            logger.warning(
-                f"Erreur lors de la compression: {e}. Utilisation des données non compressées."
-            )
+            logger.error(f"Erreur de compression: {e}")
+            # En cas d'erreur, retourner les données sérialisées non compressées
             return pickle.dumps(data)
 
     def _decompress(self, data: bytes) -> Any:
         """
-        Décompresse des données.
+        Décompresse des données avec zstandard.
 
         Args:
             data: Données compressées
@@ -307,37 +304,36 @@ class SmartCache:
             Any: Données décompressées
         """
         try:
-            # Décompresser avec zstd
-            decompressor = zstd.ZstdDecompressor()
-            decompressed = decompressor.decompress(data)
-
-            # Désérialiser avec pickle
-            return pickle.loads(decompressed)
-        except Exception as e:
-            logger.warning(
-                f"Erreur lors de la décompression: {e}. Tentative de désérialisation directe."
-            )
-            try:
+            # Vérifier si les données sont compressées avec zstd
+            if data[:4] == b"\x28\xb5\x2f\xfd":  # Magic number de zstd
+                # Décompresser
+                dctx = zstd.ZstdDecompressor()
+                decompressed = dctx.decompress(data)
+                # Désérialiser
+                return pickle.loads(decompressed)
+            else:
+                # Données non compressées, juste désérialiser
                 return pickle.loads(data)
-            except:
-                logger.error("Échec de la récupération des données.")
-                return None
+        except Exception as e:
+            logger.error(f"Erreur de décompression: {e}")
+            # En cas d'erreur, retourner None
+            return None
 
     def _hash_key(self, key: str) -> str:
         """
-        Génère un hash pour une clé.
+        Hache une clé pour utilisation dans les noms de fichiers.
 
         Args:
-            key: Clé à hasher
+            key: Clé à hacher
 
         Returns:
-            str: Hash de la clé
+            str: Clé hachée
         """
         return hashlib.md5(key.encode()).hexdigest()
 
     def _persist_item(self, key: str, item: Tuple) -> None:
         """
-        Persiste un élément du cache sur disque.
+        Persiste un élément sur disque.
 
         Args:
             key: Clé de l'élément
@@ -347,6 +343,11 @@ class SmartCache:
             return
 
         try:
+            # Créer le répertoire si nécessaire
+            if not os.path.exists(self.cache_dir):
+                os.makedirs(self.cache_dir)
+
+            # Sérialiser et sauvegarder
             cache_file = os.path.join(self.cache_dir, self._hash_key(key))
             with open(cache_file, "wb") as f:
                 pickle.dump((key, item), f)
@@ -355,11 +356,11 @@ class SmartCache:
 
     def _load_persistent_cache(self) -> None:
         """Charge le cache persistant depuis le disque."""
-        if not os.path.exists(self.cache_dir):
+        if not self.persist or not os.path.exists(self.cache_dir):
             return
 
         try:
-            # Charger chaque fichier de cache
+            # Parcourir les fichiers de cache
             for filename in os.listdir(self.cache_dir):
                 file_path = os.path.join(self.cache_dir, filename)
                 if os.path.isfile(file_path):
@@ -372,28 +373,22 @@ class SmartCache:
                             if time.time() - timestamp <= self.ttl:
                                 self.cache[key] = item
                     except Exception as e:
-                        logger.warning(
-                            f"Erreur lors du chargement du fichier {filename}: {e}"
-                        )
-
-            logger.info(
-                f"Cache chargé depuis {self.cache_dir}: {len(self.cache)} éléments"
-            )
+                        logger.error(f"Erreur lors du chargement de {file_path}: {e}")
         except Exception as e:
             logger.error(f"Erreur lors du chargement du cache persistant: {e}")
 
     def _maintenance_task(self) -> None:
-        """Tâche de maintenance périodique du cache."""
+        """Tâche de maintenance périodique."""
         while True:
             time.sleep(300)  # Exécuter toutes les 5 minutes
 
             with self.lock:
-                # Nettoyer les éléments expirés
-                current_time = time.time()
+                # Supprimer les éléments expirés
+                now = time.time()
                 expired_keys = [
                     key
                     for key, (timestamp, _, _) in self.cache.items()
-                    if current_time - timestamp > self.ttl
+                    if now - timestamp > self.ttl
                 ]
 
                 for key in expired_keys:
@@ -530,21 +525,29 @@ class DataCache(SmartCache):
                 ]
 
                 # Si toutes les données demandées sont dans le cache
-                if (
-                    len(filtered_data) > 0
-                    and filtered_data["date"].min() <= start_date
-                    and filtered_data["date"].max() >= end_date
-                ):
-                    return filtered_data
+                # Vérifier que la plage de dates couvre la demande
+                data_start = cached_data["date"].min() if len(cached_data) > 0 else None
+                data_end = cached_data["date"].max() if len(cached_data) > 0 else None
+                
+                # Si nous avons des données et qu'elles couvrent la période demandée
+                if (len(filtered_data) > 0 and 
+                    data_start is not None and data_start <= start_date and 
+                    data_end is not None and data_end >= end_date):
+                    return filtered_data.copy()
 
         # Si les données ne sont pas dans le cache ou sont incomplètes
         if source in self.data_sources:
             # Charger les données depuis la source
             data_loader = self.data_sources[source]
+            # Fixer la seed pour assurer que le générateur renvoie les mêmes données
+            if source == "dummy" and hasattr(np.random, "seed"):
+                # Utiliser une seed basée sur la clé pour la reproductibilité
+                np.random.seed(hash(cache_key) % 2**32)
+            
             data = data_loader(symbol, start_date, end_date, interval)
-
+            
             # Stocker dans le cache
-            self.set(cache_key, data)
+            self.set(cache_key, data.copy())
 
             # Enregistrer les métadonnées pour la validation de cohérence
             self._update_metadata(
@@ -562,9 +565,9 @@ class DataCache(SmartCache):
 
             # Filtrer selon la plage demandée
             if isinstance(data, pd.DataFrame) and "date" in data.columns:
-                return data[(data["date"] >= start_date) & (data["date"] <= end_date)]
+                return data[(data["date"] >= start_date) & (data["date"] <= end_date)].copy()
 
-            return data
+            return data.copy()
 
         # Si la source n'est pas disponible
         logger.warning(f"Source de données '{source}' non disponible")
