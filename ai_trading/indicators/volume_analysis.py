@@ -45,7 +45,7 @@ class VolumeAnalyzer:
         self.data = ohlcv_data.copy()
         
         # Ajouter une colonne de moyenne des prix pour le calcul de profil de volume
-        self.data['avg_price'] = (self.data['high'] + self.data['low']) / 2
+        self.data.loc[:, 'avg_price'] = (self.data['high'] + self.data['low']) / 2
     
     def create_volume_profile(self, 
                             num_bins: int = 100, 
@@ -70,7 +70,7 @@ class VolumeAnalyzer:
         if end_idx is None:
             end_idx = len(self.data) - 1
             
-        period_data = self.data.iloc[start_idx:end_idx+1]
+        period_data = self.data.iloc[start_idx:end_idx+1].copy()
         
         # Créer le profil de volume selon le type demandé
         if profile_type == VolumeProfileType.PRICE:
@@ -123,8 +123,8 @@ class VolumeAnalyzer:
             
         elif profile_type == VolumeProfileType.VWAP:
             # Calculer le VWAP et des bandes
-            period_data['typical_price'] = (period_data['high'] + period_data['low'] + period_data['close']) / 3
-            period_data['volume_price'] = period_data['typical_price'] * period_data['volume']
+            period_data.loc[:, 'typical_price'] = (period_data['high'] + period_data['low'] + period_data['close']) / 3
+            period_data.loc[:, 'volume_price'] = period_data['typical_price'] * period_data['volume']
             
             cumulative_volume = period_data['volume'].cumsum()
             cumulative_vol_price = period_data['volume_price'].cumsum()
@@ -132,8 +132,8 @@ class VolumeAnalyzer:
             vwap = cumulative_vol_price / cumulative_volume
             
             # Calculer les écarts types
-            period_data['deviation'] = period_data['typical_price'] - vwap
-            period_data['squared_dev'] = period_data['deviation'] ** 2 * period_data['volume']
+            period_data.loc[:, 'deviation'] = period_data['typical_price'] - vwap
+            period_data.loc[:, 'squared_dev'] = period_data['deviation'] ** 2 * period_data['volume']
             cumulative_squared_dev = period_data['squared_dev'].cumsum()
             
             # Calcul de l'écart type pondéré par le volume

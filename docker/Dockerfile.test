@@ -48,23 +48,26 @@ COPY requirements.txt .
 RUN pip3 install --upgrade pip && \
     pip3 install wheel setuptools && \
     # Installer des versions spécifiques pour éviter les incompatibilités
-    pip3 install numpy==1.23.5 && \
+    pip3 install numpy==1.26.4 && \
     # Installer HDF5 et ses dépendances en premier avec versions compatibles
     pip3 install numexpr==2.8.4 && \
     pip3 install h5py==3.8.0 tables==3.8.0 && \
     # Installer pydantic avec version compatible avec DeepSpeed
-    pip3 install pydantic==1.10.8 && \
+    pip3 install pydantic==2.5.3 && \
     # Installer transformers avec version compatible
-    pip3 install transformers==4.28.1 && \
+    pip3 install transformers==4.35.0 && \
+    # Installer redis et redis-py-cluster avec des versions compatibles
+    pip3 install redis==3.5.3 && \
+    pip3 install redis-py-cluster==2.1.3 && \
     # Installer les dépendances restantes
     pip3 install --no-cache-dir -r requirements.txt && \
     pip3 install pytest pytest-cov pytest-sugar pytest-timeout && \
-    pip3 install --no-cache-dir ray[default]==2.7.1 ray[tune]==2.7.1 && \
-    pip3 install --no-cache-dir pyzmq redis-py-cluster && \
+    pip3 install --no-cache-dir ray[default]==2.10.0 ray[tune]==2.10.0 && \
+    pip3 install --no-cache-dir pyzmq && \
     # Installer les nouvelles dépendances pour la parallélisation avancée
     pip3 install --no-cache-dir dask[complete]==2023.7.0 distributed==2023.7.0 && \
     # Installer les nouvelles dépendances pour le système de tâches asynchrones
-    pip3 install --no-cache-dir celery==5.3.1 flower==2.0.0 kombu==5.3.0 billiard==4.1.0 && \
+    pip3 install --no-cache-dir celery==5.3.1 flower==2.0.0 kombu==5.3.1 billiard==4.1.0 && \
     echo "import numpy as np; print('NumPy Version:', np.__version__)" > /tmp/numpy_check.py && \
     python3 /tmp/numpy_check.py
 

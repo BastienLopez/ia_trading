@@ -154,7 +154,6 @@ services:
 
   # Dask Worker pour la parallélisation avancée
   dask-worker:
-    container_name: ai_trading_dask_worker
     image: ghcr.io/dask/dask:latest
     command: dask worker dask-scheduler:8786
     volumes:
@@ -177,7 +176,6 @@ services:
 
   # Celery Worker pour les tâches asynchrones
   celery-worker:
-    container_name: ai_trading_celery_worker
     build:
       context: ../
       dockerfile: docker/Dockerfile
