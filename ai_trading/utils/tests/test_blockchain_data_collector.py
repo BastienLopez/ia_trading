@@ -2,15 +2,12 @@
 Tests pour le collecteur de données blockchain.
 """
 
-import os
 import sys
 import unittest
-from unittest.mock import patch, MagicMock
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pandas as pd
-import numpy as np
-import pytest
 
 # Ajuster le chemin pour inclure le répertoire racine du projet
 ROOT_DIR = Path(__file__).parent.parent.parent.parent
@@ -26,7 +23,7 @@ class TestBlockchainDataCollector(unittest.TestCase):
         """Initialisation avant chaque test."""
         self.collector = BlockchainDataCollector()
 
-    @patch('ai_trading.utils.blockchain_data_collector.requests.get')
+    @patch("ai_trading.utils.blockchain_data_collector.requests.get")
     def test_make_request(self, mock_get):
         """Teste la méthode _make_request."""
         # Configurer le mock pour la réponse HTTP
@@ -36,13 +33,19 @@ class TestBlockchainDataCollector(unittest.TestCase):
         mock_get.return_value = mock_response
 
         # Appeler la méthode
-        result = self.collector._make_request("https://api.example.com", {"param": "value"})
+        result = self.collector._make_request(
+            "https://api.example.com", {"param": "value"}
+        )
 
         # Vérifier les résultats
         self.assertEqual(result, {"result": "success"})
-        mock_get.assert_called_once_with("https://api.example.com", params={"param": "value"}, headers=None)
+        mock_get.assert_called_once_with(
+            "https://api.example.com", params={"param": "value"}, headers=None
+        )
 
-    @patch('ai_trading.utils.blockchain_data_collector.BlockchainDataCollector._make_request')
+    @patch(
+        "ai_trading.utils.blockchain_data_collector.BlockchainDataCollector._make_request"
+    )
     def test_get_eth_transactions(self, mock_make_request):
         """Teste la méthode get_eth_transactions."""
         # Données de test
@@ -58,9 +61,9 @@ class TestBlockchainDataCollector(unittest.TestCase):
                     "to": "0x987654321fedcba",
                     "value": "1000000000000000000",  # 1 ETH
                     "gasPrice": "20000000000",
-                    "gasUsed": "21000"
+                    "gasUsed": "21000",
                 }
-            ]
+            ],
         }
         mock_make_request.return_value = mock_data
 
@@ -73,7 +76,9 @@ class TestBlockchainDataCollector(unittest.TestCase):
         self.assertEqual(df["hash"].iloc[0], "0x123456789abcdef")
         self.assertEqual(df["ether_value"].iloc[0], 1.0)  # 1 ETH
 
-    @patch('ai_trading.utils.blockchain_data_collector.BlockchainDataCollector._make_request')
+    @patch(
+        "ai_trading.utils.blockchain_data_collector.BlockchainDataCollector._make_request"
+    )
     def test_get_defillama_tvl(self, mock_make_request):
         """Teste la méthode get_defillama_tvl."""
         # Données de test pour la TVL globale
@@ -84,7 +89,7 @@ class TestBlockchainDataCollector(unittest.TestCase):
                 "tvl": 5000000000,
                 "change_1d": 0.05,
                 "change_7d": 0.1,
-                "chains": ["ethereum"]
+                "chains": ["ethereum"],
             },
             {
                 "name": "Aave",
@@ -92,8 +97,8 @@ class TestBlockchainDataCollector(unittest.TestCase):
                 "tvl": 3000000000,
                 "change_1d": 0.02,
                 "change_7d": 0.07,
-                "chains": ["ethereum", "polygon"]
-            }
+                "chains": ["ethereum", "polygon"],
+            },
         ]
         mock_make_request.return_value = mock_data
 
@@ -106,7 +111,9 @@ class TestBlockchainDataCollector(unittest.TestCase):
         self.assertEqual(df["name"].iloc[0], "Uniswap")
         self.assertEqual(df["tvl"].iloc[0], 5000000000)
 
-    @patch('ai_trading.utils.blockchain_data_collector.BlockchainDataCollector._make_request')
+    @patch(
+        "ai_trading.utils.blockchain_data_collector.BlockchainDataCollector._make_request"
+    )
     def test_get_defillama_tvl_protocol(self, mock_make_request):
         """Teste la méthode get_defillama_tvl pour un protocole spécifique."""
         # Données de test pour un protocole spécifique
@@ -115,8 +122,8 @@ class TestBlockchainDataCollector(unittest.TestCase):
             "symbol": "UNI",
             "tvl": [
                 {"date": 1609459200, "totalLiquidityUSD": 1000000000},
-                {"date": 1609545600, "totalLiquidityUSD": 1100000000}
-            ]
+                {"date": 1609545600, "totalLiquidityUSD": 1100000000},
+            ],
         }
         mock_make_request.return_value = mock_data
 
@@ -127,7 +134,9 @@ class TestBlockchainDataCollector(unittest.TestCase):
         # Dans un test plus complet, on simulerait exactement le format attendu
         self.assertTrue(isinstance(df, pd.DataFrame))
 
-    @patch('ai_trading.utils.blockchain_data_collector.BlockchainDataCollector._make_request')
+    @patch(
+        "ai_trading.utils.blockchain_data_collector.BlockchainDataCollector._make_request"
+    )
     def test_get_defillama_pools(self, mock_make_request):
         """Teste la méthode get_defillama_pools."""
         # Données de test
@@ -139,7 +148,7 @@ class TestBlockchainDataCollector(unittest.TestCase):
                     "project": "uniswap",
                     "symbol": "ETH-USDC",
                     "tvlUsd": 100000000,
-                    "apy": 0.05
+                    "apy": 0.05,
                 },
                 {
                     "pool": "0x987654321fedcba",
@@ -147,8 +156,8 @@ class TestBlockchainDataCollector(unittest.TestCase):
                     "project": "uniswap",
                     "symbol": "ETH-DAI",
                     "tvlUsd": 50000000,
-                    "apy": 0.07
-                }
+                    "apy": 0.07,
+                },
             ]
         }
         mock_make_request.return_value = mock_data
@@ -162,7 +171,9 @@ class TestBlockchainDataCollector(unittest.TestCase):
         self.assertEqual(df["pool"].iloc[0], "0x123456789abcdef")
         self.assertEqual(df["tvlUsd"].iloc[0], 100000000)
 
-    @patch('ai_trading.utils.blockchain_data_collector.BlockchainDataCollector._make_request')
+    @patch(
+        "ai_trading.utils.blockchain_data_collector.BlockchainDataCollector._make_request"
+    )
     def test_get_blockchair_stats(self, mock_make_request):
         """Teste la méthode get_blockchair_stats."""
         # Données de test
@@ -172,7 +183,7 @@ class TestBlockchainDataCollector(unittest.TestCase):
                 "transactions": 1500000000,
                 "circulation": 19000000,
                 "difficulty": 30000000000000,
-                "hashrate_24h": 200000000000000000
+                "hashrate_24h": 200000000000000000,
             }
         }
         mock_make_request.return_value = mock_data
@@ -183,7 +194,9 @@ class TestBlockchainDataCollector(unittest.TestCase):
         # Vérifier les résultats
         self.assertEqual(stats, mock_data["data"])
 
-    @patch('ai_trading.utils.blockchain_data_collector.BlockchainDataCollector._make_request')
+    @patch(
+        "ai_trading.utils.blockchain_data_collector.BlockchainDataCollector._make_request"
+    )
     def test_get_staking_data(self, mock_make_request):
         """Teste la méthode get_staking_data."""
         # Données de test
@@ -192,14 +205,14 @@ class TestBlockchainDataCollector(unittest.TestCase):
                 "name": "ethereum",
                 "circulating": 120000000,
                 "staked": 25000000,
-                "staking_ratio": 0.208
+                "staking_ratio": 0.208,
             },
             {
                 "name": "polkadot",
                 "circulating": 1000000000,
                 "staked": 650000000,
-                "staking_ratio": 0.65
-            }
+                "staking_ratio": 0.65,
+            },
         ]
         mock_make_request.return_value = mock_data
 
@@ -211,7 +224,7 @@ class TestBlockchainDataCollector(unittest.TestCase):
         self.assertEqual(df["name"].iloc[0], "ethereum")
         self.assertEqual(df["staking_ratio"].iloc[0], 0.208)
 
-    @patch('requests.post')
+    @patch("requests.post")
     def test_get_governance_data(self, mock_post):
         """Teste la méthode get_governance_data."""
         # Données de test
@@ -230,7 +243,7 @@ class TestBlockchainDataCollector(unittest.TestCase):
                         "scores": [100, 50],
                         "scores_total": 150,
                         "author": "0xabcdef",
-                        "space": {"id": "aave.eth", "name": "Aave"}
+                        "space": {"id": "aave.eth", "name": "Aave"},
                     }
                 ]
             }
@@ -246,12 +259,14 @@ class TestBlockchainDataCollector(unittest.TestCase):
         self.assertEqual(df["title"].iloc[0], "Proposal 1")
         self.assertEqual(df["space"].iloc[0]["name"], "Aave")
 
-    @patch('ai_trading.utils.blockchain_data_collector.BlockchainDataCollector._make_request')
+    @patch(
+        "ai_trading.utils.blockchain_data_collector.BlockchainDataCollector._make_request"
+    )
     def test_get_capital_flows(self, mock_make_request):
         """Teste la méthode get_capital_flows."""
         # Premier appel API
         mock_make_request.return_value = {"tvl": 5000000000}
-        
+
         # Deuxième appel API (global protocols)
         mock_make_request.side_effect = [
             {"tvl": 5000000000},  # Premier appel
@@ -261,16 +276,16 @@ class TestBlockchainDataCollector(unittest.TestCase):
                     "tvl": 5000000000,
                     "change_1d": 250000000,
                     "change_7d": 500000000,
-                    "chains": ["ethereum"]
+                    "chains": ["ethereum"],
                 },
                 {
                     "name": "Aave",
                     "tvl": 3000000000,
                     "change_1d": -150000000,
                     "change_7d": 200000000,
-                    "chains": ["ethereum", "polygon"]
-                }
-            ]
+                    "chains": ["ethereum", "polygon"],
+                },
+            ],
         ]
 
         # Appeler la méthode
@@ -300,7 +315,7 @@ class TestBlockchainDataCollector(unittest.TestCase):
             "value": [1000000000000000000, 2000000000000000000, 3000000000000000000],
             "ether_value": [1.0, 2.0, 3.0],
             "gasPrice": [20000000000, 25000000000, 30000000000],
-            "gasUsed": [21000, 21000, 21000]
+            "gasUsed": [21000, 21000, 21000],
         }
         df = pd.DataFrame(data)
 
@@ -314,37 +329,54 @@ class TestBlockchainDataCollector(unittest.TestCase):
         self.assertEqual(metrics["median_value"], 2.0)
         self.assertEqual(metrics["avg_daily_txs"], 1.5)  # 2 jours, 3 transactions
 
-    @patch('ai_trading.utils.blockchain_data_collector.BlockchainDataCollector.get_blockchair_stats')
-    @patch('ai_trading.utils.blockchain_data_collector.BlockchainDataCollector.get_defillama_tvl')
-    @patch('ai_trading.utils.blockchain_data_collector.BlockchainDataCollector.get_staking_data')
-    @patch('ai_trading.utils.blockchain_data_collector.BlockchainDataCollector.get_defillama_pools')
-    @patch('ai_trading.utils.blockchain_data_collector.BlockchainDataCollector.get_capital_flows')
-    def test_get_combined_blockchain_data(self, mock_flows, mock_pools, mock_staking, mock_tvl, mock_stats):
+    @patch(
+        "ai_trading.utils.blockchain_data_collector.BlockchainDataCollector.get_blockchair_stats"
+    )
+    @patch(
+        "ai_trading.utils.blockchain_data_collector.BlockchainDataCollector.get_defillama_tvl"
+    )
+    @patch(
+        "ai_trading.utils.blockchain_data_collector.BlockchainDataCollector.get_staking_data"
+    )
+    @patch(
+        "ai_trading.utils.blockchain_data_collector.BlockchainDataCollector.get_defillama_pools"
+    )
+    @patch(
+        "ai_trading.utils.blockchain_data_collector.BlockchainDataCollector.get_capital_flows"
+    )
+    def test_get_combined_blockchain_data(
+        self, mock_flows, mock_pools, mock_staking, mock_tvl, mock_stats
+    ):
         """Teste la méthode get_combined_blockchain_data."""
         # Configurer les mocks
         mock_stats.return_value = {"blocks": 15000000, "transactions": 1500000000}
-        
-        mock_tvl.return_value = pd.DataFrame({
-            "name": ["Uniswap", "Aave"],
-            "tvl": [5000000000, 3000000000],
-            "change_1d": [250000000, -150000000]
-        })
-        
-        mock_staking.return_value = pd.DataFrame({
-            "name": ["ethereum"],
-            "staking_ratio": [0.208]
-        })
-        
-        mock_pools.return_value = pd.DataFrame({
-            "pool": ["0x123", "0x456", "0x789"],
-            "tvlUsd": [100000000, 50000000, 25000000]
-        })
-        
-        mock_flows.return_value = pd.DataFrame({
-            "name": ["Uniswap", "Aave"],
-            "flow_1d": [250000000, -150000000],
-            "flow_7d": [500000000, 200000000]
-        })
+
+        mock_tvl.return_value = pd.DataFrame(
+            {
+                "name": ["Uniswap", "Aave"],
+                "tvl": [5000000000, 3000000000],
+                "change_1d": [250000000, -150000000],
+            }
+        )
+
+        mock_staking.return_value = pd.DataFrame(
+            {"name": ["ethereum"], "staking_ratio": [0.208]}
+        )
+
+        mock_pools.return_value = pd.DataFrame(
+            {
+                "pool": ["0x123", "0x456", "0x789"],
+                "tvlUsd": [100000000, 50000000, 25000000],
+            }
+        )
+
+        mock_flows.return_value = pd.DataFrame(
+            {
+                "name": ["Uniswap", "Aave"],
+                "flow_1d": [250000000, -150000000],
+                "flow_7d": [500000000, 200000000],
+            }
+        )
 
         # Appeler la méthode
         df = self.collector.get_combined_blockchain_data()
@@ -356,9 +388,13 @@ class TestBlockchainDataCollector(unittest.TestCase):
         self.assertEqual(df["total_tvl"].iloc[0], 8000000000)
         self.assertEqual(df["staking_ratio"].iloc[0], 0.208)
         self.assertEqual(df["pools_count"].iloc[0], 3)
-        self.assertEqual(df["capital_inflow_24h"].iloc[0], 100000000)  # 250000000 - 150000000
-        self.assertEqual(df["capital_inflow_7d"].iloc[0], 700000000)  # 500000000 + 200000000
+        self.assertEqual(
+            df["capital_inflow_24h"].iloc[0], 100000000
+        )  # 250000000 - 150000000
+        self.assertEqual(
+            df["capital_inflow_7d"].iloc[0], 700000000
+        )  # 500000000 + 200000000
 
 
 if __name__ == "__main__":
-    unittest.main() 
+    unittest.main()

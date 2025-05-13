@@ -7,14 +7,14 @@ Ce package fournit:
 - Quantification de la fiabilité des patterns
 """
 
-from ai_trading.indicators.patterns.cnn_detector import (
-    CNNPatternDetector,
-    ChartPatternType,
-    PatternInstance,
-)
 from ai_trading.indicators.patterns.classical_patterns import (
     ClassicalPatternDetector,
     reliability_score,
+)
+from ai_trading.indicators.patterns.cnn_detector import (
+    ChartPatternType,
+    CNNPatternDetector,
+    PatternInstance,
 )
 
 __all__ = [
@@ -23,4 +23,4 @@ __all__ = [
     "PatternInstance",
     "ClassicalPatternDetector",
     "reliability_score",
-] 
+]

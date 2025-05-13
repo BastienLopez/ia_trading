@@ -138,8 +138,16 @@ class TestDeepSpeedOptimizer(unittest.TestCase):
             mock_optimizer = MagicMock()
             mock_lr_scheduler = MagicMock()
             mock_ds_engine = MagicMock()
-            
-            with patch("deepspeed.initialize", return_value=(mock_model, mock_optimizer, mock_lr_scheduler, mock_ds_engine)):
+
+            with patch(
+                "deepspeed.initialize",
+                return_value=(
+                    mock_model,
+                    mock_optimizer,
+                    mock_lr_scheduler,
+                    mock_ds_engine,
+                ),
+            ):
                 optimizer = DeepSpeedOptimizer(
                     model=self.model,
                     fp16=True,
@@ -148,7 +156,7 @@ class TestDeepSpeedOptimizer(unittest.TestCase):
                     offload_parameters=False,
                     checkpoint_dir=self.temp_dir,
                 )
-                
+
                 # Vérifier que l'optimiseur a été créé correctement
                 self.assertEqual(optimizer.ds_model, mock_model)
                 self.assertEqual(optimizer.ds_optimizer, mock_optimizer)
@@ -160,7 +168,7 @@ class TestDeepSpeedOptimizer(unittest.TestCase):
         else:
             # Au lieu de sauter le test, utiliser le mode stub
             from ai_trading.utils.deepspeed_optimizer import DeepSpeedModelStub
-            
+
             optimizer = DeepSpeedOptimizer(
                 model=self.model,
                 fp16=True,
@@ -169,7 +177,7 @@ class TestDeepSpeedOptimizer(unittest.TestCase):
                 offload_parameters=False,
                 checkpoint_dir=self.temp_dir,
             )
-            
+
             # Vérifier que l'optimiseur a été créé correctement avec le stub
             self.assertIsInstance(optimizer.ds_model, DeepSpeedModelStub)
             self.assertEqual(optimizer.fp16, True)

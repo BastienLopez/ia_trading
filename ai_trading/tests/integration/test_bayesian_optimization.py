@@ -5,24 +5,22 @@ Ce test vérifie le fonctionnement complet de l'optimisation bayésienne
 avec un environnement de trading simplifié et un petit ensemble de données.
 """
 
+import logging
 import os
 import shutil
-import unittest
 import tempfile
-import logging
-from unittest.mock import patch, MagicMock
+import unittest
+from unittest.mock import MagicMock, patch
 
 import numpy as np
-import pandas as pd
 
 from ai_trading.data.synthetic_data_generator import generate_synthetic_market_data
+from ai_trading.rl.agents.sac_agent import SACAgent
 from ai_trading.rl.bayesian_optimizer import (
     BayesianOptimizer,
     optimize_sac_agent_bayesian,
 )
-from ai_trading.rl.agents.sac_agent import SACAgent
 from ai_trading.rl.trading_environment import TradingEnvironment
-
 
 # Désactiver les logs pour les tests
 logging.getLogger("ai_trading.rl.bayesian_optimizer").setLevel(logging.ERROR)
@@ -78,17 +76,21 @@ class TestBayesianOptimizationIntegration(unittest.TestCase):
         }
 
         # Patcher les méthodes qui utilisent matplotlib et l'évaluation des paramètres
-        with patch("ai_trading.rl.bayesian_optimizer.BayesianOptimizer._generate_convergence_plot"), \
-             patch("ai_trading.rl.hyperparameter_optimizer.HyperparameterOptimizer._generate_plots"), \
-             patch("ai_trading.rl.bayesian_optimizer.BayesianOptimizer._evaluate_params") as mock_evaluate:
-            
+        with patch(
+            "ai_trading.rl.bayesian_optimizer.BayesianOptimizer._generate_convergence_plot"
+        ), patch(
+            "ai_trading.rl.hyperparameter_optimizer.HyperparameterOptimizer._generate_plots"
+        ), patch(
+            "ai_trading.rl.bayesian_optimizer.BayesianOptimizer._evaluate_params"
+        ) as mock_evaluate:
+
             # Configurer le mock pour retourner des résultats valides
             mock_evaluate.side_effect = [
                 (0.5, {}, {"total_reward": 100}),
                 (0.7, {}, {"total_reward": 120}),
                 (0.8, {}, {"total_reward": 150}),
             ]
-            
+
             # Créer et exécuter l'optimiseur bayésien avec un nombre minimal d'itérations
             optimizer = BayesianOptimizer(
                 env_creator=self.create_test_environment,
@@ -98,8 +100,8 @@ class TestBayesianOptimizationIntegration(unittest.TestCase):
                 eval_episodes=1,
                 save_dir=self.test_dir,
                 n_initial_points=2,  # Minimum pour ajuster le GP
-                n_iterations=1,      # Une seule itération bayésienne
-                verbose=0,           # Pas de logs
+                n_iterations=1,  # Une seule itération bayésienne
+                verbose=0,  # Pas de logs
             )
 
             # Exécuter l'optimisation
@@ -108,13 +110,13 @@ class TestBayesianOptimizationIntegration(unittest.TestCase):
         # Vérifier que nous avons obtenu des résultats
         self.assertIsNotNone(best_params)
         self.assertIsNotNone(best_score)
-        
+
         # Vérifier que le mock a été appelé le bon nombre de fois
         self.assertEqual(mock_evaluate.call_count, 3)  # 2 points initiaux + 1 itération
-        
+
         # Vérifier que le meilleur score est correct
         self.assertEqual(best_score, 0.8)
-        
+
         # Vérifier que des fichiers de résultats ont été créés
         files = os.listdir(self.test_dir)
         self.assertTrue(any(f.startswith("bayesian_optimization_") for f in files))
@@ -129,15 +131,17 @@ class TestBayesianOptimizationIntegration(unittest.TestCase):
         }
 
         # Mock complet pour optimize_sac_agent_bayesian
-        with patch("ai_trading.rl.bayesian_optimizer.BayesianOptimizer") as mock_optimizer_class:
+        with patch(
+            "ai_trading.rl.bayesian_optimizer.BayesianOptimizer"
+        ) as mock_optimizer_class:
             # Configurer le mock pour retourner un résultat valide
             mock_optimizer = MagicMock()
             mock_optimizer.bayesian_optimization.return_value = (
                 {"learning_rate": 3e-4, "batch_size": 64, "hidden_size": 128},
-                0.8
+                0.8,
             )
             mock_optimizer_class.return_value = mock_optimizer
-            
+
             # Exécuter l'optimisation avec la fonction helper
             best_params = optimize_sac_agent_bayesian(
                 train_data=self.test_data,
@@ -152,11 +156,11 @@ class TestBayesianOptimizationIntegration(unittest.TestCase):
         # Vérifier que nous avons obtenu des résultats
         self.assertIsNotNone(best_params)
         self.assertIsInstance(best_params, dict)
-        
+
         # Vérifier que le mock a été appelé correctement
         mock_optimizer_class.assert_called_once()
         mock_optimizer.bayesian_optimization.assert_called_once()
 
 
 if __name__ == "__main__":
-    unittest.main() 
+    unittest.main()

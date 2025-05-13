@@ -6,11 +6,3 @@ Ce package contient des modules pour:
 - Identifier les évolutions fondamentales (acquisitions, partenariats)
 - Analyser les changements de narratif de marché
 """
-
-from ai_trading.events.critical_events import (
-    CriticalEventDetector, 
-    EventType, 
-    EventSeverity,
-    preprocess_news,
-    filter_news_by_relevance
-) 

@@ -1,1 +1,1 @@
-"""Tests unitaires pour le module d'exécution.""" 
+"""Tests unitaires pour le module d'exécution."""

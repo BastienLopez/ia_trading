@@ -80,4 +80,4 @@ jobs:
 
     - name: Run all tests
       run: |
-        pytest ai_trading/tests/ web_app/tests/ -v -rs
+        pytest ai_trading/tests/  ai_trading/utils/tests/ web_app/tests/ -v -rs

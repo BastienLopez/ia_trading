@@ -5,6 +5,7 @@ import logging
 import pickle
 from pathlib import Path
 from typing import Any
+
 from transformers import pipeline
 
 logger = logging.getLogger(__name__)
@@ -55,5 +56,5 @@ def get_llm_client():
     return pipeline(
         "text-classification",
         model="nlptown/bert-base-multilingual-uncased-sentiment",
-        return_all_scores=True
+        return_all_scores=True,
     )

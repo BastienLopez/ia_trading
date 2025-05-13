@@ -10,14 +10,12 @@ Ce module teste les fonctionnalités de l'optimiseur bayésien, notamment :
 
 import os
 import shutil
-import unittest
-from unittest.mock import Mock, patch, MagicMock
 import tempfile
+import unittest
+from unittest.mock import Mock, patch
 
 import numpy as np
-import pandas as pd
 
-from ai_trading.config import INFO_RETOUR_DIR
 from ai_trading.data.synthetic_data_generator import generate_synthetic_market_data
 from ai_trading.rl.agents.sac_agent import SACAgent
 from ai_trading.rl.bayesian_optimizer import BayesianOptimizer
@@ -52,7 +50,7 @@ class TestBayesianOptimizer(unittest.TestCase):
             "batch_size": (32, 64),
             "hidden_size": (64, 128),
         }
-        
+
         # Définir un espace de paramètres avec des valeurs catégorielles
         self.mixed_param_space = {
             "actor_learning_rate": (1e-4, 1e-3),
@@ -123,14 +121,17 @@ class TestBayesianOptimizer(unittest.TestCase):
         self.assertEqual(vector.shape, (1, 4))
 
         # Vérifier les valeurs normalisées
-        expected = np.array([
+        expected = np.array(
             [
-                (5e-4 - 1e-4) / (1e-3 - 1e-4),  # (5e-4 - 1e-4) / (1e-3 - 1e-4) = 0.444...
-                (1e-4 - 1e-4) / (1e-3 - 1e-4),  # (1e-4 - 1e-4) / (1e-3 - 1e-4) = 0
-                (64 - 32) / (64 - 32),          # (64 - 32) / (64 - 32) = 1
-                (96 - 64) / (128 - 64),         # (96 - 64) / (128 - 64) = 0.5
+                [
+                    (5e-4 - 1e-4)
+                    / (1e-3 - 1e-4),  # (5e-4 - 1e-4) / (1e-3 - 1e-4) = 0.444...
+                    (1e-4 - 1e-4) / (1e-3 - 1e-4),  # (1e-4 - 1e-4) / (1e-3 - 1e-4) = 0
+                    (64 - 32) / (64 - 32),  # (64 - 32) / (64 - 32) = 1
+                    (96 - 64) / (128 - 64),  # (96 - 64) / (128 - 64) = 0.5
+                ]
             ]
-        ])
+        )
         np.testing.assert_almost_equal(vector, expected)
 
     def test_vector_to_param_dict_numeric(self):
@@ -152,11 +153,11 @@ class TestBayesianOptimizer(unittest.TestCase):
         # Vérifier les valeurs dénormalisées
         expected = {
             "actor_learning_rate": 5.5e-4,  # 1e-4 + 0.5 * (1e-3 - 1e-4)
-            "critic_learning_rate": 1e-4,   # 1e-4 + 0.0 * (1e-3 - 1e-4)
-            "batch_size": 64,               # 32 + 1.0 * (64 - 32)
-            "hidden_size": 96,              # 64 + 0.5 * (128 - 64)
+            "critic_learning_rate": 1e-4,  # 1e-4 + 0.0 * (1e-3 - 1e-4)
+            "batch_size": 64,  # 32 + 1.0 * (64 - 32)
+            "hidden_size": 96,  # 64 + 0.5 * (128 - 64)
         }
-        
+
         # Vérifier chaque valeur avec une tolérance pour les flottants
         for key, value in expected.items():
             self.assertAlmostEqual(param_dict[key], value, places=6)
@@ -174,8 +175,8 @@ class TestBayesianOptimizer(unittest.TestCase):
         # Créer un dictionnaire de paramètres
         param_dict = {
             "actor_learning_rate": 5e-4,  # Milieu de l'intervalle
-            "activation": "tanh",         # Deuxième option
-            "batch_size": 48,             # Entre min et max
+            "activation": "tanh",  # Deuxième option
+            "batch_size": 48,  # Entre min et max
         }
 
         # Convertir en vecteur
@@ -185,15 +186,18 @@ class TestBayesianOptimizer(unittest.TestCase):
         self.assertEqual(vector.shape, (1, 5))
 
         # Vérifier les valeurs (one-hot pour "activation")
-        expected = np.array([
+        expected = np.array(
             [
-                (5e-4 - 1e-4) / (1e-3 - 1e-4),  # actor_learning_rate normalisé = 0.444...
-                0.0,                            # activation="relu" (faux)
-                1.0,                            # activation="tanh" (vrai)
-                0.0,                            # activation="elu" (faux)
-                (48 - 32) / (64 - 32),          # batch_size normalisé = 0.5
+                [
+                    (5e-4 - 1e-4)
+                    / (1e-3 - 1e-4),  # actor_learning_rate normalisé = 0.444...
+                    0.0,  # activation="relu" (faux)
+                    1.0,  # activation="tanh" (vrai)
+                    0.0,  # activation="elu" (faux)
+                    (48 - 32) / (64 - 32),  # batch_size normalisé = 0.5
+                ]
             ]
-        ])
+        )
         np.testing.assert_almost_equal(vector, expected)
 
     def test_vector_to_param_dict_mixed(self):
@@ -215,10 +219,10 @@ class TestBayesianOptimizer(unittest.TestCase):
         # Vérifier les valeurs
         expected = {
             "actor_learning_rate": 5.5e-4,  # 1e-4 + 0.5 * (1e-3 - 1e-4)
-            "activation": "tanh",           # Deuxième option (indice 1)
-            "batch_size": 48,               # 32 + 0.5 * (64 - 32)
+            "activation": "tanh",  # Deuxième option (indice 1)
+            "batch_size": 48,  # 32 + 0.5 * (64 - 32)
         }
-        
+
         # Vérifier chaque valeur
         for key, value in expected.items():
             if key == "activation":
@@ -272,7 +276,7 @@ class TestBayesianOptimizer(unittest.TestCase):
 
         # Vérifier que le modèle a été appelé correctement
         mock_model.predict.assert_called_once()
-        
+
         # L'amélioration espérée devrait être positive
         self.assertGreater(ei, 0)
 
@@ -281,16 +285,41 @@ class TestBayesianOptimizer(unittest.TestCase):
     @patch("ai_trading.rl.bayesian_optimizer.BayesianOptimizer._find_next_point")
     @patch("ai_trading.rl.bayesian_optimizer.BayesianOptimizer._sample_random_params")
     @patch("ai_trading.rl.bayesian_optimizer.BayesianOptimizer._save_results")
-    @patch("ai_trading.rl.bayesian_optimizer.BayesianOptimizer._generate_convergence_plot")
-    def test_bayesian_optimization(self, mock_generate_plot, mock_save_results, mock_sample, mock_find_next, mock_fit_gp, mock_evaluate):
+    @patch(
+        "ai_trading.rl.bayesian_optimizer.BayesianOptimizer._generate_convergence_plot"
+    )
+    def test_bayesian_optimization(
+        self,
+        mock_generate_plot,
+        mock_save_results,
+        mock_sample,
+        mock_find_next,
+        mock_fit_gp,
+        mock_evaluate,
+    ):
         """Tester le processus complet d'optimisation bayésienne."""
         # Configurer les mocks
         mock_sample.side_effect = [
-            {"actor_learning_rate": 5e-4, "critic_learning_rate": 5e-4, "batch_size": 48, "hidden_size": 96},
-            {"actor_learning_rate": 8e-4, "critic_learning_rate": 3e-4, "batch_size": 32, "hidden_size": 128},
+            {
+                "actor_learning_rate": 5e-4,
+                "critic_learning_rate": 5e-4,
+                "batch_size": 48,
+                "hidden_size": 96,
+            },
+            {
+                "actor_learning_rate": 8e-4,
+                "critic_learning_rate": 3e-4,
+                "batch_size": 32,
+                "hidden_size": 128,
+            },
         ]
         mock_find_next.side_effect = [
-            {"actor_learning_rate": 7e-4, "critic_learning_rate": 7e-4, "batch_size": 64, "hidden_size": 64},
+            {
+                "actor_learning_rate": 7e-4,
+                "critic_learning_rate": 7e-4,
+                "batch_size": 64,
+                "hidden_size": 64,
+            },
         ]
         mock_evaluate.side_effect = [
             (0.5, {}, {"total_reward": 100}),
@@ -318,7 +347,9 @@ class TestBayesianOptimizer(unittest.TestCase):
         # Vérifier les appels
         self.assertEqual(mock_sample.call_count, 2)  # 2 points initiaux
         self.assertEqual(mock_find_next.call_count, 1)  # 1 itération
-        self.assertEqual(mock_fit_gp.call_count, 1)  # 1 fois avant de trouver le prochain point
+        self.assertEqual(
+            mock_fit_gp.call_count, 1
+        )  # 1 fois avant de trouver le prochain point
         self.assertEqual(mock_evaluate.call_count, 3)  # 2 points initiaux + 1 itération
         self.assertEqual(mock_save_results.call_count, 1)  # Appelé une fois à la fin
         self.assertEqual(mock_generate_plot.call_count, 1)  # Appelé une fois à la fin
@@ -332,11 +363,11 @@ class TestBayesianOptimizer(unittest.TestCase):
     def test_optimize_sac_agent_bayesian(self, mock_optimize):
         """Tester la fonction helper optimize_sac_agent_bayesian."""
         from ai_trading.rl.bayesian_optimizer import optimize_sac_agent_bayesian
-        
+
         # Configurer le mock
         expected_params = {"actor_learning_rate": 5e-4, "batch_size": 64}
         mock_optimize.return_value = expected_params
-        
+
         # Appeler la fonction
         result = optimize_sac_agent_bayesian(
             train_data=self.test_data,
@@ -344,7 +375,7 @@ class TestBayesianOptimizer(unittest.TestCase):
             eval_episodes=1,
             save_dir=self.test_dir,
         )
-        
+
         # Vérifier le résultat
         self.assertEqual(result, expected_params)
         mock_optimize.assert_called_once()
@@ -353,11 +384,15 @@ class TestBayesianOptimizer(unittest.TestCase):
     def test_optimize_gru_sac_agent_bayesian(self, mock_optimize):
         """Tester la fonction helper optimize_gru_sac_agent_bayesian."""
         from ai_trading.rl.bayesian_optimizer import optimize_gru_sac_agent_bayesian
-        
+
         # Configurer le mock
-        expected_params = {"actor_learning_rate": 5e-4, "batch_size": 64, "use_gru": True}
+        expected_params = {
+            "actor_learning_rate": 5e-4,
+            "batch_size": 64,
+            "use_gru": True,
+        }
         mock_optimize.return_value = expected_params
-        
+
         # Appeler la fonction
         result = optimize_gru_sac_agent_bayesian(
             train_data=self.test_data,
@@ -365,11 +400,11 @@ class TestBayesianOptimizer(unittest.TestCase):
             eval_episodes=1,
             save_dir=self.test_dir,
         )
-        
+
         # Vérifier le résultat
         self.assertEqual(result, expected_params)
         mock_optimize.assert_called_once()
 
 
 if __name__ == "__main__":
-    unittest.main() 
+    unittest.main()

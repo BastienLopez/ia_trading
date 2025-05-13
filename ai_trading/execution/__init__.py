@@ -6,68 +6,64 @@ afin d'optimiser l'exécution en fonction des conditions de marché.
 """
 
 from .adaptive_execution import (
-    ExecutionStrategy, 
-    ExecutionMode,
+    AdaptiveExecutionStrategy,
     AdaptiveExecutor,
-    PassiveExecutionStrategy,
-    NormalExecutionStrategy,
     AggressiveExecutionStrategy,
-    AdaptiveExecutionStrategy
+    ExecutionMode,
+    ExecutionStrategy,
+    NormalExecutionStrategy,
+    PassiveExecutionStrategy,
 )
-
+from .risk_manager import (
+    DrawdownControl,
+    DynamicStopLoss,
+    ExposureManager,
+    RiskConfig,
+    RiskLevel,
+    RiskManager,
+    StopLossConfig,
+    StopType,
+)
 from .smart_routing import (
-    ExchangeVenue,
-    ExchangePriority,
+    BestLiquidityStrategy,
     ExchangeInfo,
+    ExchangePriority,
+    ExchangeVenue,
+    FastestExecutionStrategy,
+    LowestFeeStrategy,
     OrderRoutingStrategy,
     SmartRouter,
-    LowestFeeStrategy,
-    BestLiquidityStrategy,
-    FastestExecutionStrategy,
-    SmartRoutingStrategy
-)
-
-from .risk_manager import (
-    StopType,
-    RiskLevel,
-    StopLossConfig,
-    RiskConfig,
-    DynamicStopLoss,
-    DrawdownControl,
-    ExposureManager,
-    RiskManager
+    SmartRoutingStrategy,
 )
 
 __all__ = [
     # Exécution adaptative
-    'ExecutionStrategy',
-    'ExecutionMode',
-    'AdaptiveExecutor',
-    'PassiveExecutionStrategy',
-    'NormalExecutionStrategy',
-    'AggressiveExecutionStrategy',
-    'AdaptiveExecutionStrategy',
-    
+    "ExecutionStrategy",
+    "ExecutionMode",
+    "AdaptiveExecutor",
+    "PassiveExecutionStrategy",
+    "NormalExecutionStrategy",
+    "AggressiveExecutionStrategy",
+    "AdaptiveExecutionStrategy",
     # Routage intelligent
-    'ExchangeVenue',
-    'ExchangePriority',
-    'ExchangeInfo',
-    'OrderRoutingStrategy',
-    'SmartRouter',
-    'LowestFeeStrategy',
-    'BestLiquidityStrategy',
-    'FastestExecutionStrategy',
-    'SmartRoutingStrategy',
-    
+    "ExchangeVenue",
+    "ExchangePriority",
+    "ExchangeInfo",
+    "OrderRoutingStrategy",
+    "SmartRouter",
+    "LowestFeeStrategy",
+    "BestLiquidityStrategy",
+    "FastestExecutionStrategy",
+    "SmartRoutingStrategy",
     # Gestion avancée du risque
-    'StopType',
-    'RiskLevel',
-    'StopLossConfig',
-    'RiskConfig',
-    'DynamicStopLoss',
-    'DrawdownControl',
-    'ExposureManager',
-    'RiskManager'
+    "StopType",
+    "RiskLevel",
+    "StopLossConfig",
+    "RiskConfig",
+    "DynamicStopLoss",
+    "DrawdownControl",
+    "ExposureManager",
+    "RiskManager",
 ]
 
 # Ces modules seront implémentés ultérieurement
