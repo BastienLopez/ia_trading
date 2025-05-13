@@ -781,13 +781,12 @@ class DataCache(SmartCache):
             if not isinstance(data, pd.DataFrame):
                 return False, "Les données ne sont pas un DataFrame"
 
-            # Si c'est une source "dummy" générée de manière déterministe
-            if (
-                "source" in metadata
-                and metadata["source"] == "dummy"
-                and metadata.get("deterministic", False) is True
-            ):
-                # Vérifier le checksum stocké pour validité
+            # Si c'est une source "dummy" déterministe
+            if "source" in metadata and metadata["source"] == "dummy" and metadata.get("deterministic", False) is True:
+                if "seed_hash" not in metadata:
+                    return False, "Données déterministes sans seed_hash"
+                
+                # Pour les données déterministes, la validation du checksum est suffisante
                 current_checksum = self._calculate_data_checksum(data)
                 stored_checksum = metadata.get("checksum")
                 
@@ -796,6 +795,16 @@ class DataCache(SmartCache):
                         False,
                         f"Checksum incohérent: {current_checksum} != {stored_checksum}",
                     )
+                
+                # Vérifier le nombre de lignes
+                if len(data) != metadata.get("row_count", 0):
+                    return (
+                        False,
+                        f"Nombre de lignes incohérent: {len(data)} vs {metadata.get('row_count')}",
+                    )
+                
+                # Si on arrive ici avec des données déterministes, tout est ok
+                return True, None
             else:
                 # Vérifier la cohérence des données standard
                 current_checksum = self._calculate_data_checksum(data)
@@ -807,31 +816,31 @@ class DataCache(SmartCache):
                         f"Checksum incohérent: {current_checksum} != {stored_checksum}",
                     )
 
-            # Vérifier le nombre de lignes
-            if len(data) != metadata.get("row_count", 0):
-                return (
-                    False,
-                    f"Nombre de lignes incohérent: {len(data)} vs {metadata.get('row_count')}",
-                )
-
-            # Vérifier les dates si c'est une série temporelle
-            if "date" in data.columns:
-                min_date = data["date"].min()
-                max_date = data["date"].max()
-
-                if min_date > metadata.get("start_date", min_date):
+                # Vérifier le nombre de lignes
+                if len(data) != metadata.get("row_count", 0):
                     return (
                         False,
-                        f"Date de début incohérente: {min_date} > {metadata.get('start_date')}",
+                        f"Nombre de lignes incohérent: {len(data)} vs {metadata.get('row_count')}",
                     )
 
-                if max_date < metadata.get("end_date", max_date):
-                    return (
-                        False,
-                        f"Date de fin incohérente: {max_date} < {metadata.get('end_date')}",
-                    )
+                # Vérifier les dates si c'est une série temporelle
+                if "date" in data.columns:
+                    min_date = data["date"].min()
+                    max_date = data["date"].max()
 
-            return True, None
+                    if min_date > metadata.get("start_date", min_date):
+                        return (
+                            False,
+                            f"Date de début incohérente: {min_date} > {metadata.get('start_date')}",
+                        )
+
+                    if max_date < metadata.get("end_date", max_date):
+                        return (
+                            False,
+                            f"Date de fin incohérente: {max_date} < {metadata.get('end_date')}",
+                        )
+
+                return True, None
 
     def _preload_task(self) -> None:
         """Tâche de préchargement basée sur les patterns d'accès."""
