@@ -533,41 +533,99 @@ class DataCache(SmartCache):
                 if (len(filtered_data) > 0 and 
                     data_start is not None and data_start <= start_date and 
                     data_end is not None and data_end >= end_date):
+                    # Assurons-nous de retourner une copie pour éviter les modifications accidentelles
                     return filtered_data.copy()
 
         # Si les données ne sont pas dans le cache ou sont incomplètes
         if source in self.data_sources:
             # Charger les données depuis la source
             data_loader = self.data_sources[source]
-            # Fixer la seed pour assurer que le générateur renvoie les mêmes données
-            if source == "dummy" and hasattr(np.random, "seed"):
-                # Utiliser une seed basée sur la clé pour la reproductibilité
-                np.random.seed(hash(cache_key) % 2**32)
             
-            data = data_loader(symbol, start_date, end_date, interval)
-            
-            # Stocker dans le cache
-            self.set(cache_key, data.copy())
+            # Pour sources de test/développement, garantir des résultats cohérents
+            if source == "dummy":
+                # Créer une seed déterministe basée sur les paramètres immutables de la requête
+                # Utiliser uniquement des chaînes sans timestamp pour garantir la même seed à chaque appel
+                seed_components = [
+                    symbol,
+                    interval,
+                    str(start_date.date()),  # Utiliser seulement la date, pas l'heure
+                    str(end_date.date()),
+                    source
+                ]
+                seed_str = ":".join(seed_components)
+                
+                # Calculer un hash déterministe pour la seed
+                seed_value = int(hashlib.md5(seed_str.encode()).hexdigest(), 16) % (2**32)
+                
+                # Sauvegarde de l'état aléatoire actuel
+                original_state = np.random.get_state() if hasattr(np.random, "get_state") else None
+                
+                try:
+                    # Définir une seed fixe pour obtenir les mêmes données à chaque appel
+                    np.random.seed(seed_value)
+                    
+                    # Générer les données
+                    data = data_loader(symbol, start_date, end_date, interval)
+                    
+                    # Assurons-nous d'avoir une copie propre des données
+                    data = data.copy()
+                    
+                    # Stocker une copie des données dans le cache
+                    self.set(cache_key, data.copy())
+                    
+                    # Enregistrer les métadonnées pour la validation de cohérence
+                    checksum = self._calculate_data_checksum(data)
+                    self._update_metadata(
+                        cache_key,
+                        {
+                            "symbol": symbol,
+                            "interval": interval,
+                            "source": source,
+                            "last_update": datetime.now(),
+                            "start_date": start_date,
+                            "end_date": end_date,
+                            "row_count": len(data),
+                            "checksum": checksum,
+                            "seed_value": seed_value,  # Stocker la seed pour référence future
+                        },
+                    )
+                    
+                    # Filtrer selon la plage demandée
+                    if isinstance(data, pd.DataFrame) and "date" in data.columns:
+                        return data[(data["date"] >= start_date) & (data["date"] <= end_date)].copy()
+                    
+                    return data.copy()
+                finally:
+                    # Restaurer l'état aléatoire précédent
+                    if original_state is not None:
+                        np.random.set_state(original_state)
+            else:
+                # Pour les sources réelles, pas besoin de gérer la seed
+                data = data_loader(symbol, start_date, end_date, interval)
+                
+                # Stocker une copie des données dans le cache
+                self.set(cache_key, data.copy())
+                
+                # Enregistrer les métadonnées pour la validation de cohérence
+                self._update_metadata(
+                    cache_key,
+                    {
+                        "symbol": symbol,
+                        "interval": interval,
+                        "source": source,
+                        "last_update": datetime.now(),
+                        "start_date": start_date,
+                        "end_date": end_date,
+                        "row_count": len(data),
+                        "checksum": self._calculate_data_checksum(data),
+                    },
+                )
 
-            # Enregistrer les métadonnées pour la validation de cohérence
-            self._update_metadata(
-                cache_key,
-                {
-                    "symbol": symbol,
-                    "interval": interval,
-                    "source": source,
-                    "last_update": datetime.now(),
-                    "start_date": start_date,
-                    "end_date": end_date,
-                    "row_count": len(data),
-                },
-            )
+                # Filtrer selon la plage demandée
+                if isinstance(data, pd.DataFrame) and "date" in data.columns:
+                    return data[(data["date"] >= start_date) & (data["date"] <= end_date)].copy()
 
-            # Filtrer selon la plage demandée
-            if isinstance(data, pd.DataFrame) and "date" in data.columns:
-                return data[(data["date"] >= start_date) & (data["date"] <= end_date)].copy()
-
-            return data.copy()
+                return data.copy()
 
         # Si la source n'est pas disponible
         logger.warning(f"Source de données '{source}' non disponible")
@@ -655,6 +713,111 @@ class DataCache(SmartCache):
         """
         with self.lock:
             self.metadata[key] = metadata
+            
+    def _calculate_data_checksum(self, data: Any) -> str:
+        """
+        Calcule une somme de contrôle des données pour validation.
+        
+        Args:
+            data: Données à vérifier
+            
+        Returns:
+            str: Checksum des données
+        """
+        if isinstance(data, pd.DataFrame):
+            # Pour les DataFrames, utiliser une représentation stable
+            try:
+                # Utiliser les valeurs et l'en-tête pour calculer un hash cohérent
+                serialized = pickle.dumps((data.columns.tolist(), data.values.tolist()))
+                return hashlib.md5(serialized).hexdigest()
+            except:
+                pass
+        
+        # Pour les autres types de données ou en cas d'erreur
+        try:
+            return hashlib.md5(pickle.dumps(data)).hexdigest()
+        except:
+            # Si la sérialisation échoue, utiliser une méthode de secours
+            return str(id(data))
+
+    def validate_data(self, key: str) -> Tuple[bool, Optional[str]]:
+        """
+        Valide la cohérence des données en cache.
+
+        Args:
+            key: Clé à valider
+
+        Returns:
+            Tuple[bool, Optional[str]]: (valide, message d'erreur)
+        """
+        with self.lock:
+            # Vérifier si les métadonnées existent
+            if key not in self.metadata:
+                return False, "Pas de métadonnées disponibles"
+
+            # Vérifier si les données existent
+            if key not in self.cache:
+                return False, "Données non présentes dans le cache"
+
+            # Récupérer les données et métadonnées
+            _, compressed, value = self.cache[key]
+            metadata = self.metadata[key]
+
+            # Décompresser si nécessaire
+            data = self._decompress(value) if compressed else value
+
+            # Vérifier le type de données
+            if not isinstance(data, pd.DataFrame):
+                return False, "Les données ne sont pas un DataFrame"
+
+            # Si c'est une source "dummy" générée aléatoirement, régénérer avec la même seed pour validation
+            if "source" in metadata and metadata["source"] == "dummy" and "seed_value" in metadata:
+                # Pour les tests, nous régénérons les données avec la même seed pour validation
+                seed_value = metadata["seed_value"]
+                symbol = metadata.get("symbol", "")
+                interval = metadata.get("interval", "")
+                start_date = metadata.get("start_date")
+                end_date = metadata.get("end_date")
+                
+                # Nous pouvons vérifier directement le checksum stocké
+                current_checksum = self._calculate_data_checksum(data)
+                stored_checksum = metadata.get("checksum")
+                
+                if stored_checksum and current_checksum != stored_checksum:
+                    return False, f"Checksum incohérent: {current_checksum} != {stored_checksum}"
+            else:
+                # Vérifier la cohérence des données standard
+                current_checksum = self._calculate_data_checksum(data)
+                stored_checksum = metadata.get("checksum")
+                
+                if stored_checksum and current_checksum != stored_checksum:
+                    return False, f"Checksum incohérent: {current_checksum} != {stored_checksum}"
+
+            # Vérifier le nombre de lignes
+            if len(data) != metadata.get("row_count", 0):
+                return (
+                    False,
+                    f"Nombre de lignes incohérent: {len(data)} vs {metadata.get('row_count')}",
+                )
+
+            # Vérifier les dates si c'est une série temporelle
+            if "date" in data.columns:
+                min_date = data["date"].min()
+                max_date = data["date"].max()
+
+                if min_date > metadata.get("start_date", min_date):
+                    return (
+                        False,
+                        f"Date de début incohérente: {min_date} > {metadata.get('start_date')}",
+                    )
+
+                if max_date < metadata.get("end_date", max_date):
+                    return (
+                        False,
+                        f"Date de fin incohérente: {max_date} < {metadata.get('end_date')}",
+                    )
+
+            return True, None
 
     def _preload_task(self) -> None:
         """Tâche de préchargement basée sur les patterns d'accès."""
@@ -718,59 +881,3 @@ class DataCache(SmartCache):
                                 logger.error(
                                     f"Erreur lors du préchargement de {key}: {e}"
                                 )
-
-    def validate_data(self, key: str) -> Tuple[bool, Optional[str]]:
-        """
-        Valide la cohérence des données en cache.
-
-        Args:
-            key: Clé à valider
-
-        Returns:
-            Tuple[bool, Optional[str]]: (valide, message d'erreur)
-        """
-        with self.lock:
-            # Vérifier si les métadonnées existent
-            if key not in self.metadata:
-                return False, "Pas de métadonnées disponibles"
-
-            # Vérifier si les données existent
-            if key not in self.cache:
-                return False, "Données non présentes dans le cache"
-
-            # Récupérer les données et métadonnées
-            _, compressed, value = self.cache[key]
-            metadata = self.metadata[key]
-
-            # Décompresser si nécessaire
-            data = self._decompress(value) if compressed else value
-
-            # Vérifier le type de données
-            if not isinstance(data, pd.DataFrame):
-                return False, "Les données ne sont pas un DataFrame"
-
-            # Vérifier la cohérence
-            if len(data) != metadata.get("row_count", 0):
-                return (
-                    False,
-                    f"Nombre de lignes incohérent: {len(data)} vs {metadata.get('row_count')}",
-                )
-
-            # Vérifier les dates si c'est une série temporelle
-            if "date" in data.columns:
-                min_date = data["date"].min()
-                max_date = data["date"].max()
-
-                if min_date > metadata.get("start_date", min_date):
-                    return (
-                        False,
-                        f"Date de début incohérente: {min_date} > {metadata.get('start_date')}",
-                    )
-
-                if max_date < metadata.get("end_date", max_date):
-                    return (
-                        False,
-                        f"Date de fin incohérente: {max_date} < {metadata.get('end_date')}",
-                    )
-
-            return True, None
