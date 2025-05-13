@@ -1,20 +1,20 @@
 {
     "2": {
-        "student_mse": 0.18944184482097626,
+        "student_mse": 0.18737126886844635,
         "teacher_mse": 0.190813809633255,
-        "student_inference_time": 0.0032000064849853514,
-        "teacher_inference_time": 0.14820280075073242,
-        "speed_improvement": 46.313281378056594,
+        "student_inference_time": 0.0037102699279785156,
+        "teacher_inference_time": 0.3056151866912842,
+        "speed_improvement": 82.37006811463822,
         "student_parameters": 71921.0,
         "teacher_parameters": 565537.0,
         "size_reduction": 7.863308352219796
     },
     "4": {
-        "student_mse": 0.1904420405626297,
+        "student_mse": 0.18891432881355286,
         "teacher_mse": 0.190813809633255,
-        "student_inference_time": 0.001999664306640625,
-        "teacher_inference_time": 0.14520044326782228,
-        "speed_improvement": 72.61240938573064,
+        "student_inference_time": 0.002343893051147461,
+        "teacher_inference_time": 0.29684767723083494,
+        "speed_improvement": 126.64727901535957,
         "student_parameters": 18393.0,
         "teacher_parameters": 565537.0,
         "size_reduction": 30.747403903659002

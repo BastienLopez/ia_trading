@@ -352,7 +352,13 @@ Ce module contient l'implémentation d'un système de trading de cryptomonnaies 
   - Gestion des pics
   - Optimisation des coûts
 
-### Phase 9: Integration plateforme réelles
+### Phase 9: Integration de données réelles
+  - [ ] Intégration tt les modules dans un pipeline complet d’entraînement 
+  - [ ] Documentation d’utilisation de la pipeline
+  - [ ] Utilisation de données réelles
+
+
+### Phase 10: Integration plateforme réelles
   - [ ] Connexion avec exchanges
   - [ ] Mode paper trading
   - [ ] Système d'alerte et monitoring

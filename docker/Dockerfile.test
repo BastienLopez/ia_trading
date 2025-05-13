@@ -185,7 +185,7 @@ RUN echo "import os" > /app/run_tests.py && \
     echo "    test_args.append(f'--ignore={test}')" >> /app/run_tests.py && \
     echo "" >> /app/run_tests.py && \
     echo "# Ajouter les chemins des répertoires de test et un paramètre pour force-activer le test HDF5" >> /app/run_tests.py && \
-    echo "test_args.extend(['ai_trading/tests/', 'web_app/tests/', '-v', '--no-header'])" >> /app/run_tests.py && \
+    echo "test_args.extend(['ai_trading/tests/','ai_trading/utils/tests/', 'web_app/tests/', '-v', '--no-header'])" >> /app/run_tests.py && \
     echo "exit_code = main(test_args)" >> /app/run_tests.py && \
     echo "sys.exit(exit_code)" >> /app/run_tests.py
 
