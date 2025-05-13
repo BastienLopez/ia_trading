@@ -11,6 +11,10 @@ python -m ai_trading.dashboard.run
 # Test RL PASSED OR FAILED en ligne
 ```bash	
 python -m pytest ai_trading/tests/ -v -rs 
+
+python -m pytest ai_trading/utils/tests/ -v -rs 
+
+python -m pytest ai_trading/rl/tests/ -v -rs 
 ```
 # Stop si erreurs 
 ```bash	

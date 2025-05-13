@@ -60,7 +60,11 @@ RUN pip3 install --upgrade pip && \
     pip3 install --no-cache-dir -r requirements.txt && \
     pip3 install pytest pytest-cov pytest-sugar pytest-timeout && \
     pip3 install --no-cache-dir ray[default]==2.7.1 ray[tune]==2.7.1 && \
-    pip3 install --no-cache-dir pyzmq && \
+    pip3 install --no-cache-dir pyzmq redis-py-cluster && \
+    # Installer les nouvelles dépendances pour la parallélisation avancée
+    pip3 install --no-cache-dir dask[complete]==2023.7.0 distributed==2023.7.0 && \
+    # Installer les nouvelles dépendances pour le système de tâches asynchrones
+    pip3 install --no-cache-dir celery==5.3.1 flower==2.0.0 kombu==5.3.0 billiard==4.1.0 && \
     echo "import numpy as np; print('NumPy Version:', np.__version__)" > /tmp/numpy_check.py && \
     python3 /tmp/numpy_check.py
 

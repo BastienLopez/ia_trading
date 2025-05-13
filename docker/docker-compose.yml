@@ -116,6 +116,126 @@ services:
       timeout: 5s
       retries: 5
 
+  # Redis Cluster pour le cache distribué (mode préfixe - configuration minimale)
+  redis-cluster:
+    container_name: ai_trading_redis_cluster
+    image: grokzen/redis-cluster:7.0.0
+    environment:
+      - IP=0.0.0.0
+      - INITIAL_PORT=7000
+      - MASTERS=3
+      - SLAVES_PER_MASTER=1
+    ports:
+      - "7000-7005:7000-7005"
+    volumes:
+      - redis_cluster_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-h", "127.0.0.1", "-p", "7000", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  
+  # Dask Scheduler pour la parallélisation avancée
+  dask-scheduler:
+    container_name: ai_trading_dask_scheduler
+    image: ghcr.io/dask/dask:latest
+    ports:
+      - "8786:8786"  # Port du scheduler
+      - "8787:8787"  # Port du dashboard
+    command: dask scheduler
+    volumes:
+      - dask_data:/dask
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8787/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # Dask Worker pour la parallélisation avancée
+  dask-worker:
+    container_name: ai_trading_dask_worker
+    image: ghcr.io/dask/dask:latest
+    command: dask worker dask-scheduler:8786
+    volumes:
+      - dask_data:/dask
+    depends_on:
+      - dask-scheduler
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          cpus: "2"
+          memory: 4G
+    environment:
+      - PYTHONPATH=/dask
+      - OMP_NUM_THREADS=1
+      - OPENBLAS_NUM_THREADS=1
+      - MKL_NUM_THREADS=1
+      - VECLIB_MAXIMUM_THREADS=1
+      - NUMEXPR_NUM_THREADS=1
+
+  # Celery Worker pour les tâches asynchrones
+  celery-worker:
+    container_name: ai_trading_celery_worker
+    build:
+      context: ../
+      dockerfile: docker/Dockerfile
+    volumes:
+      - ../:/app
+    depends_on:
+      - redis
+      - db
+    command: celery -A ai_trading.utils.async_task_manager worker --loglevel=info
+    environment:
+      - PYTHONPATH=/app
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          cpus: "2"
+          memory: 4G
+
+  # Celery Beat pour les tâches planifiées
+  celery-beat:
+    container_name: ai_trading_celery_beat
+    build:
+      context: ../
+      dockerfile: docker/Dockerfile
+    volumes:
+      - ../:/app
+    depends_on:
+      - redis
+      - celery-worker
+    command: celery -A ai_trading.utils.async_task_manager beat --loglevel=info
+    environment:
+      - PYTHONPATH=/app
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+
+  # Flower pour le monitoring de Celery
+  flower:
+    container_name: ai_trading_flower
+    build:
+      context: ../
+      dockerfile: docker/Dockerfile
+    volumes:
+      - ../:/app
+    ports:
+      - "5555:5555"
+    depends_on:
+      - celery-worker
+      - redis
+    command: flower -A ai_trading.utils.async_task_manager --port=5555 --broker=redis://redis:6379/1
+    environment:
+      - PYTHONPATH=/app
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+
 volumes:
   postgres_data:
-  redis_data: 
+  redis_data:
+  redis_cluster_data:
+  dask_data: 

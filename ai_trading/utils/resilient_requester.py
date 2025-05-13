@@ -69,25 +69,30 @@ class CircuitBreaker:
             bool: True si la requête est autorisée, False sinon
         """
         with self._lock:
+            # En état fermé, toujours autoriser les requêtes
             if self.state == CircuitState.CLOSED:
                 return True
             
+            # En état ouvert, vérifier si le temps de récupération est écoulé
             if self.state == CircuitState.OPEN:
-                # Vérifier si le temps de récupération est écoulé
                 if self.last_failure_time and (datetime.now() - self.last_failure_time).total_seconds() >= self.recovery_timeout:
                     logger.info("Circuit passant en état semi-ouvert après le temps de récupération")
                     self.state = CircuitState.HALF_OPEN
-                    self.half_open_calls = 0
-                    return True
-                return False
+                    self.half_open_calls = 0  # Réinitialiser le compteur d'appels
+                    return True  # Autoriser cette première requête après le timeout
+                return False  # Sinon, bloquer les requêtes
             
+            # En état semi-ouvert, limiter le nombre de requêtes
             if self.state == CircuitState.HALF_OPEN:
-                # Limiter le nombre d'appels en état semi-ouvert
-                if self.half_open_calls < self.half_open_max_calls:
-                    self.half_open_calls += 1
-                    return True
-                return False
+                # Si on a déjà atteint ou dépassé le nombre max d'appels, refuser de nouveaux appels
+                if self.half_open_calls >= self.half_open_max_calls:
+                    return False
+                
+                # Sinon, incrémenter le compteur et autoriser la requête
+                self.half_open_calls += 1
+                return True
             
+            # Par défaut, autoriser (ne devrait jamais arriver)
             return False
     
     def record_success(self) -> None:
@@ -194,7 +199,7 @@ class PerformanceMetrics:
             # Calculer les statistiques de temps de réponse
             if self.response_times:
                 metrics.update({
-                    "avg_response_time": statistics.mean(self.response_times),
+                    "avg_response_time": round(statistics.mean(self.response_times), 2),
                     "min_response_time": min(self.response_times),
                     "max_response_time": max(self.response_times),
                     "p95_response_time": sorted(self.response_times)[int(len(self.response_times) * 0.95)],
