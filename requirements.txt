@@ -15,6 +15,11 @@ ccxt>=1.60.0
 ta>=0.10.0
 # TA-Lib est installé séparément via apt/brew ou le script d'installation
 
+# Intelligence artificielle et LLM
+openai>=1.0.0
+shap>=0.44.0  # Pour l'explainabilité des modèles
+lime>=0.2.0.1  # Pour l'explicabilité des modèles locaux
+
 # Apprentissage par renforcement
 # TensorFlow compatible avec les deux plateformes (Linux et Windows)
 # Pour Linux: TensorFlow 2.12+ supporte bien les fonctionnalités avancées

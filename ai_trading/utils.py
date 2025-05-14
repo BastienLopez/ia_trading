@@ -3,6 +3,7 @@ import os
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict
+import logging
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -273,3 +274,42 @@ def config_loader(config_file="config.json"):
 
     with open(config_file, "r") as f:
         return json.load(f)
+
+def setup_logger(name, level=logging.INFO):
+    """
+    Configure un logger avec le nom spécifié.
+    
+    Args:
+        name: Nom du logger
+        level: Niveau de log (par défaut INFO)
+        
+    Returns:
+        Logger configuré
+    """
+    logger = logging.getLogger(name)
+    logger.setLevel(level)
+    
+    # Vérifier si le logger a déjà des handlers
+    if not logger.handlers:
+        # Créer un handler qui écrit dans la console
+        handler = logging.StreamHandler()
+        handler.setLevel(level)
+        
+        # Créer un formateur
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        handler.setFormatter(formatter)
+        
+        # Ajouter le handler au logger
+        logger.addHandler(handler)
+        
+        # Créer un répertoire pour les logs si nécessaire
+        log_dir = os.path.join(INFO_RETOUR_DIR, "logs")
+        os.makedirs(log_dir, exist_ok=True)
+        
+        # Ajouter un handler pour écrire dans un fichier
+        file_handler = logging.FileHandler(os.path.join(log_dir, f"{name}.log"))
+        file_handler.setLevel(level)
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
+    
+    return logger

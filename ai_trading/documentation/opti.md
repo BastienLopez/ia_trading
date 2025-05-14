@@ -255,7 +255,11 @@
    - Ajustement automatique de l'exposition selon les conditions de marché
 
 
-### 13. Check all opti
+### 13. Add numpy
+- [ ] Add numpy au projet cf todo_numpy
+
+
+### 14. Check all opti
 - [ ] python ai_trading/optim/check_all_optimizations.py test bien tt les opti ? si c'est pas le cas up le fichier pour que ca test tout 
 
 python -m ai_trading.optim.check_all_optimizations --check-all-opti pour check ce qui tourne ou pas 
