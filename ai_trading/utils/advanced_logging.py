@@ -357,21 +357,19 @@ def handle_exceptions(error_logger=None):
 # Configuration par défaut lors de l'importation du module
 configure_all_loggers()
 
+
 # Fonction simplifiée pour la compatibilité avec les imports existants
 def setup_logger(name, level=logging.INFO):
     """
     Configure un logger simple pour la compatibilité.
-    
+
     Args:
         name: Nom du logger
         level: Niveau de log
-        
+
     Returns:
         Logger configuré
     """
     return setup_logging(
-        name=name,
-        level=level,
-        log_file=LOG_DIR / f"{name}.log",
-        console=True
+        name=name, level=level, log_file=LOG_DIR / f"{name}.log", console=True
     )

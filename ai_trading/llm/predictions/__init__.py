@@ -9,11 +9,11 @@ pour générer des prédictions et des analyses du marché des cryptomonnaies.
 """
 
 from .market_predictor import MarketPredictor
-from .prediction_model import PredictionModel
 from .multi_horizon_predictor import MultiHorizonPredictor
+from .prediction_model import PredictionModel
 
 __all__ = [
     "MarketPredictor",
     "PredictionModel",
     "MultiHorizonPredictor",
-] 
+]

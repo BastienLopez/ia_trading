@@ -18,7 +18,6 @@ from collections import OrderedDict
 from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, Optional, Tuple, Union
 
-import numpy as np
 import pandas as pd
 import zstandard as zstd
 
@@ -528,7 +527,7 @@ class DataCache(SmartCache):
                 # Vérifier que la plage de dates couvre la demande
                 data_start = cached_data["date"].min() if len(cached_data) > 0 else None
                 data_end = cached_data["date"].max() if len(cached_data) > 0 else None
-                
+
                 # Si nous avons des données et qu'elles couvrent la période demandée
                 if (
                     len(filtered_data) > 0
@@ -544,24 +543,24 @@ class DataCache(SmartCache):
         if source in self.data_sources:
             # Charger les données depuis la source
             data_loader = self.data_sources[source]
-            
+
             # Pour sources de test/développement, générer des données déterministes
             if source == "dummy":
                 # Au lieu d'utiliser np.random, générer des données déterministes basées sur les paramètres
                 date_range = pd.date_range(start=start_date, end=end_date, freq="D")
                 days = len(date_range)
-                
+
                 # Générer des séquences déterministes basées sur la combinaison des paramètres
                 seed_str = f"{symbol}:{interval}:{str(start_date.date())}:{str(end_date.date())}"
                 base_hash = int(hashlib.md5(seed_str.encode()).hexdigest(), 16)
-                
+
                 # Créer des données prédictibles pour les tests
                 opens = []
                 highs = []
                 lows = []
                 closes = []
                 volumes = []
-                
+
                 for i in range(days):
                     # Générer des valeurs déterministes basées sur la position et la graine
                     day_seed = (base_hash + i) % 1000
@@ -570,19 +569,21 @@ class DataCache(SmartCache):
                     lows.append(95 + (day_seed % 10))
                     closes.append(100 + (day_seed % 25))
                     volumes.append(1000 + (day_seed * 10))
-                
-                data = pd.DataFrame({
-                    "date": date_range,
-                    "open": opens,
-                    "high": highs,
-                    "low": lows,
-                    "close": closes,
-                    "volume": volumes
-                })
-                
+
+                data = pd.DataFrame(
+                    {
+                        "date": date_range,
+                        "open": opens,
+                        "high": highs,
+                        "low": lows,
+                        "close": closes,
+                        "volume": volumes,
+                    }
+                )
+
                 # Stocker une copie des données dans le cache
                 self.set(cache_key, data.copy())
-                
+
                 # Enregistrer les métadonnées pour la validation de cohérence
                 checksum = self._calculate_data_checksum(data)
                 self._update_metadata(
@@ -597,24 +598,24 @@ class DataCache(SmartCache):
                         "row_count": len(data),
                         "checksum": checksum,
                         "seed_hash": base_hash,  # Stocker la hash pour référence future
-                        "deterministic": True    # Indiquer que c'est une génération déterministe
+                        "deterministic": True,  # Indiquer que c'est une génération déterministe
                     },
                 )
-                
+
                 # Filtrer selon la plage demandée
                 if isinstance(data, pd.DataFrame) and "date" in data.columns:
                     return data[
                         (data["date"] >= start_date) & (data["date"] <= end_date)
                     ].copy()
-                
+
                 return data.copy()
             else:
                 # Pour les sources réelles, pas besoin de gérer la seed
                 data = data_loader(symbol, start_date, end_date, interval)
-                
+
                 # Stocker une copie des données dans le cache
                 self.set(cache_key, data.copy())
-                
+
                 # Enregistrer les métadonnées pour la validation de cohérence
                 self._update_metadata(
                     cache_key,
@@ -782,34 +783,38 @@ class DataCache(SmartCache):
                 return False, "Les données ne sont pas un DataFrame"
 
             # Si c'est une source "dummy" déterministe
-            if "source" in metadata and metadata["source"] == "dummy" and metadata.get("deterministic", False) is True:
+            if (
+                "source" in metadata
+                and metadata["source"] == "dummy"
+                and metadata.get("deterministic", False) is True
+            ):
                 if "seed_hash" not in metadata:
                     return False, "Données déterministes sans seed_hash"
-                
+
                 # Pour les données déterministes, la validation du checksum est suffisante
                 current_checksum = self._calculate_data_checksum(data)
                 stored_checksum = metadata.get("checksum")
-                
+
                 if stored_checksum and current_checksum != stored_checksum:
                     return (
                         False,
                         f"Checksum incohérent: {current_checksum} != {stored_checksum}",
                     )
-                
+
                 # Vérifier le nombre de lignes
                 if len(data) != metadata.get("row_count", 0):
                     return (
                         False,
                         f"Nombre de lignes incohérent: {len(data)} vs {metadata.get('row_count')}",
                     )
-                
+
                 # Si on arrive ici avec des données déterministes, tout est ok
                 return True, None
             else:
                 # Vérifier la cohérence des données standard
                 current_checksum = self._calculate_data_checksum(data)
                 stored_checksum = metadata.get("checksum")
-                
+
                 if stored_checksum and current_checksum != stored_checksum:
                     return (
                         False,
