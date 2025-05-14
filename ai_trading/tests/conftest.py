@@ -1,4 +1,6 @@
 import logging
+import sys
+from unittest.mock import patch
 
 import pytest
 
@@ -14,20 +16,58 @@ logger = logging.getLogger(__name__)
 @pytest.fixture(autouse=True, scope="session")
 def patch_sentiment_analyzers():
     """
-    Remplace les classes d'analyse de sentiment par des mocks pour tous les tests,
-    évitant ainsi les erreurs d'accès mémoire lors du chargement des modèles HuggingFace.
+    Remplace les classes d'analyse de sentiment et OpenAI par des mocks pour tous les tests,
+    évitant ainsi les erreurs d'accès mémoire et d'API lors des tests.
     """
-    # Version sans patch qui rencontrait des problèmes d'importation
-    # with patch(
-    #     "ai_trading.llm.sentiment_analysis.news_analyzer.NewsAnalyzer", MockNewsAnalyzer
-    # ), patch(
-    #     "ai_trading.llm.sentiment_analysis.social_analyzer.SocialAnalyzer",
-    #     MockSocialAnalyzer,
-    # ):
-    #     yield
-
-    # Pas de patch pour l'instant, nous importerons directement les mocks dans les tests
+    # Importer les mocks seulement si le module existe
+    openai_mock_path = "ai_trading.tests.llm.utils.mock_openai.MockOpenAI"
+    
+    try:
+        # Tenter d'importer le mock d'OpenAI
+        from ai_trading.tests.llm.utils.mock_openai import MockOpenAI
+        has_openai_mock = True
+    except ImportError:
+        # Si le mock n'existe pas, continuer sans patcher
+        has_openai_mock = False
+        logger.warning("Mock OpenAI non trouvé, certains tests pourraient échouer")
+    
+    # Appliquer les patches si les mocks sont disponibles
+    patches = []
+    
+    # Patch pour OpenAI - assurons-nous de bien patcher tous les chemins potentiels
+    if has_openai_mock:
+        logger.info("Application du patch pour OpenAI")
+        # Patch direct d'OpenAI
+        openai_patch = patch("openai.OpenAI", MockOpenAI)
+        patches.append(openai_patch)
+        
+        # Patch pour les imports directs dans les modules testés
+        openai_direct_patch = patch("openai.Client", MockOpenAI)
+        patches.append(openai_direct_patch)
+        
+        # Patch pour les importations depuis le module des prédictions
+        predictor_patch = patch("ai_trading.llm.predictions.market_predictor.OpenAI", MockOpenAI)
+        patches.append(predictor_patch)
+        
+        # Appliquer tous les patches
+        for p in patches:
+            p.start()
+        logger.info(f"OpenAI est maintenant patché avec le mock pour les tests")
+    
+    # Sinon, on ne patche rien pour l'instant
     yield
+    
+    # Arrêter tous les patches à la fin
+    for p in patches:
+        p.stop()
+
+
+# Importer et exposer la fixture pour RealTimeAdapter
+try:
+    from ai_trading.tests.llm.utils.mock_real_time_adapter import patch_real_time_adapter
+    logger.info("Fixture patch_real_time_adapter disponible")
+except ImportError:
+    logger.warning("Impossible d'importer patch_real_time_adapter, certains tests pourraient échouer")
 
 
 @pytest.fixture(scope="session", autouse=True)
