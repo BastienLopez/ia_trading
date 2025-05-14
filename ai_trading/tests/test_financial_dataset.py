@@ -14,6 +14,7 @@ from ai_trading.data.synthetic_data_generator import generate_synthetic_market_d
 
 # Vérifier si les modules optionnels existent
 try:
+    import pyarrow
     HAVE_PYARROW = True
     print("Module PyArrow disponible")
 except ImportError:
@@ -21,6 +22,8 @@ except ImportError:
     print("Module PyArrow non disponible")
 
 try:
+    import h5py
+    import tables
     HAVE_HDF5 = True
     print("Module h5py disponible")
 except ImportError:
