@@ -380,7 +380,6 @@ Ce module contient l'implémentation d'un système de trading de cryptomonnaies 
   - [ ] Utilisation de données réelles
   - [ ] Intégration avec les APIs d'exchanges
 
-
 ### Phase 10: Integration plateforme réelles
   - [ ] Connexion avec exchanges
   - [ ] Mode paper trading
