@@ -1,53 +1,82 @@
-Objectif : effectuer un nettoyage complet et structuré du dépôt AI Trading, incluant :
+# Prompt pour le nettoyage du code et la gestion de la dépréciation
 
-1. 🔧 Correction des dépréciations :
-   - Scanner tous les modules du projet (`ai_trading/`, `tests/`, `examples/`, etc.).
-   - Identifier et corriger les usages dépréciés de bibliothèques (e.g. NumPy, Pandas, PyTorch, TensorFlow, etc.).
+## Objectif
+- Scanner tous les modules du projet (`ai_trading/`, `tests/`, `ai_trading/examples/`, etc.).
+- Identifier et gérer correctement les fonctions, classes et méthodes obsolètes.
+- Nettoyer le code tout en maintenant la rétrocompatibilité.
 
-2. ✅ Nettoyage des tests :
-   - Supprimer les tests redondants, obsolètes ou inutiles dans `tests/`.
-   - Garder uniquement les tests valides, pertinents et exécutables.
-   - Mettre de côté les fichiers supprimés ou fusionnés dans `clean_repo/tests/`.
+## Actions à réaliser
 
-3. 📘 Nettoyage des exemples :
-   - Supprimer ou corriger les notebooks/scripts non exécutables ou obsolètes.
-   - Centraliser les exemples utiles et fonctionnels dans un sous-dossier clair.
-   - Archiver les anciens fichiers dans `clean_repo/examples/`.
+### 1. Identification des éléments obsolètes
+- Rechercher les commentaires contenant "TODO", "DEPRECATED", "OBSOLETE", etc.
+- Identifier les fonctions et classes dupliquées ou avec des noms similaires.
+- Repérer les imports non utilisés et le code mort.
 
-4. 🧼 Nettoyage automatisé :
-   - Mettre a jour les fichier de clean (.\clean_repo\...)avec les avancés du projet 
-   - Exécuter les scripts PowerShell fournis dans l’ordre recommandé :
-     ```powershell
-     .\clean_repo\clean_ai_trading_structure.ps1
-     .\clean_repo\clean_ai_trading.ps1
-     .\clean_repo\clean_repo.ps1
-     ```
+### 2. Stratégie de dépréciation
+- Pour chaque élément obsolète, appliquer une stratégie de dépréciation:
+  1. **Documenter** la dépréciation avec des docstrings appropriés.
+  2. **Ajouter des avertissements** avec `warnings.warn()`.
+  3. **Rediriger** vers les nouvelles implémentations.
+  4. **Archiver** les anciens fichiers dans `clean_repo/ai_trading/examples/`.
 
-5. 🎨 Formatage automatique du code :
-   - Supprimer les imports inutilisés :
-     ```bash
-     autoflake --in-place --remove-all-unused-imports --recursive ai_trading/
-     ```
-   - Réorganiser les imports :
-     ```bash
-     isort ai_trading/
-     ```
-   - Reformater tout le code :
-     ```bash
-     black ai_trading/
-     ```
+### 3. Exemple de dépréciation de fonction
+```python
+import warnings
+import functools
 
-6. 📦 Résultats, PNG, rapports :
-   - Tous les fichiers générés (rapports, PNG, graphiques, JSON, CSV, etc.) doivent être enregistrés exclusivement dans :
-     ```
-     ai_trading/info_retour/{tests|prod|examples}/
-     ```
-   - Modifier tous les scripts si nécessaire pour rediriger correctement les sorties.
+def deprecated(reason):
+    """
+    Décorateur pour marquer des fonctions comme dépréciées.
+    
+    Args:
+        reason (str): Raison de la dépréciation
+    """
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            warnings.warn(
+                f"La fonction {func.__name__} est dépréciée: {reason}",
+                category=DeprecationWarning,
+                stacklevel=2
+            )
+            return func(*args, **kwargs)
+        wrapper.__deprecated__ = True
+        wrapper.__deprecated_reason__ = reason
+        return wrapper
+    return decorator
 
-7. ♻️ Nettoyage CUDA et modèles :
-   - Utiliser `clean_cuda.py` pour nettoyer les ressources GPU, modèles obsolètes (>30j), et fichiers temporaires.
+# Exemple d'utilisation
+@deprecated("Utiliser new_function() à la place")
+def old_function():
+    """Fonction obsolète."""
+    pass
+```
 
-8. Correction des Warning : 
-   - Effectuer les test et corriger les warning
+### 4. Exemple de dépréciation de classe
+```python
+class OldClass:
+    """
+    Classe obsolète.
+    
+    .. deprecated:: 2.0.0
+       Utiliser :class:`NewClass` à la place.
+    """
+    
+    def __init__(self):
+        warnings.warn(
+            "La classe OldClass est dépréciée. Utiliser NewClass à la place.",
+            category=DeprecationWarning,
+            stacklevel=2
+        )
+```
 
-Résultat attendu : un dépôt épuré, organisé, formaté, avec tous les fichiers anciens archivés dans `clean_repo/` et toutes les sorties bien redirigées dans `ai_trading/info_retour/`.
+### 5. Stratégie de nettoyage
+- Créer un fichier `deprecated.py` dans chaque module pour regrouper les éléments obsolètes.
+- Documenter clairement la date prévue de suppression (généralement après 2 versions majeures).
+- Mettre à jour la documentation pour refléter ces changements.
+
+## Résultat attendu
+- Code plus propre avec une gestion claire des éléments obsolètes.
+- Rétrocompatibilité maintenue pour les utilisateurs existants.
+- Documentation mise à jour reflétant ces changements.
+- Plan clair pour la suppression future des éléments obsolètes.

@@ -5,8 +5,8 @@ from unittest.mock import Mock, patch
 import numpy as np
 import pandas as pd
 
-from ..rl.multi_asset_trading_environment import MultiAssetTradingEnvironment
-from ..utils.alternative_data_collector import AlternativeDataCollector
+from ai_trading.rl.multi_asset_trading_environment import MultiAssetTradingEnvironment
+from ai_trading.utils.alternative_data_collector import AlternativeDataCollector
 
 logger = logging.getLogger(__name__)
 

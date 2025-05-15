@@ -11,7 +11,7 @@ import pytest
 import torch
 
 from ai_trading.rl.models.hybrid_market_adaptation import HybridMarketAdaptation
-from ai_trading.tests.test_meta_learning import (
+from ai_trading.tests.rl.test_meta_learning import (
     SimpleModel,
     create_synthetic_market_data,
 )
