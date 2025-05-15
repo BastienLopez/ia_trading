@@ -1,6 +1,6 @@
 import unittest
 
-from ..rl.market_constraints import MarketConstraints
+from ai_trading.rl.market_constraints import MarketConstraints
 
 
 class TestMarketConstraints(unittest.TestCase):

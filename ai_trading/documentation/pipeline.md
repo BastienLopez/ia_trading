@@ -79,39 +79,6 @@ uvicorn>=0.20.0
 streamlit>=1.18.0
 ```
 
-### 2.3 Organisation des Exemples
-
-Tous les exemples du projet sont maintenant centralisés dans le répertoire `ai_trading/examples/` pour une meilleure cohérence et organisation. Cette structure facilite la découverte et l'utilisation des exemples pour chaque module du système.
-
-```
-ai_trading/examples/
-├── llm/                  # Exemples liés aux modèles de langage (LLM)
-│   ├── sentiment/        # Analyse de sentiment des actualités et réseaux sociaux
-│   └── predictions/      # Prédictions de marché basées sur LLM
-│
-├── ml/                   # Exemples liés aux modèles de machine learning
-│   ├── trading_signals/  # Génération et filtrage de signaux de trading
-│   └── backtesting/      # Backtesting avancé et analyse de performance
-│
-├── rl/                   # Exemples liés à l'apprentissage par renforcement
-│   ├── agents/           # Différents agents d'apprentissage par renforcement
-│   └── environments/     # Environnements de trading pour RL
-│
-├── data/                 # Exemples de collecte et prétraitement des données
-├── risk/                 # Exemples de gestion des risques
-├── optimization/         # Exemples d'optimisation
-├── execution/            # Exemples d'exécution d'ordres
-├── visualization/        # Exemples de visualisation
-├── results/              # Résultats des exemples et tests
-└── output/               # Fichiers de sortie générés par les exemples
-```
-
-Pour exécuter un exemple, utilisez la commande:
-
-```bash
-python -m ai_trading.examples.ml.backtesting.advanced_backtesting_example
-```
-
 ## 3. Intégration des Modules
 
 ### 3.1 Collecte et Prétraitement des Données

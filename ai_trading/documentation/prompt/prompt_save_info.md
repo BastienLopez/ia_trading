@@ -9,7 +9,7 @@ Faire un audit et un ménage du dépôt AI Trading pour :
 ```plaintext
 Analyse ce dépôt AI Trading :
 
-1. Passe en revue tous les dossiers de tests (`tests/`), d'exemples (`examples/`), de production (`ai_trading/` ou équivalents) et d'optimisations.
+1. Passe en revue tous les dossiers de tests (`tests/`), d'exemples (`ai_trading/examples/`), de production (`ai_trading/` ou équivalents) et d'optimisations.
 2. Vérifie s'il existe des fichiers, fonctions, classes, ou tests obsolètes, redondants ou inutilisés. Supprime les
 3. Identifie tous les scripts ou modules qui génèrent des fichiers de sortie (rapports, images, logs, graphes, etc.).
 4. S'assure que tous ces fichiers de sortie sont systématiquement enregistrés dans `ai_trading/info_retour/`, dans des sous-dossiers selon leur origine :
@@ -47,7 +47,7 @@ Analyse ce dépôt AI Trading :
    ```
 7. Assure-toi que RIEN n'est jamais écrit à la racine du projet ou en dehors de `ai_trading/info_retour/`
 8. Vérifie particulièrement les modules suivants qui génèrent souvent des fichiers :
-   - Les scripts d'exemples dans `examples/`
+   - Les scripts d'exemples dans `ai_trading/examples/`
    - Les scripts d'optimisation comme Ray Tune et Ray RLlib
    - Les modules de visualisation et d'évaluation
    - Les modules d'entraînement de modèles

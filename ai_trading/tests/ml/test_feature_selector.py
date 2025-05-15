@@ -1,9 +1,10 @@
 import unittest
+from unittest.mock import patch, MagicMock
 
 import numpy as np
 import pandas as pd
 
-from ..utils.feature_selector import FeatureSelector
+from ai_trading.utils.feature_selector import FeatureSelector
 
 
 class TestFeatureSelector(unittest.TestCase):

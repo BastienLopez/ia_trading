@@ -1,0 +1,29 @@
+Résumé des tests statistiques
+========================================
+Test t (paired):
+  Statistique t: nan
+  P-value: nan
+  Significatif: Non
+  Rendement moyen (stratégie): 0.0000%
+  Rendement moyen (benchmark): 0.0000%
+  Différence moyenne: 0.0000%
+----------------------------------------
+Test de réalité de White:
+  Statistique originale: 0.0000
+  P-value: 0.0000
+  Significatif: Oui
+  Interprétation: La stratégie surperforme significativement
+----------------------------------------
+sharpe_significance: Échec - Écart-type nul, impossible de calculer le Sharpe
+----------------------------------------
+stationarity_test: Échec - Erreur lors du test de stationnarité: Invalid input, x is constant
+----------------------------------------
+Test de normalité (Jarque-Bera):
+  Statistique JB: nan
+  P-value: nan
+  Distribution normale: Non
+  Skewness: nan
+  Kurtosis: nan
+----------------------------------------
+Conclusion: 1/3 tests sont statistiquement significatifs.
+La robustesse de la stratégie n'est pas clairement établie.

@@ -4,7 +4,7 @@ from unittest.mock import Mock, patch
 import numpy as np
 import pandas as pd
 
-from ..utils.orderbook_collector import OrderBookCollector
+from ai_trading.utils.orderbook_collector import OrderBookCollector
 
 
 class TestOrderBookCollector(unittest.TestCase):
