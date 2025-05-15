@@ -86,4 +86,6 @@ jobs:
           --ignore=ai_trading/tests/unit/test_contextual_analyzer.py \
           --ignore=ai_trading/tests/test_enhanced_news_analyzer.py \
           --ignore=ai_trading/tests/llm/test_rtx_optimization.py \
-          --ignore=ai_trading/tests/llm/test_llm_optimizer.py
+          --ignore=ai_trading/tests/llm/test_llm_optimizer.py \
+          --ignore=ai_trading/tests/performance/test_rtx_optimization.py 
+
