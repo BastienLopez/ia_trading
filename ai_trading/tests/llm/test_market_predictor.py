@@ -58,8 +58,9 @@ class MockOpenAI:
         
         class Completions:
             @staticmethod
-            def create(model, messages, temperature=0, max_tokens=None):
-                content = '{"direction": "bullish", "confidence": "medium", "factors": ["Price trend", "Volume increase"], "contradictions": null, "volatility": "medium"}'
+            def create(model, messages, temperature=0, max_tokens=None, response_format=None):
+                # Ignorer response_format pour le mock
+                content = '{"direction": "bullish", "confidence": 0.85, "analysis": "Strong bullish signals based on technical and sentiment analysis", "key_factors": ["Price momentum", "Positive sentiment", "High volume"]}'
                 message = type('Message', (), {'content': content})
                 choice = type('Choice', (), {'message': message})
                 return type('Response', (), {'choices': [choice]})

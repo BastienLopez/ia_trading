@@ -5,32 +5,23 @@ Utilise des modèles LLM avancés et des techniques de NLP pour une analyse plus
 
 import logging
 import os
-from typing import Dict, List, Optional
+import re
+from datetime import datetime
+from typing import Dict, List, Optional, Union
 
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 import seaborn as sns
+from textblob import TextBlob
+
+from .sentiment_utils import SentimentCache, get_llm_client
 
 # Configuration du logging
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Importation conditionnelle des bibliothèques LLM
-try:
-    TRANSFORMERS_AVAILABLE = True
-except ImportError:
-    logger.warning(
-        "La bibliothèque 'transformers' n'est pas disponible. Certaines fonctionnalités seront limitées."
-    )
-    TRANSFORMERS_AVAILABLE = False
-
-from .news_analyzer import NewsAnalyzer
-from .sentiment_tools import SentimentCache
-
-
-class EnhancedNewsAnalyzer(NewsAnalyzer):
+class EnhancedNewsAnalyzer:
     """Version améliorée avec visualisations et gestion de cache."""
 
     def __init__(
@@ -39,116 +30,313 @@ class EnhancedNewsAnalyzer(NewsAnalyzer):
         cache_dir: str = "ai_trading/info_retour/sentiment_cache",
         **kwargs,
     ):
-        super().__init__(**kwargs)
+        """
+        Initialise l'analyseur de nouvelles amélioré.
+        
+        Args:
+            enable_cache: Active la mise en cache des résultats
+            cache_dir: Répertoire pour le cache
+            **kwargs: Arguments additionnels
+        """
+        self.llm_client = get_llm_client()
         self.cache = SentimentCache(cache_dir) if enable_cache else None
-
-    def analyze_news(self, news_data: List[Dict]) -> pd.DataFrame:
-        """Analyse un batch d'actualités avec gestion de cache."""
-        df = super().analyze_news(news_data)
-
-        # Création robuste du score de sentiment
-        if "global_sentiment" not in df.columns:
-            logger.error("Colonne 'global_sentiment' manquante - initialisation à zéro")
-            df["sentiment_score"] = 0.0
-            return df
-
-        df["sentiment_score"] = df["global_sentiment"].apply(
-            lambda x: x.get("score", 0.0) if isinstance(x, dict) else 0.0
-        )
-        return df
-
-    def generate_report(self, df: pd.DataFrame) -> Dict:
-        """Version complète avec toutes les métriques requises"""
-        report = {
-            "total_articles": len(df),
-            "average_sentiment": df.get("sentiment_score", pd.Series([0])).mean(),
-            "period": {
-                "start": df["published_at"].min() if not df.empty else None,
-                "end": df["published_at"].max() if not df.empty else None,
-            },
-            "sentiment_distribution": (
-                df["global_sentiment_label"].value_counts().to_dict()
-                if "global_sentiment_label" in df.columns
-                else {}
-            ),
-            "crypto_mentions": self._get_top_entities(df, "crypto_entities"),
-            "sentiment_trend": self._calculate_daily_trend(df),
-            "most_positive_article": self._find_extreme_article(df, "max"),
-            "most_negative_article": self._find_extreme_article(df, "min"),
-        }
-        return report
-
-    def _get_cached_result(self, text_hash: str) -> Optional[Dict]:
-        """Récupère un résultat depuis le cache."""
-        return self.cache.load(text_hash) if self.cache else None
-
-    def _cache_result(self, text_hash: str, result: Dict) -> None:
-        """Stocke un résultat dans le cache."""
-        if self.cache:
-            self.cache.save(text_hash, result)
-
-    def _calculate_daily_trend(self, df: pd.DataFrame) -> Dict:
-        """Version sécurisée avec gestion des colonnes manquantes"""
-        if "sentiment_score" not in df.columns or "published_at" not in df.columns:
-            logger.warning("Colonnes manquantes pour le calcul des tendances")
-            return {}
-
-        try:
-            df["date"] = pd.to_datetime(df["published_at"]).dt.date
-            return df.groupby("date")["sentiment_score"].mean().to_dict()
-        except KeyError:
-            logger.error("Erreur lors de l'accès aux colonnes nécessaires")
-            return {}
-
-    def _get_top_entities(self, df: pd.DataFrame, entity_type: str) -> Dict:
-        """Version sécurisée avec gestion des colonnes manquantes"""
-        if entity_type not in df.columns:
-            return {}
-
-        return dict(df[entity_type].explode().value_counts().head(10))
-
-    def _find_extreme_article(self, df: pd.DataFrame, extremum: str) -> Dict:
-        """Trouve l'article le plus positif/négatif de manière sécurisée"""
-        if df.empty or "sentiment_score" not in df.columns:
-            return {}
-
-        try:
-            if extremum == "max":
-                return df.loc[df["sentiment_score"].idxmax()].to_dict()
-            return df.loc[df["sentiment_score"].idxmin()].to_dict()
-        except ValueError:
-            return {}
-
-    def plot_trends(self, df: pd.DataFrame, filename: str) -> None:
-        """Génère une visualisation des tendances."""
-        # Créer le dossier visualizations s'il n'existe pas
-        visualization_dir = os.path.join(
-            os.path.dirname(
-                os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-            ),
-            "ai_trading",
+        self.visualization_dir = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
             "visualizations",
             "sentiment",
         )
-        os.makedirs(visualization_dir, exist_ok=True)
+        os.makedirs(self.visualization_dir, exist_ok=True)
 
-        # Chemin complet du fichier
-        output_path = os.path.join(visualization_dir, filename)
+    def analyze_news(self, news_data: List[Dict]) -> pd.DataFrame:
+        """
+        Analyse un batch d'actualités avec gestion de cache.
+        
+        Args:
+            news_data: Liste d'actualités à analyser
+            
+        Returns:
+            DataFrame avec les résultats d'analyse
+        """
+        results = []
+        for news in news_data:
+            # Analyse du titre et du contenu
+            title_sentiment = self._analyze_text(news.get("title", ""))
+            body_sentiment = self._analyze_text(news.get("body", ""))
+            
+            # Extraction des entités
+            entities = self._extract_entities(news.get("body", ""))
+            
+            # Calcul du sentiment global
+            global_sentiment = self._calculate_global_sentiment(
+                title_sentiment, body_sentiment
+            )
+            
+            results.append({
+                **news,
+                "title_sentiment": title_sentiment,
+                "body_sentiment": body_sentiment,
+                "global_sentiment": global_sentiment,
+                "entities": entities,
+                "published_at": pd.to_datetime(news.get("published_at")),
+            })
+        
+        return pd.DataFrame(results)
 
+    def _analyze_text(self, text: str) -> Dict[str, Union[str, float]]:
+        """
+        Analyse le sentiment d'un texte.
+        
+        Args:
+            text: Texte à analyser
+            
+        Returns:
+            Dictionnaire avec le sentiment et le score
+        """
+        if not text:
+            return {"label": "neutral", "score": 0.0}
+
+        # Utilisation du cache si disponible
+        if self.cache:
+            cached_result = self.cache.load(text)
+            if cached_result:
+                return cached_result
+
+        try:
+            # Analyse avec le modèle LLM
+            if self.llm_client:
+                results = self.llm_client(text)
+                if isinstance(results, list) and len(results) > 0:
+                    result = results[0]
+                    if isinstance(result, dict):
+                        sentiment = {
+                            "label": result.get("label", "neutral"),
+                            "score": result.get("score", 0.0),
+                        }
+                    else:
+                        sentiment = {"label": "neutral", "score": 0.0}
+                else:
+                    sentiment = {"label": "neutral", "score": 0.0}
+            else:
+                # Repli sur TextBlob si le modèle n'est pas disponible
+                blob = TextBlob(text)
+                score = blob.sentiment.polarity
+                sentiment = {
+                    "label": self._get_sentiment_label(score),
+                    "score": score,
+                }
+
+            # Mise en cache du résultat
+            if self.cache:
+                self.cache.save(text, sentiment)
+
+            return sentiment
+
+        except Exception as e:
+            logger.error(f"Erreur lors de l'analyse du sentiment: {e}")
+            return {"label": "neutral", "score": 0.0}
+
+    def _extract_entities(self, text: str) -> Dict[str, List[str]]:
+        """
+        Extrait les entités du texte.
+        
+        Args:
+            text: Texte à analyser
+            
+        Returns:
+            Dictionnaire avec les entités par catégorie
+        """
+        crypto_patterns = [
+            r"bitcoin|btc",
+            r"ethereum|eth",
+            r"ripple|xrp",
+            r"dogecoin|doge",
+            r"cardano|ada",
+        ]
+        
+        entities = {
+            "crypto_entities": [],
+            "money_entities": [],
+            "percentage_entities": [],
+        }
+        
+        # Extraction des cryptomonnaies
+        for pattern in crypto_patterns:
+            matches = re.findall(pattern, text.lower())
+            if matches:
+                entities["crypto_entities"].extend(matches)
+        
+        # Extraction des montants
+        money_matches = re.findall(r"\$\d+(?:,\d+)*(?:\.\d+)?", text)
+        entities["money_entities"].extend(money_matches)
+        
+        # Extraction des pourcentages
+        percentage_matches = re.findall(r"\d+(?:\.\d+)?%", text)
+        entities["percentage_entities"].extend(percentage_matches)
+        
+        return entities
+
+    def _calculate_global_sentiment(
+        self, title_sentiment: Dict, body_sentiment: Dict
+    ) -> Dict[str, Union[str, float]]:
+        """
+        Calcule le sentiment global en combinant titre et contenu.
+        
+        Args:
+            title_sentiment: Sentiment du titre
+            body_sentiment: Sentiment du contenu
+            
+        Returns:
+            Sentiment global
+        """
+        # Pondération titre/contenu (60/40)
+        title_weight = 0.6
+        body_weight = 0.4
+        
+        global_score = (
+            title_sentiment["score"] * title_weight
+            + body_sentiment["score"] * body_weight
+        )
+        
+        return {
+            "label": self._get_sentiment_label(global_score),
+            "score": global_score,
+        }
+
+    def _get_sentiment_label(self, score: float) -> str:
+        """
+        Convertit un score en label de sentiment.
+        
+        Args:
+            score: Score de sentiment (-1 à 1)
+            
+        Returns:
+            Label de sentiment
+        """
+        if score > 0.1:
+            return "positive"
+        elif score < -0.1:
+            return "negative"
+        return "neutral"
+
+    def generate_report(self, df: pd.DataFrame) -> Dict:
+        """
+        Génère un rapport d'analyse complet.
+        
+        Args:
+            df: DataFrame avec les résultats d'analyse
+            
+        Returns:
+            Rapport d'analyse
+        """
+        if df.empty:
+            return self._empty_report()
+
+        return {
+            "total_articles": len(df),
+            "average_sentiment": df["global_sentiment"].apply(
+                lambda x: x.get("score", 0.0) if isinstance(x, dict) else 0.0
+            ).mean(),
+            "period": {
+                "start": df["published_at"].min(),
+                "end": df["published_at"].max(),
+            },
+            "sentiment_distribution": df["global_sentiment"].apply(
+                lambda x: x.get("label") if isinstance(x, dict) else "neutral"
+            ).value_counts().to_dict(),
+            "entities": self._aggregate_entities(df),
+            "sentiment_trend": self._calculate_sentiment_trend(df),
+        }
+
+    def _empty_report(self) -> Dict:
+        """Retourne un rapport vide."""
+        return {
+            "total_articles": 0,
+            "average_sentiment": 0.0,
+            "period": {"start": None, "end": None},
+            "sentiment_distribution": {},
+            "entities": {},
+            "sentiment_trend": {},
+        }
+
+    def _aggregate_entities(self, df: pd.DataFrame) -> Dict[str, Dict[str, int]]:
+        """Agrège les entités trouvées."""
+        all_entities = {
+            "crypto": {},
+            "money": {},
+            "percentage": {},
+        }
+        
+        for _, row in df.iterrows():
+            entities = row.get("entities", {})
+            
+            for crypto in entities.get("crypto_entities", []):
+                all_entities["crypto"][crypto] = all_entities["crypto"].get(crypto, 0) + 1
+                
+            for money in entities.get("money_entities", []):
+                all_entities["money"][money] = all_entities["money"].get(money, 0) + 1
+                
+            for percentage in entities.get("percentage_entities", []):
+                all_entities["percentage"][percentage] = all_entities["percentage"].get(percentage, 0) + 1
+        
+        return all_entities
+
+    def _calculate_sentiment_trend(self, df: pd.DataFrame) -> Dict[str, float]:
+        """Calcule la tendance du sentiment au fil du temps."""
+        df["date"] = df["published_at"].dt.date
+        df["sentiment_score"] = df["global_sentiment"].apply(
+            lambda x: x.get("score", 0.0) if isinstance(x, dict) else 0.0
+        )
+        
+        return df.groupby("date")["sentiment_score"].mean().to_dict()
+
+    def plot_trends(self, df: pd.DataFrame, filename: str = "sentiment_trends.png") -> None:
+        """
+        Génère une visualisation des tendances.
+        
+        Args:
+            df: DataFrame avec les données
+            filename: Nom du fichier de sortie
+        """
         plt.figure(figsize=(12, 6))
+        
+        df["date"] = pd.to_datetime(df["published_at"]).dt.date
+        df["sentiment_score"] = df["global_sentiment"].apply(
+            lambda x: x.get("score", 0.0) if isinstance(x, dict) else 0.0
+        )
+        
         sns.lineplot(
+            data=df,
             x="date",
             y="sentiment_score",
-            data=df.assign(date=pd.to_datetime(df["published_at"]).dt.date),
             estimator="mean",
-            ci=None,
+            errorbar=None,
         )
-        plt.title("Évolution du sentiment moyen")
+        
+        plt.title("Évolution du sentiment")
         plt.tight_layout()
-        plt.savefig(output_path)
-        logger.info(f"Graphique sauvegardé dans {output_path}")
+        plt.savefig(os.path.join(self.visualization_dir, filename))
         plt.close()
 
+    def plot_distribution(self, df: pd.DataFrame, filename: str = "sentiment_distribution.png") -> None:
+        """
+        Génère une visualisation de la distribution des sentiments.
+        
+        Args:
+            df: DataFrame avec les données
+            filename: Nom du fichier de sortie
+        """
+        plt.figure(figsize=(10, 6))
+        
+        sentiment_counts = df["global_sentiment"].apply(
+            lambda x: x.get("label") if isinstance(x, dict) else "neutral"
+        ).value_counts()
+        
+        sns.barplot(x=sentiment_counts.index, y=sentiment_counts.values)
+        
+        plt.title("Distribution des sentiments")
+        plt.tight_layout()
+        plt.savefig(os.path.join(self.visualization_dir, filename))
+        plt.close()
 
 # Exemple d'utilisation
 if __name__ == "__main__":
@@ -189,19 +377,21 @@ if __name__ == "__main__":
     print(f"Distribution des sentiments: {report['sentiment_distribution']}")
     print(f"Sentiment moyen: {report['average_sentiment']:.2f}")
     print("\nCryptomonnaies les plus mentionnées:")
-    for crypto, count in report["crypto_mentions"].items():
+    for crypto, count in report["entities"]["crypto"].items():
         print(f"- {crypto}: {count} mentions")
 
     print("\nArticle le plus positif:")
-    print(f"- {report['most_positive_article']['title']}")
-    print(f"- Score: {report['most_positive_article']['score']:.2f}")
+    positive_article = news_df[news_df["global_sentiment"] == "positive"].iloc[0]
+    print(f"- {positive_article['title']}")
+    print(f"- Score: {positive_article['global_sentiment']['score']:.2f}")
 
     print("\nArticle le plus négatif:")
-    print(f"- {report['most_negative_article']['title']}")
-    print(f"- Score: {report['most_negative_article']['score']:.2f}")
+    negative_article = news_df[news_df["global_sentiment"] == "negative"].iloc[0]
+    print(f"- {negative_article['title']}")
+    print(f"- Score: {negative_article['global_sentiment']['score']:.2f}")
 
     print("\nSentiment par cryptomonnaie:")
-    for crypto, data in report["sentiment_by_crypto"].items():
+    for crypto, data in report["entities"]["crypto"].items():
         print(
-            f"- {crypto}: {data['sentiment_label']} ({data['average_sentiment']:.2f}) - {data['article_count']} articles"
+            f"- {crypto}: {data} - {data} articles"
         )

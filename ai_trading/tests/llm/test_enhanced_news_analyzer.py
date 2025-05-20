@@ -1,228 +1,166 @@
 """
-Tests unitaires pour le module d'analyse de sentiment amélioré.
+Tests unitaires pour le module enhanced_news_analyzer.
 """
 
 import os
-import sys
 import tempfile
 import unittest
-from pathlib import Path
+from datetime import datetime
+from unittest.mock import Mock, patch
 
 import pandas as pd
 
-# Ajout du chemin absolu vers le répertoire ai_trading
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from ai_trading.llm.sentiment_analysis.enhanced_news_analyzer import (
-    EnhancedNewsAnalyzer,
-)
-from ai_trading.llm.sentiment_analysis.sentiment_tools import text_hash
+from ai_trading.llm.sentiment_analysis.enhanced_news_analyzer import EnhancedNewsAnalyzer
 
 
 class TestEnhancedNewsAnalyzer(unittest.TestCase):
     """Tests pour la classe EnhancedNewsAnalyzer."""
 
     def setUp(self):
-        """Initialisation avant chaque test."""
-        self.analyzer = EnhancedNewsAnalyzer()
-
-        # Exemples d'actualités pour les tests
+        """Configuration avant chaque test."""
+        self.temp_dir = tempfile.mkdtemp()
+        self.analyzer = EnhancedNewsAnalyzer(
+            enable_cache=True,
+            cache_dir=self.temp_dir,
+        )
+        
+        # Données de test
         self.test_news = [
             {
-                "title": "Bitcoin Surges to $60,000 as Institutional Adoption Grows",
-                "body": "Bitcoin reached a new all-time high of $60,000 today as more institutional investors are entering the cryptocurrency market. Major companies like Tesla and MicroStrategy have added BTC to their balance sheets.",
-                "published_at": "2023-03-15T12:30:00Z",
+                "title": "Bitcoin hits new all-time high!",
+                "body": "Bitcoin (BTC) reached $100,000, up 15% today.",
+                "published_at": "2024-03-20T12:00:00Z",
             },
             {
-                "title": "Ethereum Price Drops 10% Following Network Congestion",
-                "body": "Ethereum (ETH) experienced a significant price drop of 10% in the last 24 hours due to network congestion and high gas fees. Developers are working on solutions to address these scaling issues.",
-                "published_at": "2023-03-14T09:15:00Z",
+                "title": "Market crash: Ethereum drops",
+                "body": "ETH price falls 20% to $2,000.",
+                "published_at": "2024-03-20T13:00:00Z",
             },
         ]
 
-    def test_analyze_sentiment(self):
-        """Teste l'analyse de sentiment."""
-        # Test avec un texte positif
-        positive_text = "Bitcoin surges to new all-time high as adoption grows"
-        positive_result = self.analyzer.analyze_sentiment(positive_text)
+    def test_analyzer_initialization(self):
+        """Teste l'initialisation de l'analyseur."""
+        self.assertIsNotNone(self.analyzer)
+        self.assertIsNotNone(self.analyzer.cache)
+        self.assertTrue(os.path.exists(self.temp_dir))
 
-        self.assertIsInstance(positive_result, dict)
-        self.assertIn("label", positive_result)
-        self.assertIn("score", positive_result)
-
-        # Test avec un texte négatif
-        negative_text = "Bitcoin crashes 20% as market fears regulatory crackdown"
-        negative_result = self.analyzer.analyze_sentiment(negative_text)
-
-        self.assertIsInstance(negative_result, dict)
-        self.assertIn("label", negative_result)
-        self.assertIn("score", negative_result)
-
-        # Vérification que les scores sont différents
-        self.assertNotEqual(positive_result["score"], negative_result["score"])
+    @patch("ai_trading.llm.sentiment_analysis.sentiment_utils.pipeline")
+    def test_analyze_news(self, mock_pipeline):
+        """Teste l'analyse d'un batch d'actualités."""
+        # Configuration du mock
+        mock_pipeline.return_value = Mock(return_value=[{"label": "positive", "score": 0.8}])
+        
+        # Analyse des actualités
+        results = self.analyzer.analyze_news(self.test_news)
+        
+        # Vérifications
+        self.assertIsInstance(results, pd.DataFrame)
+        self.assertEqual(len(results), 2)
+        self.assertIn("title_sentiment", results.columns)
+        self.assertIn("body_sentiment", results.columns)
+        self.assertIn("global_sentiment", results.columns)
+        self.assertIn("entities", results.columns)
 
     def test_extract_entities(self):
-        """Teste l'extraction d'entités."""
-        # Test avec un texte contenant des entités crypto
-        text = "Bitcoin and Ethereum are the largest cryptocurrencies by market cap"
-        entities = self.analyzer.extract_entities(text)
+        """Teste l'extraction des entités."""
+        text = "Bitcoin (BTC) price reached $50,000, up 10% today!"
+        entities = self.analyzer._extract_entities(text)
+        
+        self.assertIn("bitcoin", entities["crypto_entities"])
+        self.assertIn("btc", entities["crypto_entities"])
+        self.assertIn("$50,000", entities["money_entities"])
+        self.assertIn("10%", entities["percentage_entities"])
 
-        self.assertIsInstance(entities, dict)
-        self.assertIn("crypto_entities", entities)
+    def test_calculate_global_sentiment(self):
+        """Teste le calcul du sentiment global."""
+        title_sentiment = {"label": "positive", "score": 0.8}
+        body_sentiment = {"label": "negative", "score": -0.4}
+        
+        global_sentiment = self.analyzer._calculate_global_sentiment(
+            title_sentiment, body_sentiment
+        )
+        
+        self.assertIn("label", global_sentiment)
+        self.assertIn("score", global_sentiment)
+        # 0.8 * 0.6 + (-0.4) * 0.4 = 0.32
+        self.assertAlmostEqual(global_sentiment["score"], 0.32)
+        self.assertEqual(global_sentiment["label"], "positive")
 
-        # Vérification que des entités sont détectées
-        # Note: Même si le modèle n'est pas disponible, la méthode de repli devrait fonctionner
-        self.assertGreater(len(entities["crypto_entities"]), 0)
-
-    def test_analyze_news(self):
-        """Teste l'analyse complète des actualités."""
-        result = self.analyzer.analyze_news(self.test_news)
-        self.assertIsInstance(result, pd.DataFrame)
-        self.assertFalse(result.empty)
-        self.assertIn("global_sentiment", result.columns)
-
-    def test_analyze_news_dataframe(self):
-        """Teste l'analyse des actualités à partir d'un DataFrame."""
-        # Création d'un DataFrame
-        df = pd.DataFrame(self.test_news)
-
-        # Analyse
-        enriched_df = self.analyzer.analyze_news_dataframe(df)
-
-        self.assertIsInstance(enriched_df, pd.DataFrame)
-        self.assertEqual(len(enriched_df), len(df))
-
-        # Vérification des colonnes ajoutées
-        expected_columns = [
-            "title_sentiment_label",
-            "title_sentiment_score",
-            "body_sentiment_label",
-            "body_sentiment_score",
-            "global_sentiment_label",
-            "global_sentiment_score",
-        ]
-
-        for col in expected_columns:
-            self.assertIn(col, enriched_df.columns)
-
-    def test_generate_sentiment_report(self):
-        """Teste la génération du rapport de sentiment."""
-        # Création d'un DataFrame enrichi
-        df = pd.DataFrame(self.test_news)
-        enriched_df = self.analyzer.analyze_news_dataframe(df)
-
-        # Génération du rapport
-        report = self.analyzer.generate_report(enriched_df)
-
-        self.assertIsInstance(report, dict)
-        self.assertIn("total_articles", report)
+    def test_generate_report(self):
+        """Teste la génération du rapport."""
+        # Création d'un DataFrame de test
+        df = pd.DataFrame({
+            "title": ["Test 1", "Test 2"],
+            "published_at": [
+                datetime(2024, 3, 20, 12, 0),
+                datetime(2024, 3, 20, 13, 0),
+            ],
+            "global_sentiment": [
+                {"label": "positive", "score": 0.8},
+                {"label": "negative", "score": -0.6},
+            ],
+            "entities": [
+                {
+                    "crypto_entities": ["bitcoin", "btc"],
+                    "money_entities": ["$50,000"],
+                    "percentage_entities": ["10%"],
+                },
+                {
+                    "crypto_entities": ["ethereum", "eth"],
+                    "money_entities": ["$2,000"],
+                    "percentage_entities": ["20%"],
+                },
+            ],
+        })
+        
+        report = self.analyzer.generate_report(df)
+        
+        self.assertEqual(report["total_articles"], 2)
+        self.assertIn("average_sentiment", report)
         self.assertIn("sentiment_distribution", report)
+        self.assertIn("entities", report)
+        self.assertIn("sentiment_trend", report)
 
-        # Vérification des valeurs
-        self.assertEqual(report["total_articles"], len(df))
+    def test_empty_report(self):
+        """Teste la génération d'un rapport vide."""
+        report = self.analyzer.generate_report(pd.DataFrame())
+        
+        self.assertEqual(report["total_articles"], 0)
+        self.assertEqual(report["average_sentiment"], 0.0)
+        self.assertEqual(report["sentiment_distribution"], {})
+        self.assertEqual(report["entities"], {})
+        self.assertEqual(report["sentiment_trend"], {})
 
-    def test_clean_text(self):
-        """Teste le nettoyage de texte."""
-        # Test avec un texte contenant des URLs et des balises HTML
-        text = "Check out this link: https://example.com and <b>bold text</b>"
-        cleaned_text = self.analyzer._clean_text(text)
+    @patch("matplotlib.pyplot.savefig")
+    def test_plot_trends(self, mock_savefig):
+        """Teste la génération du graphique des tendances."""
+        df = pd.DataFrame({
+            "published_at": [
+                datetime(2024, 3, 20, 12, 0),
+                datetime(2024, 3, 20, 13, 0),
+            ],
+            "global_sentiment": [
+                {"label": "positive", "score": 0.8},
+                {"label": "negative", "score": -0.6},
+            ],
+        })
+        
+        self.analyzer.plot_trends(df)
+        mock_savefig.assert_called_once()
 
-        # Vérification que les URLs et balises HTML sont supprimées
-        self.assertNotIn("https://", cleaned_text)
-        self.assertNotIn("<b>", cleaned_text)
-        self.assertNotIn("</b>", cleaned_text)
-
-    def test_hash_text(self):
-        """Teste la génération de hash pour un texte."""
-        text = "This is a test text"
-        hash_value = text_hash(text)
-
-        self.assertIsInstance(hash_value, str)
-        self.assertEqual(len(hash_value), 32)  # MD5 hash length
-
-        # Vérification que le même texte donne le même hash
-        hash_value2 = text_hash(text)
-        self.assertEqual(hash_value, hash_value2)
-
-        # Vérification que des textes différents donnent des hashs différents
-        hash_value3 = text_hash("Different text")
-        self.assertNotEqual(hash_value, hash_value3)
-
-    def test_cache_functionality(self):
-        """Teste la fonctionnalité de cache."""
-        with tempfile.TemporaryDirectory() as temp_dir:
-            # Création d'un analyseur avec cache
-            analyzer_with_cache = EnhancedNewsAnalyzer(
-                enable_cache=True, cache_dir=temp_dir
-            )
-
-            # Création d'un cache fictif
-            test_key = "test_hash"
-            test_value = {"sentiment": "positive", "score": 0.9}
-
-            # Sauvegarde dans le cache
-            analyzer_with_cache.cache.save(test_key, test_value)
-
-            # Vérification que le fichier existe
-            cache_file = Path(temp_dir) / f"{test_key}.pkl"
-            self.assertTrue(cache_file.exists())
-
-            # Chargement depuis le cache
-            loaded_value = analyzer_with_cache.cache.load(test_key)
-            self.assertEqual(loaded_value, test_value)
-
-    def test_fallback_sentiment_analysis(self):
-        """Teste l'analyse de sentiment de repli."""
-        # Test avec un texte positif
-        positive_text = (
-            "Bitcoin is showing bullish signals with strong growth and potential"
-        )
-        positive_result = self.analyzer._fallback_sentiment_analysis(positive_text)
-
-        self.assertIsInstance(positive_result, dict)
-        self.assertIn("label", positive_result)
-        self.assertIn("score", positive_result)
-        self.assertEqual(positive_result["label"], "positive")
-
-        # Test avec un texte négatif
-        negative_text = (
-            "Bitcoin crashes with significant losses and high risk of further decline"
-        )
-        negative_result = self.analyzer._fallback_sentiment_analysis(negative_text)
-
-        self.assertIsInstance(negative_result, dict)
-        self.assertIn("label", negative_result)
-        self.assertIn("score", negative_result)
-        self.assertEqual(negative_result["label"], "negative")
-
-        # Test avec un texte neutre
-        neutral_text = (
-            "Bitcoin price remains stable with some positive and negative signals"
-        )
-        neutral_result = self.analyzer._fallback_sentiment_analysis(neutral_text)
-
-        self.assertIsInstance(neutral_result, dict)
-        self.assertIn("label", neutral_result)
-        self.assertIn("score", neutral_result)
-        self.assertEqual(neutral_result["label"], "neutral")
-
-    def test_fallback_entity_extraction(self):
-        """Teste l'extraction d'entités de repli."""
-        # Test avec un texte contenant des entités crypto et des montants
-        text = "Bitcoin reached $50,000 while Ethereum increased by 15%"
-        entities = self.analyzer._fallback_entity_extraction(text)
-
-        self.assertIsInstance(entities, dict)
-        self.assertIn("crypto_entities", entities)
-        self.assertGreater(len(entities["crypto_entities"]), 0)
-
-        # Vérification des types d'entités
-        entity_types = [
-            entity["type"]
-            for cat in ["crypto_entities", "money_entities", "percentage_entities"]
-            for entity in entities[cat]
-        ]
-        self.assertIn("MONEY", entity_types)
+    @patch("matplotlib.pyplot.savefig")
+    def test_plot_distribution(self, mock_savefig):
+        """Teste la génération du graphique de distribution."""
+        df = pd.DataFrame({
+            "global_sentiment": [
+                {"label": "positive", "score": 0.8},
+                {"label": "negative", "score": -0.6},
+                {"label": "positive", "score": 0.7},
+            ],
+        })
+        
+        self.analyzer.plot_distribution(df)
+        mock_savefig.assert_called_once()
 
 
 if __name__ == "__main__":

@@ -13,6 +13,56 @@ from datetime import datetime, timedelta
 # Configuration du logging
 logger = logging.getLogger(__name__)
 
+# Fonctions utilitaires
+def determine_data_frequency(data: pd.DataFrame) -> str:
+    """
+    Détermine la fréquence temporelle des données.
+    
+    Args:
+        data: DataFrame avec un index temporel
+        
+    Returns:
+        Chaîne indiquant la fréquence (1min, 5min, 1h, 1d, etc.)
+    """
+    if not isinstance(data.index, pd.DatetimeIndex):
+        return "unknown"
+        
+    if len(data.index) < 2:
+        return "unknown"
+        
+    diffs = []
+    for i in range(1, len(data.index)):
+        diff = data.index[i] - data.index[i-1]
+        diffs.append(diff)
+    
+    diffs = pd.Series(diffs)
+    
+    if len(diffs.unique()) == 1:
+        time_diff = diffs.iloc[0]
+    else:
+        time_diff = diffs.value_counts().index[0]
+    
+    minutes = time_diff.total_seconds() / 60
+    
+    if minutes < 1:
+        return "1s"
+    elif minutes == 1:
+        return "1min"
+    elif minutes == 5:
+        return "5min"
+    elif minutes == 15:
+        return "15min"
+    elif minutes == 30:
+        return "30min"
+    elif minutes == 60:
+        return "1h"
+    elif minutes == 240:
+        return "4h"
+    elif minutes >= 1440:
+        return "1d"
+    else:
+        return f"{int(minutes)}min"
+
 class ScenarioType(Enum):
     """Types de scénarios de stress testing."""
     CRASH = "CRASH"                     # Chute brutale des prix
@@ -22,6 +72,67 @@ class ScenarioType(Enum):
     FLASH_CRASH = "FLASH_CRASH"         # Crash éclair avec rebond
     BLACK_SWAN = "BLACK_SWAN"           # Événement extrême imprévisible
     CUSTOM = "CUSTOM"                   # Scénario personnalisé
+
+class StressScenario:
+    """
+    Scénario de stress pour tester la robustesse des stratégies.
+    """
+    
+    def __init__(self, name, price_shock, volatility_multiplier, volume_multiplier, duration, start_date):
+        """
+        Initialise un scénario de stress.
+        
+        Args:
+            name: Nom du scénario
+            price_shock: Choc de prix (ex: -0.3 pour -30%)
+            volatility_multiplier: Multiplicateur de volatilité
+            volume_multiplier: Multiplicateur de volume
+            duration: Durée du scénario (timedelta)
+            start_date: Date de début du scénario
+        """
+        self.name = name
+        self.price_shock = price_shock
+        self.volatility_multiplier = volatility_multiplier
+        self.volume_multiplier = volume_multiplier
+        self.duration = duration
+        self.start_date = start_date
+        
+    def apply_to_data(self, market_data):
+        """
+        Applique le scénario de stress aux données de marché.
+        
+        Args:
+            market_data: Dictionnaire de DataFrames contenant les données par symbole
+        
+        Returns:
+            Dictionnaire de DataFrames modifiés
+        """
+        stressed_data = {symbol: df.copy() for symbol, df in market_data.items()}
+        end_date = self.start_date + self.duration
+        
+        for symbol, df in stressed_data.items():
+            stress_mask = (df.index >= self.start_date) & (df.index <= end_date)
+            
+            if not any(stress_mask):
+                continue
+                
+            if self.price_shock != 0:
+                shock_factor = 1 + self.price_shock
+                df.loc[stress_mask, 'open'] *= shock_factor
+                df.loc[stress_mask, 'high'] *= shock_factor
+                df.loc[stress_mask, 'low'] *= shock_factor
+                df.loc[stress_mask, 'close'] *= shock_factor
+            
+            if self.volatility_multiplier != 1:
+                avg_range = df['high'] - df['low']
+                additional_range = avg_range * (self.volatility_multiplier - 1) / 2
+                df.loc[stress_mask, 'high'] += additional_range[stress_mask]
+                df.loc[stress_mask, 'low'] -= additional_range[stress_mask]
+            
+            if self.volume_multiplier != 1:
+                df.loc[stress_mask, 'volume'] *= self.volume_multiplier
+        
+        return stressed_data
 
 class StressTester:
     """
@@ -82,593 +193,256 @@ class StressTester:
             else:
                 self.config[key] = default_value
                 
-    def generate_stress_scenario(self, 
-                              base_data: pd.DataFrame, 
-                              scenario_type: ScenarioType,
-                              custom_params: Dict = None) -> pd.DataFrame:
+    def generate_stress_scenario(self, data: pd.DataFrame, scenario_type: ScenarioType, custom_params: Dict = None) -> pd.DataFrame:
         """
-        Génère un scénario de stress en modifiant les données de base.
+        Génère un scénario de stress sur les données fournies.
         
         Args:
-            base_data: Données OHLCV de base
+            data: DataFrame avec les données OHLCV
             scenario_type: Type de scénario à générer
-            custom_params: Paramètres personnalisés optionnels
+            custom_params: Paramètres personnalisés pour le scénario
             
         Returns:
-            DataFrame contenant les données modifiées
+            DataFrame avec les données stressées
         """
-        if base_data.empty:
-            logger.error("Données de base vides, impossible de générer un scénario")
-            return pd.DataFrame()
+        if data.empty:
+            raise ValueError("Les données d'entrée sont vides")
             
-        # Copier les données pour éviter de modifier l'original
-        data = base_data.copy()
+        if not isinstance(scenario_type, ScenarioType):
+            raise ValueError(f"Type de scénario invalide: {scenario_type}")
+            
+        scenario_generators = {
+            ScenarioType.CRASH: self._generate_crash_scenario,
+            ScenarioType.VOLATILITY_SPIKE: self._generate_volatility_spike_scenario,
+            ScenarioType.LIQUIDITY_CRISIS: self._generate_liquidity_crisis_scenario,
+            ScenarioType.FLASH_CRASH: self._generate_flash_crash_scenario,
+            ScenarioType.CORRELATION_BREAKDOWN: self._generate_correlation_breakdown_scenario,
+            ScenarioType.BLACK_SWAN: self._generate_black_swan_scenario,
+            ScenarioType.CUSTOM: self._generate_custom_scenario
+        }
         
-        if scenario_type == ScenarioType.CRASH:
-            return self._generate_crash_scenario(data, custom_params)
+        generator = scenario_generators.get(scenario_type)
+        if generator is None:
+            raise ValueError(f"Générateur non trouvé pour le scénario: {scenario_type}")
             
-        elif scenario_type == ScenarioType.VOLATILITY_SPIKE:
-            return self._generate_volatility_spike_scenario(data, custom_params)
-            
-        elif scenario_type == ScenarioType.LIQUIDITY_CRISIS:
-            return self._generate_liquidity_crisis_scenario(data, custom_params)
-            
-        elif scenario_type == ScenarioType.FLASH_CRASH:
-            return self._generate_flash_crash_scenario(data, custom_params)
-            
-        elif scenario_type == ScenarioType.CORRELATION_BREAKDOWN:
-            return self._generate_correlation_breakdown_scenario(data, custom_params)
-            
-        elif scenario_type == ScenarioType.BLACK_SWAN:
-            return self._generate_black_swan_scenario(data, custom_params)
-            
-        elif scenario_type == ScenarioType.CUSTOM:
-            return self._generate_custom_scenario(data, custom_params)
-            
-        else:
-            logger.error(f"Type de scénario non supporté: {scenario_type}")
-            return data
+        return generator(data, custom_params)
             
     def _generate_crash_scenario(self, data: pd.DataFrame, custom_params: Dict = None) -> pd.DataFrame:
-        """
-        Génère un scénario de crash du marché.
-        
-        Args:
-            data: Données OHLCV
-            custom_params: Paramètres personnalisés
+        """Génère un scénario de crash."""
+        params = self.config["scenarios"]["crash"].copy()
+        if custom_params:
+            params.update(custom_params)
             
-        Returns:
-            Données modifiées
-        """
-        params = custom_params or self.config["scenarios"]["crash"]
+        stressed_data = data.copy()
+        start_idx = len(data) // 4  # Commence au premier quart des données
         
-        # Paramètres du scénario
-        price_drop = params.get("price_drop", -0.4)      # 40% de chute par défaut
-        duration_days = params.get("duration_days", 7)   # 7 jours par défaut
-        recovery_days = params.get("recovery_days", 30)  # 30 jours par défaut
-        recovery_percent = params.get("recovery_percent", 0.6)  # 60% de récupération
+        # Appliquer la chute
+        drop_period = int(params["duration_days"] * len(data) / 252)  # Convertir en périodes
+        drop_factor = 1 + params["price_drop"]
         
-        # Déterminer la fréquence des données
-        freq = self._determine_data_frequency(data)
-        
-        # Convertir les jours en nombre de périodes
-        duration_periods = self._days_to_periods(duration_days, freq)
-        recovery_periods = self._days_to_periods(recovery_days, freq)
-        
-        # Vérifier que nous avons assez de données
-        if len(data) < duration_periods + recovery_periods:
-            logger.warning("Pas assez de données pour le scénario. Ajustement de la durée.")
-            # Ajuster les périodes proportionnellement
-            total = duration_periods + recovery_periods
-            ratio = len(data) / total
-            duration_periods = int(duration_periods * ratio * 0.8)  # 80% du ratio pour être sûr
-            recovery_periods = int(recovery_periods * ratio * 0.8)
+        for col in ['open', 'high', 'low', 'close']:
+            stressed_data.iloc[start_idx:start_idx + drop_period, stressed_data.columns.get_loc(col)] *= drop_factor
             
-        # Sélectionner un point de départ aléatoire pour le crash
-        # (mais pas trop près du début ou de la fin)
-        min_start = int(len(data) * 0.2)
-        max_start = int(len(data) * 0.6)
-        crash_start = np.random.randint(min_start, max_start)
+        # Appliquer la récupération
+        recovery_period = int(params["recovery_days"] * len(data) / 252)
+        recovery_factor = 1 + (params["price_drop"] * params["recovery_percent"])
         
-        # Générer la phase de crash
-        crash_end = min(crash_start + duration_periods, len(data))
-        crash_range = np.arange(crash_start, crash_end)
-        
-        # Calculer les facteurs de modification pour la phase de crash
-        crash_factors = np.linspace(0, 1, len(crash_range))
-        crash_multipliers = 1 + price_drop * crash_factors
-        
-        # Appliquer les modifications aux données OHLCV
-        for i, idx in enumerate(crash_range):
-            multiplier = crash_multipliers[i]
-            data.iloc[idx, data.columns.get_indexer(['open', 'high', 'low', 'close'])] *= multiplier
+        for col in ['open', 'high', 'low', 'close']:
+            stressed_data.iloc[start_idx + drop_period:start_idx + drop_period + recovery_period, 
+                             stressed_data.columns.get_loc(col)] *= recovery_factor
             
-            # Augmenter le volume pendant le crash (panique)
-            panic_factor = 1 + (1 - multiplier) * 2  # Plus la chute est forte, plus le volume augmente
-            data.iloc[idx, data.columns.get_indexer(['volume'])] *= panic_factor
-            
-        # Générer la phase de récupération si demandée
-        if recovery_percent > 0:
-            recovery_start = crash_end
-            recovery_end = min(recovery_start + recovery_periods, len(data))
-            recovery_range = np.arange(recovery_start, recovery_end)
-            
-            # Calculer le niveau de prix après le crash
-            post_crash_price = data.iloc[crash_end-1]['close']
-            original_price = data.iloc[crash_start]['close'] / (1 + price_drop * 0)  # Prix avant le crash
-            recovery_target = post_crash_price + (original_price - post_crash_price) * recovery_percent
-            
-            # Calculer les facteurs de récupération
-            recovery_factors = np.linspace(0, 1, len(recovery_range))
-            
-            # Appliquer la récupération
-            for i, idx in enumerate(recovery_range):
-                factor = recovery_factors[i]
-                price_now = post_crash_price * (1 + (recovery_target / post_crash_price - 1) * factor)
-                multiplier = price_now / data.iloc[idx]['close']
-                
-                data.iloc[idx, data.columns.get_indexer(['open', 'high', 'low', 'close'])] *= multiplier
-                
-                # Le volume reste élevé mais diminue progressivement
-                vol_factor = 1.5 - 0.5 * factor  # De 1.5 à 1.0
-                data.iloc[idx, data.columns.get_indexer(['volume'])] *= vol_factor
-                
-        return data
+        return stressed_data
         
     def _generate_volatility_spike_scenario(self, data: pd.DataFrame, custom_params: Dict = None) -> pd.DataFrame:
-        """
-        Génère un scénario de pic de volatilité.
-        
-        Args:
-            data: Données OHLCV
-            custom_params: Paramètres personnalisés
+        """Génère un scénario de pic de volatilité."""
+        params = self.config["scenarios"]["volatility_spike"].copy()
+        if custom_params:
+            params.update(custom_params)
             
-        Returns:
-            Données modifiées
-        """
-        params = custom_params or self.config["scenarios"]["volatility_spike"]
+        stressed_data = data.copy()
+        start_idx = len(data) // 4
         
-        # Paramètres du scénario
-        vol_multiplier = params.get("vol_multiplier", 5.0)     # Multiplication par 5 de la volatilité
-        duration_days = params.get("duration_days", 10)        # 10 jours par défaut
-        decay_days = params.get("decay_days", 20)              # 20 jours de retour à la normale
+        # Période de volatilité accrue
+        vol_period = int(params["duration_days"] * len(data) / 252)
         
-        # Déterminer la fréquence des données
-        freq = self._determine_data_frequency(data)
+        # Calculer la volatilité normale
+        normal_vol = data['close'].pct_change().std()
         
-        # Convertir les jours en nombre de périodes
-        duration_periods = self._days_to_periods(duration_days, freq)
-        decay_periods = self._days_to_periods(decay_days, freq)
-        
-        # Vérifier que nous avons assez de données
-        if len(data) < duration_periods + decay_periods:
-            logger.warning("Pas assez de données pour le scénario. Ajustement de la durée.")
-            # Ajuster les périodes proportionnellement
-            total = duration_periods + decay_periods
-            ratio = len(data) / total
-            duration_periods = int(duration_periods * ratio * 0.8)
-            decay_periods = int(decay_periods * ratio * 0.8)
+        # Augmenter la volatilité
+        for i in range(start_idx, start_idx + vol_period):
+            # Générer un facteur de volatilité plus important
+            vol_factor = params["vol_multiplier"] * np.random.normal(1, normal_vol)
             
-        # Sélectionner un point de départ aléatoire pour le pic de volatilité
-        min_start = int(len(data) * 0.2)
-        max_start = int(len(data) * 0.6)
-        spike_start = np.random.randint(min_start, max_start)
-        
-        # Calculer la volatilité de base sur les données précédant le pic
-        look_back = min(30, spike_start)
-        base_returns = data['close'].pct_change().iloc[spike_start-look_back:spike_start]
-        base_volatility = base_returns.std()
-        
-        # Générer la phase de haute volatilité
-        spike_end = min(spike_start + duration_periods, len(data))
-        spike_range = np.arange(spike_start, spike_end)
-        
-        # Générer des rendements aléatoires avec volatilité accrue
-        target_volatility = base_volatility * vol_multiplier
-        increased_volatility = np.random.normal(0, target_volatility, len(spike_range))
-        
-        # Appliquer les rendements pour créer les nouveaux prix
-        prices = data['close'].values.copy()
-        for i, idx in enumerate(spike_range):
-            prices[idx] = prices[idx-1] * (1 + increased_volatility[i])
+            # Calculer le prix médian
+            mid_price = stressed_data.iloc[i]['close']
             
-            # Mettre à jour open, high, low
-            daily_range = abs(increased_volatility[i]) * prices[idx]
-            data.iloc[idx, data.columns.get_indexer(['open'])] = prices[idx] * (1 - 0.2 * np.random.random())
-            data.iloc[idx, data.columns.get_indexer(['high'])] = prices[idx] * (1 + 0.3 * np.random.random())
-            data.iloc[idx, data.columns.get_indexer(['low'])] = prices[idx] * (1 - 0.3 * np.random.random())
-            data.iloc[idx, data.columns.get_indexer(['close'])] = prices[idx]
+            # Ajuster les prix avec une volatilité accrue
+            stressed_data.iloc[i, stressed_data.columns.get_loc('high')] = mid_price * (1 + abs(vol_factor))
+            stressed_data.iloc[i, stressed_data.columns.get_loc('low')] = mid_price * (1 - abs(vol_factor))
+            stressed_data.iloc[i, stressed_data.columns.get_loc('open')] = mid_price * (1 + np.random.normal(0, abs(vol_factor)))
+            stressed_data.iloc[i, stressed_data.columns.get_loc('close')] = mid_price * (1 + np.random.normal(0, abs(vol_factor)))
             
-            # Augmenter le volume pendant la volatilité
-            data.iloc[idx, data.columns.get_indexer(['volume'])] *= 1.5 + np.random.random()
-        
-        # Générer la phase de retour à la normale
-        decay_start = spike_end
-        decay_end = min(decay_start + decay_periods, len(data))
-        decay_range = np.arange(decay_start, decay_end)
-        
-        # Réduire progressivement la volatilité
-        for i, idx in enumerate(decay_range):
-            decay_factor = 1 - (i / len(decay_range))
-            current_volatility = base_volatility * (1 + (vol_multiplier - 1) * decay_factor)
+            # Augmenter le volume pendant les périodes de forte volatilité
+            stressed_data.iloc[i, stressed_data.columns.get_loc('volume')] *= (1 + abs(vol_factor))
             
-            # Générer le rendement pour cette période
-            period_return = np.random.normal(0, current_volatility)
-            
-            # Appliquer le rendement
-            prices[idx] = prices[idx-1] * (1 + period_return)
-            
-            # Mettre à jour open, high, low
-            daily_range = abs(period_return) * prices[idx]
-            data.iloc[idx, data.columns.get_indexer(['open'])] = prices[idx] * (1 - 0.1 * np.random.random() * decay_factor)
-            data.iloc[idx, data.columns.get_indexer(['high'])] = prices[idx] * (1 + 0.2 * np.random.random() * decay_factor)
-            data.iloc[idx, data.columns.get_indexer(['low'])] = prices[idx] * (1 - 0.2 * np.random.random() * decay_factor)
-            data.iloc[idx, data.columns.get_indexer(['close'])] = prices[idx]
-            
-            # Réduire progressivement le volume
-            vol_factor = 1 + 0.5 * decay_factor
-            data.iloc[idx, data.columns.get_indexer(['volume'])] *= vol_factor
-            
-        return data
+        return stressed_data
         
     def _generate_liquidity_crisis_scenario(self, data: pd.DataFrame, custom_params: Dict = None) -> pd.DataFrame:
-        """
-        Génère un scénario de crise de liquidité.
-        
-        Args:
-            data: Données OHLCV
-            custom_params: Paramètres personnalisés
+        """Génère un scénario de crise de liquidité."""
+        params = self.config["scenarios"]["liquidity_crisis"].copy()
+        if custom_params:
+            params.update(custom_params)
             
-        Returns:
-            Données modifiées
-        """
-        params = custom_params or self.config["scenarios"]["liquidity_crisis"]
+        stressed_data = data.copy()
+        start_idx = len(data) // 4
         
-        # Paramètres du scénario
-        volume_drop = params.get("volume_drop", -0.7)      # 70% de baisse du volume
-        spread_increase = params.get("spread_increase", 10.0)  # Spread multiplié par 10
-        duration_days = params.get("duration_days", 5)     # 5 jours par défaut
-        recovery_days = params.get("recovery_days", 15)    # 15 jours de récupération
+        # Période de crise de liquidité
+        crisis_period = int(params["duration_days"] * len(data) / 252)
         
-        # Déterminer la fréquence des données
-        freq = self._determine_data_frequency(data)
-        
-        # Convertir les jours en nombre de périodes
-        duration_periods = self._days_to_periods(duration_days, freq)
-        recovery_periods = self._days_to_periods(recovery_days, freq)
-        
-        # Vérifier que nous avons assez de données
-        if len(data) < duration_periods + recovery_periods:
-            logger.warning("Pas assez de données pour le scénario. Ajustement de la durée.")
-            # Ajuster les périodes proportionnellement
-            total = duration_periods + recovery_periods
-            ratio = len(data) / total
-            duration_periods = int(duration_periods * ratio * 0.8)
-            recovery_periods = int(recovery_periods * ratio * 0.8)
-            
-        # Sélectionner un point de départ aléatoire
-        min_start = int(len(data) * 0.2)
-        max_start = int(len(data) * 0.6)
-        crisis_start = np.random.randint(min_start, max_start)
-        
-        # Générer la phase de crise
-        crisis_end = min(crisis_start + duration_periods, len(data))
-        crisis_range = np.arange(crisis_start, crisis_end)
-        
-        # Calculer les facteurs de modification pour le volume
-        crisis_factors = np.linspace(0, 1, len(crisis_range))
-        volume_multipliers = 1 + volume_drop * crisis_factors
-        
-        # Appliquer les modifications
-        for i, idx in enumerate(crisis_range):
             # Réduire le volume
-            multiplier = volume_multipliers[i]
-            data.iloc[idx, data.columns.get_indexer(['volume'])] *= multiplier
-            
-            # Augmenter la volatilité et le spread en raison de la faible liquidité
-            current_spread = spread_increase * crisis_factors[i]
-            
-            # Simuler un impact de spread augmenté sur les prix high/low
-            current_price = data.iloc[idx]['close']
-            high_low_range = current_price * 0.02 * (1 + current_spread)  # Augmenter l'écart high-low
-            
-            # Ajuster high et low pour refléter le spread plus large
-            data.iloc[idx, data.columns.get_indexer(['high'])] = max(data.iloc[idx]['high'], current_price + high_low_range/2)
-            data.iloc[idx, data.columns.get_indexer(['low'])] = min(data.iloc[idx]['low'], current_price - high_low_range/2)
-            
-        # Générer la phase de récupération
-        recovery_start = crisis_end
-        recovery_end = min(recovery_start + recovery_periods, len(data))
-        recovery_range = np.arange(recovery_start, recovery_end)
+        volume_factor = 1 + params["volume_drop"]
+        stressed_data.iloc[start_idx:start_idx + crisis_period, stressed_data.columns.get_loc('volume')] *= volume_factor
         
-        # Calculer les facteurs de récupération
-        recovery_factors = np.linspace(0, 1, len(recovery_range))
-        
-        # Appliquer la récupération
-        for i, idx in enumerate(recovery_range):
-            factor = recovery_factors[i]
+        # Augmenter les spreads (différence high-low)
+        spread_factor = params["spread_increase"]
+        for i in range(start_idx, start_idx + crisis_period):
+            mid_price = (stressed_data.iloc[i]['high'] + stressed_data.iloc[i]['low']) / 2
+            spread = stressed_data.iloc[i]['high'] - stressed_data.iloc[i]['low']
+            new_spread = spread * spread_factor
+            stressed_data.iloc[i, stressed_data.columns.get_loc('high')] = mid_price + new_spread/2
+            stressed_data.iloc[i, stressed_data.columns.get_loc('low')] = mid_price - new_spread/2
             
-            # Augmenter progressivement le volume
-            vol_recovery = 1 + volume_drop * (1 - factor)
-            data.iloc[idx, data.columns.get_indexer(['volume'])] /= vol_recovery
-            
-            # Réduire progressivement le spread
-            current_spread = spread_increase * (1 - factor)
-            
-            # Réduire l'écart high-low
-            current_price = data.iloc[idx]['close']
-            high_low_range = current_price * 0.02 * (1 + current_spread)
-            
-            # Ajuster high et low
-            data.iloc[idx, data.columns.get_indexer(['high'])] = min(data.iloc[idx]['high'], current_price + high_low_range/2)
-            data.iloc[idx, data.columns.get_indexer(['low'])] = max(data.iloc[idx]['low'], current_price - high_low_range/2)
-            
-        return data
+        return stressed_data
 
     def _generate_flash_crash_scenario(self, data: pd.DataFrame, custom_params: Dict = None) -> pd.DataFrame:
-        """
-        Génère un scénario de crash éclair.
-        
-        Args:
-            data: Données OHLCV
-            custom_params: Paramètres personnalisés
+        """Génère un scénario de crash éclair."""
+        params = self.config["scenarios"]["flash_crash"].copy()
+        if custom_params:
+            params.update(custom_params)
             
-        Returns:
-            Données modifiées
-        """
-        params = custom_params or self.config["scenarios"]["flash_crash"]
+        stressed_data = data.copy()
+        start_idx = len(data) // 4
         
-        # Paramètres du scénario
-        price_drop = params.get("price_drop", -0.2)       # 20% de chute
-        duration_hours = params.get("duration_hours", 4)     # Sur 4 heures
-        recovery_hours = params.get("recovery_hours", 12)     # 12 heures pour récupérer
-        recovery_percent = params.get("recovery_percent", 0.9) # Récupération de 90%
+        # Convertir les heures en périodes
+        crash_period = int(params["duration_hours"] * len(data) / (252 * 24))
+        recovery_period = int(params["recovery_hours"] * len(data) / (252 * 24))
         
-        # Déterminer la fréquence des données
-        freq = self._determine_data_frequency(data)
+        # S'assurer que les périodes sont d'au moins 1
+        crash_period = max(1, crash_period)
+        recovery_period = max(1, recovery_period)
         
-        # Convertir les heures en nombre de périodes
-        duration_periods = self._hours_to_periods(duration_hours, freq)
-        recovery_periods = self._hours_to_periods(recovery_hours, freq)
+        # Appliquer le crash éclair
+        drop_factor = 1 + params["price_drop"]  # price_drop est négatif, donc drop_factor < 1
         
-        # Vérifier que nous avons assez de données
-        if len(data) < duration_periods + recovery_periods:
-            logger.warning("Pas assez de données pour le scénario. Ajustement de la durée.")
-            # Ajuster les périodes proportionnellement
-            total = duration_periods + recovery_periods
-            ratio = len(data) / total
-            duration_periods = int(duration_periods * ratio * 0.8)
-            recovery_periods = int(recovery_periods * ratio * 0.8)
+        # S'assurer que la chute est d'au moins 10%
+        if drop_factor > 0.9:  # Si la chute est inférieure à 10%
+            drop_factor = 0.9  # Force une chute de 10%
             
-        # Sélectionner un point de départ aléatoire pour le crash
-        # (mais pas trop près du début ou de la fin)
-        min_start = int(len(data) * 0.2)
-        max_start = int(len(data) * 0.6)
-        crash_start = np.random.randint(min_start, max_start)
+        # Prix avant le crash
+        pre_crash_price = stressed_data.iloc[start_idx - 1]['close']
         
-        # Générer la phase de crash
-        crash_end = min(crash_start + duration_periods, len(data))
-        crash_range = np.arange(crash_start, crash_end)
+        for i in range(start_idx, start_idx + crash_period):
+            # Calculer un facteur de chute progressif
+            progress = (i - start_idx) / crash_period
+            current_drop = 1 - (1 - drop_factor) * (1 - progress)  # Commence à 1 et descend jusqu'à drop_factor
+            
+            # Appliquer la chute aux prix
+            for col in ['open', 'high', 'low', 'close']:
+                base_price = pre_crash_price if col == 'open' else stressed_data.iloc[i-1]['close']
+                stressed_data.iloc[i, stressed_data.columns.get_loc(col)] = base_price * current_drop
+            
+            # Augmenter le volume pendant le crash
+            stressed_data.iloc[i, stressed_data.columns.get_loc('volume')] *= (2 + abs(1 - current_drop))
+            
+        # Appliquer le rebond
+        recovery_start = start_idx + crash_period
+        recovery_end = min(recovery_start + recovery_period, len(stressed_data))
         
-        # Calculer les facteurs de modification pour la phase de crash
-        crash_factors = np.linspace(0, 1, len(crash_range))
-        crash_multipliers = 1 + price_drop * crash_factors
+        # Prix après le crash
+        post_crash_price = stressed_data.iloc[recovery_start - 1]['close']
+        price_diff = pre_crash_price - post_crash_price
+        recovery_amount = price_diff * params["recovery_percent"]
         
-        # Appliquer les modifications aux données OHLCV
-        for i, idx in enumerate(crash_range):
-            multiplier = crash_multipliers[i]
-            data.iloc[idx, data.columns.get_indexer(['open', 'high', 'low', 'close'])] *= multiplier
+        for i in range(recovery_start, recovery_end):
+            # Calculer un facteur de récupération progressif
+            progress = (i - recovery_start) / recovery_period
+            current_recovery = post_crash_price * (1 + (recovery_amount / post_crash_price) * progress)
             
-            # Augmenter le volume pendant le crash (panique)
-            panic_factor = 1 + (1 - multiplier) * 2  # Plus la chute est forte, plus le volume augmente
-            data.iloc[idx, data.columns.get_indexer(['volume'])] *= panic_factor
-            
-        # Générer la phase de récupération si demandée
-        if recovery_percent > 0:
-            recovery_start = crash_end
-            recovery_end = min(recovery_start + recovery_periods, len(data))
-            recovery_range = np.arange(recovery_start, recovery_end)
-            
-            # Calculer le niveau de prix après le crash
-            post_crash_price = data.iloc[crash_end-1]['close']
-            original_price = data.iloc[crash_start]['close'] / (1 + price_drop * 0)  # Prix avant le crash
-            recovery_target = post_crash_price + (original_price - post_crash_price) * recovery_percent
-            
-            # Calculer les facteurs de récupération
-            recovery_factors = np.linspace(0, 1, len(recovery_range))
-            
-            # Appliquer la récupération
-            for i, idx in enumerate(recovery_range):
-                factor = recovery_factors[i]
-                price_now = post_crash_price * (1 + (recovery_target / post_crash_price - 1) * factor)
-                multiplier = price_now / data.iloc[idx]['close']
-                
-                data.iloc[idx, data.columns.get_indexer(['open', 'high', 'low', 'close'])] *= multiplier
+            # Appliquer la récupération aux prix
+            for col in ['open', 'high', 'low', 'close']:
+                stressed_data.iloc[i, stressed_data.columns.get_loc(col)] = current_recovery * (1 + np.random.normal(0, 0.001))
                 
                 # Le volume reste élevé mais diminue progressivement
-                vol_factor = 1.5 - 0.5 * factor  # De 1.5 à 1.0
-                data.iloc[idx, data.columns.get_indexer(['volume'])] *= vol_factor
+            stressed_data.iloc[i, stressed_data.columns.get_loc('volume')] *= (1.5 - 0.5 * progress)
                 
-        return data
+        return stressed_data
 
     def _generate_correlation_breakdown_scenario(self, data: pd.DataFrame, custom_params: Dict = None) -> pd.DataFrame:
-        """
-        Génère un scénario de rupture des corrélations.
+        """Génère un scénario de rupture des corrélations."""
+        stressed_data = data.copy()
         
-        Args:
-            data: Données OHLCV
-            custom_params: Paramètres personnalisés
-            
-        Returns:
-            Données modifiées
-        """
-        params = custom_params or self.config["scenarios"]["correlation_breakdown"]
+        # Cette méthode nécessite plusieurs actifs pour être pertinente
+        # Pour un seul actif, on simule un comportement erratique
+        start_idx = len(data) // 4
+        period = len(data) // 8
         
-        # Paramètres du scénario
-        correlation_drop = params.get("correlation_drop", -0.5)  # Réduction de la corrélation de 50%
-        duration_days = params.get("duration_days", 7)            # Sur 7 jours
-        
-        # Déterminer la fréquence des données
-        freq = self._determine_data_frequency(data)
-        
-        # Convertir les jours en nombre de périodes
-        duration_periods = self._days_to_periods(duration_days, freq)
-        
-        # Vérifier que nous avons assez de données
-        if len(data) < duration_periods:
-            logger.warning("Pas assez de données pour le scénario. Ajustement de la durée.")
-            # Ajuster la durée proportionnellement
-            ratio = len(data) / duration_periods
-            duration_periods = int(duration_periods * ratio * 0.8)
-            
-        # Générer des rendements aléatoires avec corrélation réduite
-        returns = np.random.normal(0, 0.001, len(data))
-        
-        # Appliquer les rendements pour créer les nouveaux prix
-        prices = data['close'].values.copy()
-        for i, idx in enumerate(range(len(data))):
-            prices[idx] = prices[idx-1] * (1 + returns[i])
-            
-            # Mettre à jour open, high, low
-            daily_range = abs(returns[i]) * prices[idx]
-            data.iloc[idx, data.columns.get_indexer(['open'])] = prices[idx] * (1 - 0.2 * np.random.random())
-            data.iloc[idx, data.columns.get_indexer(['high'])] = prices[idx] * (1 + 0.3 * np.random.random())
-            data.iloc[idx, data.columns.get_indexer(['low'])] = prices[idx] * (1 - 0.3 * np.random.random())
-            data.iloc[idx, data.columns.get_indexer(['close'])] = prices[idx]
-            
-            # Augmenter le volume pendant la volatilité
-            data.iloc[idx, data.columns.get_indexer(['volume'])] *= 1.5 + np.random.random()
-        
-        return data
+        for i in range(start_idx, start_idx + period):
+            random_factor = np.random.normal(1, 0.1)
+            for col in ['open', 'high', 'low', 'close']:
+                stressed_data.iloc[i, stressed_data.columns.get_loc(col)] *= random_factor
+                
+        return stressed_data
 
     def _generate_black_swan_scenario(self, data: pd.DataFrame, custom_params: Dict = None) -> pd.DataFrame:
-        """
-        Génère un scénario d'événement extrême imprévisible.
+        """Génère un scénario d'événement extrême imprévisible."""
+        stressed_data = data.copy()
         
-        Args:
-            data: Données OHLCV
-            custom_params: Paramètres personnalisés
+        # Simuler un événement extrême avec une probabilité très faible
+        if np.random.random() < 0.01:  # 1% de chance
+            start_idx = np.random.randint(0, len(data) - len(data)//4)
+            duration = len(data) // 20  # 5% de la période
             
-        Returns:
-            Données modifiées
-        """
-        params = custom_params or self.config["scenarios"]["black_swan"]
-        
-        # Paramètres du scénario
-        probability = params.get("probability", 0.01)  # Probabilité d'occurrence
-        impact = params.get("impact", 0.5)            # Impact sur le prix
-        duration_days = params.get("duration_days", 7)  # Sur 7 jours
-        
-        # Déterminer la fréquence des données
-        freq = self._determine_data_frequency(data)
-        
-        # Convertir les jours en nombre de périodes
-        duration_periods = self._days_to_periods(duration_days, freq)
-        
-        # Vérifier que nous avons assez de données
-        if len(data) < duration_periods:
-            logger.warning("Pas assez de données pour le scénario. Ajustement de la durée.")
-            # Ajuster la durée proportionnellement
-            ratio = len(data) / duration_periods
-            duration_periods = int(duration_periods * ratio * 0.8)
+            # Choc extrême
+            shock_factor = np.random.choice([-0.5, -0.4, -0.3, 0.3, 0.4, 0.5])
+            for col in ['open', 'high', 'low', 'close']:
+                stressed_data.iloc[start_idx:start_idx + duration, stressed_data.columns.get_loc(col)] *= (1 + shock_factor)
+                
+            # Impact sur le volume
+            volume_factor = np.random.uniform(2, 5)
+            stressed_data.iloc[start_idx:start_idx + duration, stressed_data.columns.get_loc('volume')] *= volume_factor
             
-        # Générer un événement aléatoire
-        event = np.random.choice([True, False], p=[probability, 1-probability])
-        
-        if event:
-            # Générer un impact aléatoire
-            impact_value = np.random.uniform(0, impact)
-            
-            # Appliquer l'impact
-            data['close'] *= (1 + impact_value)
-            
-            # Mettre à jour open, high, low
-            daily_range = abs(impact_value) * data['close']
-            data.iloc[duration_periods-1, data.columns.get_indexer(['open'])] = data.iloc[duration_periods-2]['close'] * (1 - 0.2 * np.random.random())
-            data.iloc[duration_periods-1, data.columns.get_indexer(['high'])] = data.iloc[duration_periods-1]['close'] * (1 + 0.3 * np.random.random())
-            data.iloc[duration_periods-1, data.columns.get_indexer(['low'])] = data.iloc[duration_periods-1]['close'] * (1 - 0.3 * np.random.random())
-            data.iloc[duration_periods-1, data.columns.get_indexer(['close'])] = data.iloc[duration_periods-1]['close']
-            
-            # Augmenter le volume pendant la volatilité
-            data.iloc[duration_periods-1, data.columns.get_indexer(['volume'])] *= 1.5 + np.random.random()
-        
-        return data
+        return stressed_data
 
     def _generate_custom_scenario(self, data: pd.DataFrame, custom_params: Dict = None) -> pd.DataFrame:
-        """
-        Génère un scénario personnalisé.
-        
-        Args:
-            data: Données OHLCV
-            custom_params: Paramètres personnalisés
+        """Génère un scénario personnalisé."""
+        if not custom_params:
+            raise ValueError("Les paramètres personnalisés sont requis pour un scénario custom")
             
-        Returns:
-            Données modifiées
-        """
-        if custom_params is None:
-            logger.error("Paramètres personnalisés manquants")
-            return data
+        stressed_data = data.copy()
+        start_idx = len(data) // 4
         
-        # Copier les données pour éviter de modifier l'original
-        data = data.copy()
-        
-        # Appliquer les modifications personnalisées
-        for key, value in custom_params.items():
-            if key in data.columns:
-                data[key] = value
-            else:
-                logger.warning(f"Colonne '{key}' non trouvée dans les données")
-        
-        return data
-
-    def _determine_data_frequency(self, data: pd.DataFrame) -> pd.Timedelta:
-        """
-        Détermine la fréquence des données.
-        
-        Args:
-            data: DataFrame contenant les données
+        # Appliquer les modifications selon les paramètres personnalisés
+        if 'price_shock' in custom_params:
+            shock_factor = 1 + custom_params['price_shock']
+            duration = int(custom_params.get('duration_days', 5) * len(data) / 252)
             
-        Returns:
-            Fréquence des données
-        """
-        if len(data) == 0:
-            logger.error("Données vides, impossible de déterminer la fréquence")
-            return pd.Timedelta(days=1)
-        
-        # Tenter de déterminer la fréquence en utilisant les index
-        if len(data) > 1:
-            # Calculer la différence médiane entre les timestamps
-            diff_series = data.index.to_series().diff().dropna()
-            if not diff_series.empty:
-                freq = diff_series.median()
-                return freq
-        
-        # Par défaut, supposer une fréquence quotidienne
-        logger.warning("Fréquence des données non déterminable, utilisation par défaut (1 jour)")
-        return pd.Timedelta(days=1)
-
-    def _days_to_periods(self, days: int, freq: pd.Timedelta) -> int:
-        """
-        Convertit des jours en nombre de périodes.
-        
-        Args:
-            days: Nombre de jours
-            freq: Fréquence des données
+            for col in ['open', 'high', 'low', 'close']:
+                stressed_data.iloc[start_idx:start_idx + duration, stressed_data.columns.get_loc(col)] *= shock_factor
+                
+        if 'volatility_multiplier' in custom_params:
+            vol_factor = custom_params['volatility_multiplier']
+            duration = int(custom_params.get('duration_days', 5) * len(data) / 252)
             
-        Returns:
-            Nombre de périodes
-        """
-        return int(days * pd.Timedelta(days=1) / freq)
-
-    def _hours_to_periods(self, hours: int, freq: pd.Timedelta) -> int:
-        """
-        Convertit des heures en nombre de périodes.
-        
-        Args:
-            hours: Nombre d'heures
-            freq: Fréquence des données
+            for i in range(start_idx, start_idx + duration):
+                mid_price = (stressed_data.iloc[i]['high'] + stressed_data.iloc[i]['low']) / 2
+                spread = stressed_data.iloc[i]['high'] - stressed_data.iloc[i]['low']
+                new_spread = spread * vol_factor
+                stressed_data.iloc[i, stressed_data.columns.get_loc('high')] = mid_price + new_spread/2
+                stressed_data.iloc[i, stressed_data.columns.get_loc('low')] = mid_price - new_spread/2
+                
+        if 'volume_multiplier' in custom_params:
+            vol_mult = custom_params['volume_multiplier']
+            duration = int(custom_params.get('duration_days', 5) * len(data) / 252)
+            stressed_data.iloc[start_idx:start_idx + duration, stressed_data.columns.get_loc('volume')] *= vol_mult
             
-        Returns:
-            Nombre de périodes
-        """
-        return int(hours * pd.Timedelta(hours=1) / freq) 
+        return stressed_data

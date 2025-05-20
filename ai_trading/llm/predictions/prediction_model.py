@@ -30,7 +30,7 @@ import ai_trading.config as config
 from ai_trading.utils import setup_logger
 from ai_trading.llm.predictions.parallel_processor import EnsembleParallelProcessor, ParallelProcessor
 from ai_trading.llm.predictions.cache_manager import CacheManager, cached
-from ai_trading.llm.predictions.performance_profiler import profile
+from ai_trading.llm.predictions.performance_analysis import profile
 from ai_trading.llm.predictions.rtx_optimizer import RTXOptimizer, detect_rtx_gpu, setup_rtx_environment
 
 # Configuration du logger
