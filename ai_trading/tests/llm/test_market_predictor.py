@@ -48,23 +48,6 @@ class MockSocialAnalyzer:
             "discussion_volume": "high"
         }
 
-class MockOpenAI:
-    def __init__(self, api_key=None):
-        self.chat = self.Chat()
-    
-    class Chat:
-        def __init__(self):
-            self.completions = self.Completions()
-        
-        class Completions:
-            @staticmethod
-            def create(model, messages, temperature=0, max_tokens=None, response_format=None):
-                # Ignorer response_format pour le mock
-                content = '{"direction": "bullish", "confidence": 0.85, "analysis": "Strong bullish signals based on technical and sentiment analysis", "key_factors": ["Price momentum", "Positive sentiment", "High volume"]}'
-                message = type('Message', (), {'content': content})
-                choice = type('Choice', (), {'message': message})
-                return type('Response', (), {'choices': [choice]})
-
 def mock_setup_logger(name):
     return logging.getLogger(name)
 
@@ -77,7 +60,6 @@ class TestMarketPredictor(unittest.TestCase):
         self.patches = [
             patch("ai_trading.llm.sentiment_analysis.news_analyzer.NewsAnalyzer", return_value=MockNewsAnalyzer()),
             patch("ai_trading.llm.sentiment_analysis.social_analyzer.SocialAnalyzer", return_value=MockSocialAnalyzer()),
-            patch("openai.OpenAI", MockOpenAI),
             patch("ai_trading.utils.setup_logger", mock_setup_logger)
         ]
         
@@ -346,7 +328,6 @@ def main():
     patches = [
         patch("ai_trading.llm.sentiment_analysis.news_analyzer.NewsAnalyzer", return_value=MockNewsAnalyzer()),
         patch("ai_trading.llm.sentiment_analysis.social_analyzer.SocialAnalyzer", return_value=MockSocialAnalyzer()),
-        patch("openai.OpenAI", MockOpenAI),
         patch("ai_trading.utils.setup_logger", mock_setup_logger)
     ]
     

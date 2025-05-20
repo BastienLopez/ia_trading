@@ -227,26 +227,6 @@ class TestMarketPredictorWithRTX(unittest.TestCase):
         # Patch pour setup_rtx_environment
         self.patches.append(patch('ai_trading.llm.predictions.rtx_optimizer.setup_rtx_environment', return_value=True))
         
-        # Mock pour le client OpenAI
-        class MockOpenAI:
-            def __init__(self, api_key=None):
-                self.chat = self.Chat()
-            
-            class Chat:
-                def __init__(self):
-                    self.completions = self.Completions()
-                
-                class Completions:
-                    @staticmethod
-                    def create(model, messages, temperature=0, max_tokens=None):
-                        time.sleep(0.1)  # Simulation d'un délai API
-                        content = '{"direction": "bullish", "confidence": "medium", "factors": ["Price trend", "Volume increase", "Positive sentiment"], "contradictions": null, "volatility": "medium"}'
-                        message = type('Message', (), {'content': content})
-                        choice = type('Choice', (), {'message': message})
-                        return type('Response', (), {'choices': [choice]})
-        
-        self.patches.append(patch('openai.OpenAI', MockOpenAI))
-        
         # Démarrage des patches
         for p in self.patches:
             p.start()

@@ -712,4 +712,48 @@ class PredictionModel:
         
         return {
             "market_predictor_cache": market_predictor_stats
-        } 
+        }
+
+    def _preprocess_data(self, market_data: pd.DataFrame, sentiment_data: pd.DataFrame) -> pd.DataFrame:
+        """
+        Prétraite les données de marché et de sentiment pour l'entraînement ou la prédiction.
+        
+        Args:
+            market_data (pd.DataFrame): Données de marché avec colonnes OHLCV
+            sentiment_data (pd.DataFrame): Données de sentiment avec colonnes de sentiment
+            
+        Returns:
+            pd.DataFrame: Données prétraitées et fusionnées
+        """
+        # Fusionner les données de marché et de sentiment
+        if 'date' in market_data.columns and 'date' in sentiment_data.columns:
+            data = pd.merge(market_data, sentiment_data, on='date', how='inner')
+        else:
+            # Si les dates ne sont pas disponibles, on suppose que les indices correspondent
+            data = pd.concat([market_data.reset_index(drop=True), 
+                            sentiment_data.reset_index(drop=True)], axis=1)
+        
+        # Gestion des valeurs manquantes
+        data = data.fillna(method='ffill').fillna(method='bfill')
+        
+        # Exclure la colonne date pour le scaling
+        if 'date' in data.columns:
+            data = data.drop(columns=['date'])
+        
+        # Exclure les colonnes 'direction' ou autres colonnes texte
+        for col in ['direction']:
+            if col in data.columns:
+                data = data.drop(columns=[col])
+        
+        # S'assurer que toutes les colonnes sont numériques
+        for col in data.columns:
+            if data[col].dtype == 'object':
+                try:
+                    data[col] = pd.to_numeric(data[col])
+                except:
+                    data = data.drop(columns=[col])
+        
+        logger.info(f"Dimensions data après prétraitement: {data.shape}")
+        logger.info(f"Colonnes: {data.columns.tolist()}")
+        
+        return data 
