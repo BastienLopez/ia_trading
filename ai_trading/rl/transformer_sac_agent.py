@@ -10,7 +10,7 @@ import torch
 import torch.nn.functional as F
 from torch.optim import Adam
 
-from ai_trading.rl.prioritized_replay import PrioritizedReplayBuffer
+from ai_trading.rl.agents.dqn_agent import PrioritizedReplayBuffer
 from ai_trading.rl.replay_buffer import ReplayBuffer
 from ai_trading.rl.transformer_models import TransformerHybridModel
 

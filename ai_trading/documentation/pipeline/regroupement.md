@@ -84,9 +84,25 @@ ai_trading/ml/
 
 #### 1.1.4 Tests associés
 - Créer `test_stress_testing.py` qui combine les tests des deux fichiers fusionnés
+  ```python
+  # tests/ml/backtesting/test_stress_testing.py
+  - test_stress_scenario_generation
+  - test_stress_utils
+  - test_monte_carlo_simulation
+  - test_scenario_application
+  - test_stress_metrics
+  ```
 
 #### 1.1.5 Exemples associés
 - Créer `stress_testing_example.py` qui combine les exemples des deux fichiers fusionnés
+  ```python
+  # examples/ml/backtesting/stress_testing_example.py
+  - example_crash_scenario
+  - example_volatility_spike
+  - example_liquidity_crisis
+  - example_monte_carlo
+  - example_custom_scenario
+  ```
 
 ### 1.2 LLM (Large Language Models)
 
@@ -170,13 +186,58 @@ ai_trading/llm/
 
 #### 1.2.4 Tests associés
 - Créer `test_performance_analysis.py` qui combine les tests des fichiers de performance
+  ```python
+  # tests/llm/predictions/test_performance_analysis.py
+  - test_performance_profiling
+  - test_metrics_calculation
+  - test_visualization
+  - test_memory_tracking
+  - test_gpu_monitoring
+  ```
+
 - Créer `test_sentiment_utils.py` qui combine les tests des utilitaires de sentiment
+  ```python
+  # tests/llm/sentiment_analysis/test_sentiment_utils.py
+  - test_sentiment_cache
+  - test_visualization_tools
+  - test_sentiment_metrics
+  - test_llm_client
+  ```
+
 - Mettre à jour `test_enhanced_news_analyzer.py` pour inclure les tests de `news_sentiment_analyzer.py`
+  ```python
+  # tests/llm/sentiment_analysis/test_enhanced_news_analyzer.py
+  - test_news_analysis
+  - test_sentiment_extraction
+  - test_entity_recognition
+  - test_report_generation
+  ```
 
 #### 1.2.5 Exemples associés
 - Créer `performance_analysis_example.py` qui combine les exemples de performance
+  ```python
+  # examples/llm/predictions/performance_analysis_example.py
+  - example_profiling_model
+  - example_tracking_metrics
+  - example_visualizing_performance
+  - example_memory_optimization
+  ```
+
 - Créer `sentiment_utils_example.py` qui combine les exemples d'utilitaires de sentiment
-- Mettre à jour les exemples d'analyse de sentiment pour refléter les changements
+  ```python
+  # examples/llm/sentiment_analysis/sentiment_utils_example.py
+  - example_caching_results
+  - example_visualizing_trends
+  - example_calculating_metrics
+  ```
+
+- Mettre à jour les exemples d'analyse de sentiment
+  ```python
+  # examples/llm/sentiment_analysis/enhanced_news_analyzer_example.py
+  - example_analyzing_news
+  - example_extracting_entities
+  - example_generating_reports
+  ```
 
 ### 1.3 RL (Reinforcement Learning)
 
@@ -254,6 +315,7 @@ Le dossier RL contient un très grand nombre de fichiers. Nous allons nous conce
 
 - **Agents**:
   - Regrouper `dqn_agent.py`, `dqn_agent_ucb.py` et `dqn_agent_prioritized.py` en `dqn_agent.py` (environ 1011 lignes)
+  - Regrouper les exemples DQN en un seul fichier `dqn_agent_example.py` (exemples de base, UCB, replay priorisé)
   - Regrouper `sac_agent.py` et `transformer_sac_agent.py` en `sac_agent.py` (environ 1309 lignes)
 
 - **Replay Buffers**:
@@ -278,10 +340,84 @@ Le dossier RL contient un très grand nombre de fichiers. Nous allons nous conce
   - Regrouper `hyperparameter_tuning.py` avec `optimizers.py` (environ 1669 lignes)
 
 #### 1.3.4 Tests associés
-- Créer des fichiers de test correspondants pour chaque regroupement
+- **Agents**:
+  ```python
+  # tests/rl/agents/test_dqn_agent.py
+  - test_dqn_base
+  - test_ucb_exploration
+  - test_prioritized_replay
+  
+  # tests/rl/agents/test_sac_agent.py
+  - test_sac_base
+  - test_transformer_integration
+  ```
+
+- **Replay Buffers**:
+  ```python
+  # tests/rl/memory/test_replay_buffer.py
+  - test_basic_replay
+  - test_prioritized_replay
+  - test_enhanced_prioritization
+  ```
+
+- **Exploration**:
+  ```python
+  # tests/rl/exploration/test_exploration.py
+  - test_ucb_strategy
+  - test_adaptive_exploration
+  ```
+
+- **Training**:
+  ```python
+  # tests/rl/training/test_training.py
+  - test_basic_training
+  - test_curriculum_learning
+  - test_gradient_accumulation
+  
+  # tests/rl/training/test_distributed_training.py
+  - test_ppo_distribution
+  - test_transformer_distribution
+  ```
 
 #### 1.3.5 Exemples associés
-- Créer des exemples correspondants pour chaque regroupement
+- **Agents**:
+  ```python
+  # examples/rl/agents/dqn_agent_example.py
+  - example_dqn_training
+  - example_ucb_exploration
+  - example_prioritized_experience
+  
+  # examples/rl/agents/sac_agent_example.py
+  - example_sac_continuous
+  - example_transformer_policy
+  ```
+
+- **Replay Buffers**:
+  ```python
+  # examples/rl/memory/replay_buffer_example.py
+  - example_basic_replay
+  - example_prioritized_sampling
+  - example_enhanced_memory
+  ```
+
+- **Exploration**:
+  ```python
+  # examples/rl/exploration/exploration_example.py
+  - example_ucb_strategy
+  - example_adaptive_rates
+  ```
+
+- **Training**:
+  ```python
+  # examples/rl/training/training_example.py
+  - example_basic_training
+  - example_curriculum
+  - example_gradient_acc
+  
+  # examples/rl/training/distributed_training_example.py
+  - example_ppo_cluster
+  - example_transformer_parallel
+  ```
 
 ### 1.4 Utils (Utilitaires)
 
@@ -374,10 +510,84 @@ Le dossier Utils contient également un très grand nombre de fichiers. Nous all
   - Regrouper `threading_optimizer.py`, `system_optimizer.py` et `ray_rllib_optimizer.py` en `optimization_utils.py` (environ 1577 lignes)
 
 #### 1.4.4 Tests associés
-- Créer des fichiers de test correspondants pour chaque regroupement
+- **Blockchain**:
+  ```python
+  # tests/utils/test_blockchain_collector.py
+  - test_data_collection
+  - test_async_collection
+  - test_enhanced_features
+  ```
+
+- **Cache**:
+  ```python
+  # tests/utils/test_cache_manager.py
+  - test_smart_caching
+  - test_enhanced_features
+  ```
+
+- **GPU et optimisations**:
+  ```python
+  # tests/utils/test_gpu_utils.py
+  - test_cleanup
+  - test_rtx_optimization
+  
+  # tests/utils/test_deepspeed_utils.py
+  - test_optimizer
+  - test_wrapper
+  - test_config
+  
+  # tests/utils/test_gpu_framework_utils.py
+  - test_cuda_quantization
+  - test_tensorflow_wrapper
+  ```
+
+- **Performance**:
+  ```python
+  # tests/utils/test_performance_monitoring.py
+  - test_logging
+  - test_tracking
+  - test_profiling
+  ```
 
 #### 1.4.5 Exemples associés
-- Créer des exemples correspondants pour chaque regroupement
+- **Blockchain**:
+  ```python
+  # examples/utils/blockchain_collector_example.py
+  - example_data_collection
+  - example_async_collection
+  - example_enhanced_features
+  ```
+
+- **Cache**:
+  ```python
+  # examples/utils/cache_manager_example.py
+  - example_smart_caching
+  - example_enhanced_features
+  ```
+
+- **GPU et optimisations**:
+  ```python
+  # examples/utils/gpu_utils_example.py
+  - example_cleanup
+  - example_rtx_optimization
+  
+  # examples/utils/deepspeed_utils_example.py
+  - example_optimizer
+  - example_wrapper
+  - example_config
+  
+  # examples/utils/gpu_framework_utils_example.py
+  - example_cuda_quantization
+  - example_tensorflow_wrapper
+  ```
+
+- **Performance**:
+  ```python
+  # examples/utils/performance_monitoring_example.py
+  - example_logging
+  - example_tracking
+  - example_profiling
+  ```
 
 ## 2. Tests
 
