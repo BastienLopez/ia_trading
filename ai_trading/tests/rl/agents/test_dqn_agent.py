@@ -91,7 +91,7 @@ def test_prioritized_replay(replay_buffer):
     
     # Vérification des priorités mises à jour
     for i, idx in enumerate(indices):
-        assert replay_buffer.priorities[idx] == new_priorities[i]
+        assert abs(replay_buffer.priorities[idx] - new_priorities[i]) < 1e-6, f"Priorité incorrecte à l'index {i}: attendu {new_priorities[i]}, obtenu {replay_buffer.priorities[idx]}"
 
 def test_model_optimization(dqn_agent):
     """Test l'optimisation du modèle."""
