@@ -41,13 +41,13 @@ class PrioritizedReplayBuffer:
     def push(self, state, action, next_state, reward, done):
         """Ajoute une transition au buffer."""
         max_priority = max(self.priorities) if self.priorities else 1.0
-        
+        transition = Transition(state, action, next_state, reward, done)
         if len(self.memory) < self.capacity:
-            self.memory.append(None)
-            self.priorities.append(None)
-            
-        self.memory[self.position] = Transition(state, action, next_state, reward, done)
-        self.priorities[self.position] = max_priority
+            self.memory.append(transition)
+            self.priorities.append(max_priority)
+        else:
+            self.memory[self.position] = transition
+            self.priorities[self.position] = max_priority
         self.position = (self.position + 1) % self.capacity
         
     def sample(self, batch_size: int, beta: float = 0.4) -> Tuple:
@@ -61,6 +61,8 @@ class PrioritizedReplayBuffer:
         Returns:
             Tuple contenant (states, actions, next_states, rewards, dones, indices, weights)
         """
+        if batch_size > len(self.memory):
+            raise ValueError("batch_size doit être <= à la taille du buffer")
         if len(self.memory) == self.capacity:
             priorities = np.array(self.priorities)
         else:
@@ -71,7 +73,8 @@ class PrioritizedReplayBuffer:
         probs /= probs.sum()
         
         # Sélection des indices
-        indices = np.random.choice(len(self.memory), batch_size, p=probs)
+        indices = np.random.choice(len(self.memory), batch_size, p=probs, replace=False)
+        assert len(set(indices)) == len(indices), "Des indices dupliqués ont été sélectionnés !"
         
         # Calcul des poids d'importance sampling
         weights = (len(self.memory) * probs[indices]) ** (-beta)

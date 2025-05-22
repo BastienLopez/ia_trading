@@ -80,7 +80,7 @@ jobs:
 
     - name: Run all tests
       run: |
-        pytest ai_trading/tests/ ai_trading/utils/tests/ web_app/tests/ -v -rs \
+        pytest ai_trading/tests/ ai_trading/utils/tests/ web_app/tests/ -v -rset \
           --ignore=ai_trading/tests/unit/test_advanced_llm_integrator.py \
           --ignore=ai_trading/tests/unit/test_fake_news_detector.py \
           --ignore=ai_trading/tests/unit/test_contextual_analyzer.py \
