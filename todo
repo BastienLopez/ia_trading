@@ -1,0 +1,26 @@
+prod : 
+- **Replay Buffers**:
+  - Regrouper `replay_buffer.py`, `prioritized_replay.py`, `prioritized_replay_memory.py` et `enhanced_prioritized_replay.py` en `replay_buffer.py` (environ 1684 lignes)
+
+test:
+ - Regrouper `test_basic_replay.py` et `test_prioritized_replay.py` et `test_enhanced_prioritization.py` en ` tests/rl/memory/test_replay_buffer.py`
+
+examples : 
+ - Regrouper `example_basic_replay.py` et `example_prioritized_sampling.py` et `example_enhanced_memory.py` en `examples/rl/memory/replay_buffer_example.py.py`
+
+
+si `replay_buffer.py, `test_replay_buffer.py` et `replay_buffer_example.py` sont bien implementer et sans perte du au regroupement,
+ test les et si ca fonctionne supprime : 
+- `prioritized_replay.py` 
+- `prioritized_replay_memory.py` 
+- `enhanced_prioritized_replay` 
+- `test_basic_replay` 
+- `test_prioritized_replay`
+- `test_enhanced_prioritization`
+- `example_basic_replay`
+- `example_prioritized_sampling`
+
+puisqu'il sont dans mtn regrouper en d'aute fichier
+
+
+python -m pytest ai_trading/tests/rl/memory/test_replay_buffer.py -v -rs
