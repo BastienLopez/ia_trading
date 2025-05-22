@@ -344,7 +344,9 @@ class OptimizedSACAgent:
         self.grad_clip_value = grad_clip_value
         self.entropy_regularization = entropy_regularization
         # Ajuster l'échelle du bruit en fonction de la régularisation d'entropie
-        self.noise_scale = 0.3 if entropy_regularization > 0 else 0.1
+        self.noise_scale = 0.5 if entropy_regularization > 0 else 0.1
+        # Augmenter l'impact de la régularisation d'entropie
+        self.entropy_scale = 2.0 if entropy_regularization > 0 else 1.0
 
         # Initialisation des réseaux
         self.actor = TransformerActor(
@@ -499,7 +501,7 @@ class OptimizedSACAgent:
             
             # Ajuster l'alpha en fonction de la régularisation d'entropie
             if self.entropy_regularization > 0:
-                alpha = self.entropy_regularization
+                alpha = self.entropy_regularization * self.entropy_scale
                 # Augmenter l'impact de l'entropie sur la valeur cible
                 target_q = rewards + (1 - dones) * self.gamma * (target_q - alpha * next_log_probs)
             else:
@@ -533,7 +535,7 @@ class OptimizedSACAgent:
             # Avec régularisation d'entropie, maximiser l'entropie (SAC classique)
             actor_loss = (alpha * log_probs - q).mean()
             # Augmenter l'impact de la régularisation d'entropie
-            actor_loss = actor_loss - self.entropy_regularization * log_probs.mean()
+            actor_loss = actor_loss - self.entropy_regularization * self.entropy_scale * log_probs.mean()
             alpha_loss = torch.tensor(0.0, device=self.device, requires_grad=True)
         else:
             # Sans régularisation, utiliser l'alpha automatique
