@@ -193,6 +193,13 @@ class NoisySACAgent(SACAgent):
         )
         self.alpha_optimizer = optim.Adam([self.log_alpha], lr=alpha_learning_rate)
 
+        # Initialiser les attributs d'historique des pertes
+        self.critic_1_loss_history = []
+        self.critic_2_loss_history = []
+        self.actor_loss_history = []
+        self.alpha_loss_history = []
+        self.entropy_history = []
+
         logger.info(
             f"Agent NoisySAC initialisé: state_size={state_size}, action_size={action_size}, "
             f"sigma_init={sigma_init}, train_alpha={train_alpha}, target_entropy={self.target_entropy}"
@@ -329,12 +336,12 @@ class NoisySACAgent(SACAgent):
             batch_size
         )
 
-        # Transférer les données sur le bon périphérique
-        states = states.to(self.device)
-        actions = actions.to(self.device)
-        rewards = rewards.to(self.device)
-        next_states = next_states.to(self.device)
-        dones = dones.to(self.device)
+        # Convertir les tenseurs numpy en tenseurs PyTorch
+        states = torch.FloatTensor(states).to(self.device)
+        actions = torch.FloatTensor(actions).to(self.device)
+        rewards = torch.FloatTensor(rewards).to(self.device)
+        next_states = torch.FloatTensor(next_states).to(self.device)
+        dones = torch.FloatTensor(dones).to(self.device)
 
         alpha = self.log_alpha.exp().item()
 

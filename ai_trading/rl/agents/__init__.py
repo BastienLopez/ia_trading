@@ -1,3 +1,3 @@
-from .sac_agent import SACAgent, TransformerSACAgent
+from .sac_agent import OptimizedSACAgent
 
-__all__ = ['SACAgent', 'TransformerSACAgent'] 
+__all__ = ['OptimizedSACAgent'] 

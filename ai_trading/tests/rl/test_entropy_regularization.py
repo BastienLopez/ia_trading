@@ -6,6 +6,8 @@ import unittest
 import numpy as np
 import pandas as pd
 import tensorflow as tf
+import pytest
+import torch
 
 # Configurer le logger pour les tests
 logging.basicConfig(level=logging.INFO)
@@ -14,7 +16,7 @@ logger = logging.getLogger(__name__)
 # Ajouter le répertoire parent au chemin pour l'importation
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from ai_trading.rl.agents.sac_agent import SACAgent
+from ai_trading.rl.agents.sac_agent import OptimizedSACAgent
 from ai_trading.rl.entropy_regularization import AdaptiveEntropyRegularization
 from ai_trading.rl.trading_environment import TradingEnvironment
 
@@ -87,17 +89,16 @@ class TestEntropyRegularization(unittest.TestCase):
                     state = np.array(state, dtype=np.float32)
 
                 # Utiliser evaluate=False pour avoir de l'exploration
-                action = agent.act(state, evaluate=False)
+                action = agent.select_action(state, deterministic=False)
                 actions.append(action)
 
-            # Estimer l'entropie par la variance des actions
-            actions_array = np.array(actions)
-            std = np.mean(np.std(actions_array, axis=0))
+            # Calculer l'écart-type des actions pour cet état
+            actions = np.array(actions)
+            std = np.std(actions, axis=0).mean()
             total_std += std
 
-        # Calculer la moyenne
-        avg_std = total_std / n_states
-        return avg_std
+        # Retourner l'écart-type moyen
+        return total_std / n_states
 
     def test_initialization(self):
         """Teste l'initialisation de la régularisation d'entropie adaptative."""
@@ -146,36 +147,16 @@ class TestEntropyRegularization(unittest.TestCase):
     def test_entropy_regularization(self):
         """Vérifie que l'agent avec régularisation d'entropie a une entropie d'action plus élevée."""
         # Créer deux agents: un avec régularisation d'entropie, un sans
-        agent_with_entropy = SACAgent(
-            state_size=self.state_size,
-            action_size=self.action_size,
-            hidden_size=64,
-            learning_rate=0.001,
-            tau=0.005,
-            gamma=0.99,
+        agent_with_entropy = OptimizedSACAgent(
+            state_dim=self.state_size,
+            action_dim=self.action_size,
             entropy_regularization=2.0,  # Valeur élevée pour maximiser l'entropie
-            alpha=0.2,
-            buffer_size=10000,
-            batch_size=64,
-            sequence_length=1,
-            use_gru=False,
-            device="cpu",
         )
 
-        agent_without_entropy = SACAgent(
-            state_size=self.state_size,
-            action_size=self.action_size,
-            hidden_size=64,
-            learning_rate=0.001,
-            tau=0.005,
-            gamma=0.99,
+        agent_without_entropy = OptimizedSACAgent(
+            state_dim=self.state_size,
+            action_dim=self.action_size,
             entropy_regularization=0.0,  # Pas de régularisation d'entropie
-            alpha=0.2,
-            buffer_size=10000,
-            batch_size=64,
-            sequence_length=1,
-            use_gru=False,
-            device="cpu",
         )
 
         # Collecter des expériences dans l'environnement
@@ -230,14 +211,83 @@ class TestEntropyRegularization(unittest.TestCase):
         print(f"Entropie avec régularisation: {entropy_with}")
         print(f"Entropie sans régularisation: {entropy_without}")
 
-        # Vérifier que l'entropie est plus faible avec la régularisation
-        # Dans notre implémentation, une entropie plus faible signifie plus d'exploration
-        # car la déviation standard des actions est plus faible
-        self.assertLess(
+        # Vérifier que l'entropie est plus élevée avec la régularisation
+        # Dans SAC, la régularisation d'entropie encourage l'exploration
+        # en maximisant l'entropie de la politique
+        self.assertGreater(
             entropy_with,
-            entropy_without * 0.95,
-            "L'entropie avec régularisation devrait être significativement plus faible",
+            entropy_without * 1.05,
+            "L'entropie avec régularisation devrait être significativement plus élevée",
         )
+
+
+@pytest.fixture
+def sac_agent():
+    state_dim = 10
+    action_dim = 2
+    return OptimizedSACAgent(
+        state_dim=state_dim,
+        action_dim=action_dim,
+        entropy_regularization=0.2
+    )
+
+def test_entropy_regularization_initialization(sac_agent):
+    assert sac_agent.entropy_regularization == 0.2
+    assert isinstance(sac_agent.alpha, float)
+    assert sac_agent.alpha > 0
+
+def test_entropy_regularization_training(sac_agent):
+    # Créer des données de test
+    state = np.random.randn(10)
+    action = np.random.randn(2)
+    reward = 1.0
+    next_state = np.random.randn(10)
+    done = False
+
+    # Ajouter l'expérience au buffer
+    sac_agent.remember(state, action, reward, next_state, done)
+
+    # Entraîner l'agent
+    metrics = sac_agent.train()
+
+    # Vérifier que l'entropie est correctement régularisée
+    assert "alpha" in metrics
+    assert metrics["alpha"] > 0
+    assert "actor_loss" in metrics
+    assert "alpha_loss" in metrics
+
+def test_entropy_regularization_action_selection(sac_agent):
+    state = np.random.randn(10)
+    
+    # Test action déterministe
+    action_det = sac_agent.select_action(state, deterministic=True)
+    assert action_det.shape == (2,)
+    
+    # Test action stochastique
+    action_stoch = sac_agent.select_action(state, deterministic=False)
+    assert action_stoch.shape == (2,)
+    
+    # Les actions devraient être différentes
+    assert not np.array_equal(action_det, action_stoch)
+
+def test_entropy_regularization_alpha_update():
+    # On force l'alpha automatique
+    sac_agent = OptimizedSACAgent(state_dim=10, action_dim=2, entropy_regularization=0)
+    initial_alpha = sac_agent.alpha
+
+    # Simuler plusieurs étapes d'entraînement avec séquences
+    for _ in range(10):
+        state = np.random.randn(5, 10)  # (sequence_length, state_dim)
+        action = np.random.randn(2)
+        reward = np.random.randn()
+        next_state = np.random.randn(5, 10)
+        done = False
+
+        sac_agent.remember(state, action, reward, next_state, done)
+        metrics = sac_agent.train()
+
+    # Vérifier que alpha a été mis à jour
+    assert sac_agent.alpha != initial_alpha
 
 
 if __name__ == "__main__":
