@@ -177,14 +177,22 @@ class TransformerActor(nn.Module):
             nn.init.constant_(self.log_std_layer.bias, -0.5)
             nn.init.constant_(self.log_std_layer.weight, 0.01)
 
-    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        seq_len = x.size(1)
+    def forward(self, states: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        # Ajouter une dimension de séquence si nécessaire
+        if len(states.shape) == 2:
+            states = states.unsqueeze(1)
+            
+        seq_len = states.size(1)
         max_seq = self.pos_encoder.size(1)
         if seq_len > max_seq:
-            x = x[:, -max_seq:, :]
+            states = states[:, -max_seq:, :]
             seq_len = max_seq
 
-        x = self.input_projection(x)
+        # S'assurer que les dimensions sont correctes
+        if states.size(-1) != self.state_dim:
+            states = states[..., :self.state_dim]
+
+        x = self.input_projection(states)
         x = x + self.pos_encoder[:, :seq_len, :]
         x = self.transformer(x)
         x = x[:, -1, :]
@@ -265,18 +273,29 @@ class TransformerCritic(nn.Module):
                 nn.init.xavier_uniform_(p)
 
     def forward(self, states: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
+        # Ajouter une dimension de séquence si nécessaire
+        if len(states.shape) == 2:
+            states = states.unsqueeze(1)
+            
         seq_len = states.size(1)
         max_seq = self.pos_encoder.size(1)
         if seq_len > max_seq:
             states = states[:, -max_seq:, :]
             seq_len = max_seq
 
+        # S'assurer que les dimensions sont correctes
+        if states.size(-1) != self.state_dim:
+            states = states[..., :self.state_dim]
+
         x = self.input_projection(states)
         x = x + self.pos_encoder[:, :seq_len, :]
         x = self.transformer(x)
         x = x[:, -1, :]
         
-        action_features = self.action_projection(actions)
+        # Correction : broadcast des actions si besoin
+        if actions.dim() == 2:
+            actions = actions.unsqueeze(1).expand(-1, seq_len, -1)
+        action_features = self.action_projection(actions[:, -1, :])
         x = x + action_features
         return self.output_layer(x)
 
@@ -324,6 +343,8 @@ class OptimizedSACAgent:
         self.action_low, self.action_high = action_bounds
         self.grad_clip_value = grad_clip_value
         self.entropy_regularization = entropy_regularization
+        # Ajuster l'échelle du bruit en fonction de la régularisation d'entropie
+        self.noise_scale = 0.3 if entropy_regularization > 0 else 0.1
 
         # Initialisation des réseaux
         self.actor = TransformerActor(
@@ -436,15 +457,12 @@ class OptimizedSACAgent:
         return state
 
     def select_action(self, state, deterministic=False):
-        """Sélectionne une action en mode déterministe ou stochastique, compatible avec MLP, GRU, Transformer."""
         self.actor.eval()  # Toujours en mode eval pour l'inférence
         with torch.no_grad():
-            # Toujours préparer la séquence correctement
             if isinstance(state, np.ndarray):
                 state_seq = self._pad_or_stack_state(state)
-                state_tensor = torch.FloatTensor(state_seq).unsqueeze(0).to(self.device)  # (1, seq_len, state_dim)
+                state_tensor = torch.FloatTensor(state_seq).unsqueeze(0).to(self.device)
             else:
-                # Si déjà torch.Tensor
                 if state.ndim == 2:
                     state_tensor = state.unsqueeze(0).to(self.device)
                 elif state.ndim == 3:
@@ -453,17 +471,13 @@ class OptimizedSACAgent:
                     raise ValueError("Format d'état non supporté")
 
             mean, log_std = self.actor(state_tensor)
-            
-            if self.entropy_regularization > 0:
-                # Réduire la variance des actions avec régularisation d'entropie
-                std = torch.exp(torch.clamp(log_std, min=-20, max=-1))
-            else:
-                std = torch.exp(torch.clamp(log_std, min=-20, max=2))
+            std = torch.exp(torch.clamp(log_std, min=-20, max=2))
 
             if deterministic:
                 action = torch.tanh(mean)
             else:
-                noise = torch.randn_like(mean)
+                # Ajuster l'échelle du bruit
+                noise = torch.randn_like(mean) * self.noise_scale
                 action = torch.tanh(mean + std * noise)
 
             action = torch.clamp(action, -1.0, 1.0)
@@ -486,7 +500,7 @@ class OptimizedSACAgent:
             # Ajuster l'alpha en fonction de la régularisation d'entropie
             if self.entropy_regularization > 0:
                 alpha = self.entropy_regularization
-                # Réduire l'impact de l'entropie sur la valeur cible
+                # Augmenter l'impact de l'entropie sur la valeur cible
                 target_q = rewards + (1 - dones) * self.gamma * (target_q - alpha * next_log_probs)
             else:
                 alpha = self.log_alpha.exp().item()
@@ -516,8 +530,10 @@ class OptimizedSACAgent:
         q = torch.min(q1, q2)
 
         if self.entropy_regularization > 0:
-            # Avec régularisation d'entropie, minimiser l'entropie
-            actor_loss = (q - alpha * log_probs).mean()
+            # Avec régularisation d'entropie, maximiser l'entropie (SAC classique)
+            actor_loss = (alpha * log_probs - q).mean()
+            # Augmenter l'impact de la régularisation d'entropie
+            actor_loss = actor_loss - self.entropy_regularization * log_probs.mean()
             alpha_loss = torch.tensor(0.0, device=self.device, requires_grad=True)
         else:
             # Sans régularisation, utiliser l'alpha automatique
@@ -563,39 +579,36 @@ class OptimizedSACAgent:
                 self.tau * param.data + (1 - self.tau) * target_param.data
             )
 
-    def save(self, path: str):
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        
-        torch.save(
-            {
-                "actor_state_dict": self.actor.state_dict(),
-                "critic1_state_dict": self.critic1.state_dict(),
-                "critic2_state_dict": self.critic2.state_dict(),
-                "target_critic1_state_dict": self.target_critic1.state_dict(),
-                "target_critic2_state_dict": self.target_critic2.state_dict(),
-                "actor_optimizer_state_dict": self.actor_optimizer.state_dict(),
-                "critic1_optimizer_state_dict": self.critic1_optimizer.state_dict(),
-                "critic2_optimizer_state_dict": self.critic2_optimizer.state_dict(),
-                "alpha_optimizer_state_dict": self.alpha_optimizer.state_dict(),
-                "log_alpha": self.log_alpha,
-                "alpha": self.alpha,
-            },
-            path,
-        )
+    def save(self, path: str) -> None:
+        """Sauvegarde les poids du modèle."""
+        state_dict = {
+            'actor': self.actor.state_dict(),
+            'critic1': self.critic1.state_dict(),
+            'critic2': self.critic2.state_dict(),
+            'target_critic1': self.target_critic1.state_dict(),
+            'target_critic2': self.target_critic2.state_dict(),
+            'log_alpha': self.log_alpha,
+            'actor_optimizer': self.actor_optimizer.state_dict(),
+            'critic1_optimizer': self.critic1_optimizer.state_dict(),
+            'critic2_optimizer': self.critic2_optimizer.state_dict(),
+            'alpha_optimizer': self.alpha_optimizer.state_dict() if self.entropy_regularization > 0 else None
+        }
+        torch.save(state_dict, path)
 
-    def load(self, path: str):
-        checkpoint = torch.load(path)
-        self.actor.load_state_dict(checkpoint["actor_state_dict"])
-        self.critic1.load_state_dict(checkpoint["critic1_state_dict"])
-        self.critic2.load_state_dict(checkpoint["critic2_state_dict"])
-        self.target_critic1.load_state_dict(checkpoint["target_critic1_state_dict"])
-        self.target_critic2.load_state_dict(checkpoint["target_critic2_state_dict"])
-        self.actor_optimizer.load_state_dict(checkpoint["actor_optimizer_state_dict"])
-        self.critic1_optimizer.load_state_dict(checkpoint["critic1_optimizer_state_dict"])
-        self.critic2_optimizer.load_state_dict(checkpoint["critic2_optimizer_state_dict"])
-        self.alpha_optimizer.load_state_dict(checkpoint["alpha_optimizer_state_dict"])
-        self.log_alpha = checkpoint["log_alpha"]
-        self.alpha = checkpoint["alpha"]
+    def load(self, path: str) -> None:
+        """Charge les poids du modèle."""
+        state_dict = torch.load(path)
+        self.actor.load_state_dict(state_dict['actor'])
+        self.critic1.load_state_dict(state_dict['critic1'])
+        self.critic2.load_state_dict(state_dict['critic2'])
+        self.target_critic1.load_state_dict(state_dict['target_critic1'])
+        self.target_critic2.load_state_dict(state_dict['target_critic2'])
+        self.log_alpha = state_dict['log_alpha']
+        self.actor_optimizer.load_state_dict(state_dict['actor_optimizer'])
+        self.critic1_optimizer.load_state_dict(state_dict['critic1_optimizer'])
+        self.critic2_optimizer.load_state_dict(state_dict['critic2_optimizer'])
+        if self.entropy_regularization > 0 and state_dict['alpha_optimizer'] is not None:
+            self.alpha_optimizer.load_state_dict(state_dict['alpha_optimizer'])
 
     def remember(
         self,

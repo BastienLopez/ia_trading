@@ -84,16 +84,14 @@ class NStepSACAgent(SACAgent):
 
         # Appel au constructeur parent
         super(NStepSACAgent, self).__init__(
-            state_size=state_size,
-            action_size=action_size,
+            state_dim=state_size,
+            action_dim=action_size,
             action_bounds=action_bounds,
             learning_rate=learning_rate,
             gamma=discount_factor,
             tau=tau,
             batch_size=batch_size,
             buffer_size=buffer_size,
-            hidden_size=hidden_size,
-            train_alpha=train_alpha,
             target_entropy=target_entropy,
         )
 

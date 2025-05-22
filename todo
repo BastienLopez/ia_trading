@@ -27,3 +27,4 @@ verif que tt les fichier ayant deja été regroupé n'ont pas de perte, qu'il ne
 python -m pytest ai_trading/tests/rl/test_entropy_regularization.py -v -rs
 python -m pytest ai_trading/tests/rl/test_noisy_sac_agent.py -v -rs
 python -m pytest ai_trading/tests/rl/test_entropy_regularization.py -v -rs
+python -m pytest ai_trading/tests/rl/test_sac_agent.py -v -rs

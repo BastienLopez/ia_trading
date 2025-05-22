@@ -445,8 +445,8 @@ def test_save_load(sac_agent, tmp_path):
     
     # Vérifier que les poids sont identiques
     state = np.random.randn(5, 10)
-    action1 = sac_agent.select_action(state)
-    action2 = new_agent.select_action(state)
+    action1 = sac_agent.select_action(state, deterministic=True)
+    action2 = new_agent.select_action(state, deterministic=True)
     assert np.allclose(action1, action2)
 
 def test_replay_buffer(sac_agent):
