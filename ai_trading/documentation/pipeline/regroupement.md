@@ -34,6 +34,7 @@ Pour chaque dossier racine, nous présentons l'arborescence actuelle et l'arbore
 - [4. Critères de fusion](#4-critères-de-fusion)
 - [5. Actions à mener](#5-actions-à-mener)
 - [6. Préparation à la pipeline de tests](#6-préparation-à-la-pipeline-de-tests)
+- [7. Tests et Exemples à Regrouper](#7-tests-et-exemples-à-regrouper)
 
 ## 1. AI Trading
 
@@ -379,6 +380,41 @@ Le dossier RL contient un très grand nombre de fichiers. Nous allons nous conce
   - test_transformer_distribution
   ```
 
+- **Environnements**:
+  ```python
+  # tests/rl/environments/test_trading_environment.py
+  - test_basic_environment
+  - test_advanced_features
+  - test_reward_calculation
+  - test_action_space
+  - test_observation_space
+
+  # tests/rl/environments/test_multi_asset_trading.py
+  - test_multi_asset_handling
+  - test_portfolio_allocation
+  - test_market_simulation
+  - test_advanced_multi_asset_features
+  ```
+
+- **Runners **:
+  ```python
+  # tests/rl/test_runners.py
+  - test_environment_runner
+  - test_continuous_agents_runner
+  - test_sac_agent_runner
+  - test_risk_manager_runner
+  - test_integration_all_runners
+  ```
+
+- **Optimiseurs **:
+  ```python
+  # tests/rl/optimization/test_optimizers.py
+  - test_bayesian_optimization
+  - test_hyperparameter_optimization
+  - test_hyperparameter_tuning
+  - test_optimizer_integration
+  ```
+
 #### 1.3.5 Exemples associés
 - **Agents**:
   ```python
@@ -417,6 +453,40 @@ Le dossier RL contient un très grand nombre de fichiers. Nous allons nous conce
   # examples/rl/training/distributed_training_example.py
   - example_ppo_cluster
   - example_transformer_parallel
+  ```
+
+- **Environnements**:
+  ```python
+  # examples/rl/environments/trading_environment_example.py
+  - example_basic_trading_env
+  - example_advanced_trading_env
+  - example_custom_reward
+  - example_action_observation_spaces
+
+  # examples/rl/environments/multi_asset_trading_example.py
+  - example_multi_asset_env
+  - example_portfolio_management
+  - example_market_simulation
+  - example_advanced_multi_asset_usage
+  ```
+
+- **Runners **:
+  ```python
+  # examples/rl/runners/runners_example.py
+  - example_run_environment
+  - example_run_continuous_agents
+  - example_run_sac_agent
+  - example_run_risk_manager
+  - example_combined_runners
+  ```
+
+- **Optimiseurs **:
+  ```python
+  # examples/rl/optimization/optimizers_example.py
+  - example_bayesian_optimization
+  - example_hyperparameter_optimization
+  - example_hyperparameter_tuning
+  - example_optimizer_integration
   ```
 
 ### 1.4 Utils (Utilitaires)
@@ -675,3 +745,130 @@ ai_trading/examples/
 - Conserver l'arborescence "tests" et "examples" organisée de façon cohérente avec les nouveaux fichiers fusionnés
 - Mettre à jour les imports dans tous les fichiers qui dépendent des modules fusionnés
 - S'assurer que les tests passent après chaque fusion 
+
+## 7. Tests et Exemples à Regrouper
+
+### 7.1 Tests à Regrouper
+
+#### 7.1.1 Tests RL
+- `test_basic_replay.py` → `test_replay_buffer.py`
+- `test_prioritized_replay.py` → `test_replay_buffer.py`
+- `test_enhanced_prioritization.py` → `test_replay_buffer.py`
+- `test_disk_replay_buffer.py` → `test_replay_buffer.py`
+
+#### 7.1.2 Tests Utils
+- `test_smart_cache.py` → `test_cache_manager.py`
+- `test_enhanced_cache.py` → `test_cache_manager.py`
+- `test_gpu_cleanup.py` → `test_gpu_utils.py`
+- `test_gpu_rtx_optimizer.py` → `test_gpu_utils.py`
+- `test_deepspeed_optimizer.py` → `test_deepspeed_utils.py`
+- `test_deepspeed_wrapper.py` → `test_deepspeed_utils.py`
+- `test_create_deepspeed_config.py` → `test_deepspeed_utils.py`
+- `test_performance_logger.py` → `test_performance_monitoring.py`
+- `test_performance_tracker.py` → `test_performance_monitoring.py`
+- `test_profiling.py` → `test_performance_monitoring.py`
+- `test_model_pruning.py` → `test_model_optimization.py`
+- `test_model_quantization.py` → `test_model_optimization.py`
+- `test_model_distillation.py` → `test_model_optimization.py`
+- `test_model_offloading.py` → `test_model_optimization.py`
+- `test_checkpoint_manager.py` → `test_checkpoint_utils.py`
+- `test_efficient_checkpointing.py` → `test_checkpoint_utils.py`
+- `test_activation_checkpointing.py` → `test_checkpoint_utils.py`
+- `test_enhanced_data_collector.py` → `test_data_collectors.py`
+- `test_orderbook_collector.py` → `test_data_collectors.py`
+- `test_alternative_data_collector.py` → `test_data_collectors.py`
+- `test_threading_optimizer.py` → `test_optimization_utils.py`
+- `test_system_optimizer.py` → `test_optimization_utils.py`
+- `test_ray_rllib_optimizer.py` → `test_optimization_utils.py`
+
+### 7.2 Exemples à Regrouper
+
+#### 7.2.1 Exemples RL
+- `example_basic_replay.py` → `replay_buffer_example.py`
+- `example_prioritized_sampling.py` → `replay_buffer_example.py`
+- `example_enhanced_memory.py` → `replay_buffer_example.py`
+- `disk_replay_demo.py` → `replay_buffer_example.py`
+
+#### 7.2.2 Exemples Utils
+- `smart_cache_example.py` → `cache_manager_example.py`
+- `enhanced_cache_example.py` → `cache_manager_example.py`
+- `gpu_cleanup_example.py` → `gpu_utils_example.py`
+- `gpu_rtx_optimizer_example.py` → `gpu_utils_example.py`
+- `deepspeed_optimizer_example.py` → `deepspeed_utils_example.py`
+- `deepspeed_wrapper_example.py` → `deepspeed_utils_example.py`
+- `create_deepspeed_config_example.py` → `deepspeed_utils_example.py`
+- `performance_logger_example.py` → `performance_monitoring_example.py`
+- `performance_tracker_example.py` → `performance_monitoring_example.py`
+- `profiling_example.py` → `performance_monitoring_example.py`
+- `model_pruning_example.py` → `model_optimization_example.py`
+- `model_quantization_example.py` → `model_optimization_example.py`
+- `model_distillation_example.py` → `model_optimization_example.py`
+- `model_offloading_example.py` → `model_optimization_example.py`
+- `checkpoint_manager_example.py` → `checkpoint_utils_example.py`
+- `efficient_checkpointing_example.py` → `checkpoint_utils_example.py`
+- `activation_checkpointing_example.py` → `checkpoint_utils_example.py`
+- `enhanced_data_collector_example.py` → `data_collectors_example.py`
+- `orderbook_collector_example.py` → `data_collectors_example.py`
+- `alternative_data_collector_example.py` → `data_collectors_example.py`
+- `threading_optimizer_example.py` → `optimization_utils_example.py`
+- `system_optimizer_example.py` → `optimization_utils_example.py`
+- `ray_rllib_optimizer_example.py` → `optimization_utils_example.py`
+
+### 7.3 Structure Finale des Tests et Exemples
+
+```
+ai_trading/
+├── tests/
+│   ├── rl/
+│   │   └── memory/
+│   │       └── test_replay_buffer.py
+│   └── utils/
+│       ├── test_cache_manager.py
+│       ├── test_gpu_utils.py
+│       ├── test_deepspeed_utils.py
+│       ├── test_performance_monitoring.py
+│       ├── test_model_optimization.py
+│       ├── test_checkpoint_utils.py
+│       ├── test_data_collectors.py
+│       └── test_optimization_utils.py
+└── examples/
+    ├── rl/
+    │   └── memory/
+    │       └── replay_buffer_example.py
+    └── utils/
+        ├── cache_manager_example.py
+        ├── gpu_utils_example.py
+        ├── deepspeed_utils_example.py
+        ├── performance_monitoring_example.py
+        ├── model_optimization_example.py
+        ├── checkpoint_utils_example.py
+        ├── data_collectors_example.py
+        └── optimization_utils_example.py
+```
+
+### 7.4 Points d'Attention pour le Regroupement
+
+1. **Tests**:
+   - Conserver tous les cas de test existants
+   - Mettre à jour les imports dans les nouveaux fichiers
+   - S'assurer que les noms des tests sont uniques
+   - Maintenir la couverture de test à 100%
+   - Ajouter des tests d'intégration entre les fonctionnalités regroupées
+
+2. **Exemples**:
+   - Conserver tous les exemples existants
+   - Mettre à jour les imports
+   - S'assurer que les exemples sont cohérents avec les nouvelles structures
+   - Ajouter des exemples d'utilisation combinée des fonctionnalités regroupées
+
+3. **Documentation**:
+   - Mettre à jour les docstrings
+   - Ajouter des commentaires explicatifs pour les fonctionnalités regroupées
+   - Documenter les nouvelles structures de fichiers
+
+4. **Vérification**:
+   - Exécuter tous les tests après chaque regroupement
+   - Vérifier que les exemples fonctionnent correctement
+   - S'assurer qu'il n'y a pas de régression
+
+// ... existing code ... 

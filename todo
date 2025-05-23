@@ -1,24 +1,38 @@
 prod : 
-- **Replay Buffers**:
-  - Regrouper `replay_buffer.py`, `prioritized_replay.py`, `prioritized_replay_memory.py` et `enhanced_prioritized_replay.py` en `replay_buffer.py` (environ 1684 lignes)
+- **Training**:
+  - Regrouper `train.py`, `train_with_curriculum.py` et `train_with_gradient_accumulation.py` en `training.py` (environ 1275 lignes)
+
+  - Regrouper `distributed_ppo_training.py` et `distributed_transformer_ppo_training.py` en `distributed_training.py` (environ 988 lignes)
 
 test:
- - Regrouper `test_basic_replay.py` et `test_prioritized_replay.py` et `test_enhanced_prioritization.py` en ` tests/rl/memory/test_replay_buffer.py`
+ - Regrouper `test_basic_training.py` et `test_curriculum_learning.py` et `test_gradient_accumulation.py` en `tests/rl/training/test_training.py`
+
+ - Regrouper `test_ppo_distribution.py` et `test_transformer_distribution.py` en `tests/rl/training/test_distributed_training.py`
 
 examples : 
- - Regrouper `example_basic_replay.py` et `example_prioritized_sampling.py` et `example_enhanced_memory.py` en `examples/rl/memory/replay_buffer_example.py.py`
+ - Regrouper `example_basic_training.py` et `example_curriculum.py` et `example_gradient_acc.py` en `examples/rl/training/training_example.py`
+
+  - Regrouper `example_ppo_cluster.py` et `example_transformer_parallel.py` en `examples/rl/training/distributed_training_example.py`
 
 
-si `replay_buffer.py, `test_replay_buffer.py` et `replay_buffer_example.py` sont bien implementer et sans perte du au regroupement,
+si `exploration.py, `test_exploration.py` et `exploration_example.py` sont bien implementer et sans perte du au regroupement,
  test les et si ca fonctionne supprime : 
-- `prioritized_replay.py` 
-- `prioritized_replay_memory.py` 
-- `enhanced_prioritized_replay` 
-- `test_basic_replay` 
-- `test_prioritized_replay`
-- `test_enhanced_prioritization`
-- `example_basic_replay`
-- `example_prioritized_sampling`
+- `train.py` 
+- `train_with_curriculum.py` 
+- `train_with_gradient_accumulation.py` 
+- `distributed_ppo_training` 
+- `distributed_transformer_ppo_training`
+- `test_basic_training`
+- `test_curriculum_learning`
+- `test_gradient_accumulation`
+- `test_ppo_distribution`
+- `test_transformer_distribution`
+- `example_basic_training`
+- `example_curriculum`
+- `example_gradient_acc`
+- `example_ppo_cluster`
+- `example_transformer_parallel`
+
 
 puisqu'il sont dans mtn regrouper en d'aute fichier
 

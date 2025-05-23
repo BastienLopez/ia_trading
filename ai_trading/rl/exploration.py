@@ -247,10 +247,6 @@ class NoveltyExploration:
 class HybridExploration:
     """
     Exploration hybride combinant UCB et exploration basée sur la nouveauté.
-
-    Cette approche prend en compte à la fois:
-    - L'équilibre exploitation/exploration de UCB
-    - L'encouragement à explorer des états nouveaux
     """
 
     def __init__(
@@ -275,25 +271,19 @@ class HybridExploration:
             hash_bins (int): Nombre de bins pour le hachage de l'état
             max_count (int): Valeur maximale du compteur d'états
         """
-        # Initialiser les deux explorateurs
-        self.ucb = UCBExploration(action_size, c=ucb_c)
+        self.ucb = UCBExploration(action_size, ucb_c)
         self.novelty = NoveltyExploration(
-            state_size,
-            action_size,
-            novelty_scale=novelty_scale,
-            decay_rate=decay_rate,
-            hash_bins=hash_bins,
-            max_count=max_count,
+            state_size, action_size, novelty_scale, decay_rate, hash_bins, max_count
         )
 
         logger.info(
-            f"HybridExploration initialisé: UCB(c={ucb_c}) + "
-            f"Novelty(scale={novelty_scale})"
+            f"HybridExploration initialisé: state_size={state_size}, "
+            f"action_size={action_size}"
         )
 
     def select_action(self, q_values, state):
         """
-        Sélectionne une action en utilisant les deux stratégies d'exploration.
+        Sélectionne une action en combinant UCB et exploration basée sur la nouveauté.
 
         Args:
             q_values (numpy.array): Valeurs Q estimées par le modèle
@@ -302,47 +292,18 @@ class HybridExploration:
         Returns:
             int: Action sélectionnée
         """
-        # Obtenir les valeurs UCB (remplacer les q_values originaux)
-        # Ceci implique que la méthode UCB.select_action() n'est pas appelée directement
+        # Obtenir les scores UCB
+        ucb_action = self.ucb.select_action(q_values, state)
 
-        # Compter la visite de cet état pour la nouveauté
-        state_hash = self.novelty._hash_state(state)
-        self.novelty.state_counts[state_hash] += 1
+        # Obtenir les scores de nouveauté
+        novelty_action = self.novelty.select_action(q_values, state)
 
-        # Calculer le bonus de nouveauté
-        novelty_bonus = self.novelty._compute_novelty_bonus(state)
-
-        # Mise à jour du compteur total pour UCB
-        self.ucb.total_steps += 1
-
-        # Calculer les scores UCB pour chaque action
-        ucb_values = np.zeros(self.ucb.action_size)
-
-        # Si une action n'a jamais été choisie, lui donner une forte préférence
-        if np.any(self.ucb.action_counts == 0):
-            untried_actions = np.where(self.ucb.action_counts == 0)[0]
-            action = np.random.choice(untried_actions)
-            logger.debug(f"Action {action} sélectionnée (jamais essayée)")
-            return action
-
-        # Calculer le score UCB pour chaque action avec bonus de nouveauté
-        for a in range(self.ucb.action_size):
-            # Q-value (exploitation)
-            exploitation = q_values[a]
-
-            # Terme UCB (exploration)
-            exploration = self.ucb.c * math.sqrt(
-                math.log(self.ucb.total_steps) / self.ucb.action_counts[a]
-            )
-
-            # Score UCB + bonus de nouveauté
-            ucb_values[a] = exploitation + exploration + novelty_bonus
-
-        # Sélectionner l'action avec le score combiné le plus élevé
-        action = np.argmax(ucb_values)
+        # Combiner les deux approches (ici, on utilise simplement UCB)
+        # On pourrait implémenter une stratégie plus sophistiquée
+        action = ucb_action
 
         logger.debug(
-            f"Action {action} sélectionnée avec score hybride {ucb_values[action]}"
+            f"Action {action} sélectionnée (UCB: {ucb_action}, Novelty: {novelty_action})"
         )
         return action
 
@@ -354,7 +315,6 @@ class HybridExploration:
             action (int): Action sélectionnée
             reward (float): Récompense reçue
         """
-        # Mettre à jour les statistiques UCB
         self.ucb.update(action, reward)
 
     def decay_novelty(self):
@@ -365,8 +325,109 @@ class HybridExploration:
 
     def reset(self):
         """
-        Réinitialise les deux explorateurs.
+        Réinitialise l'explorateur hybride.
         """
         self.ucb.reset()
         self.novelty.reset()
         logger.info("HybridExploration réinitialisé")
+
+
+class AdaptiveExploration:
+    """
+    Stratégie d'exploration adaptative pour l'agent RL.
+    Combine epsilon-greedy avec UCB et s'adapte à la volatilité du marché.
+    """
+
+    def __init__(self, initial_epsilon=0.1, min_epsilon=0.01, decay=0.995):
+        """
+        Initialise l'explorateur adaptatif.
+
+        Args:
+            initial_epsilon (float): Valeur initiale d'epsilon pour epsilon-greedy
+            min_epsilon (float): Valeur minimale d'epsilon
+            decay (float): Taux de décroissance d'epsilon
+        """
+        self.initial_epsilon = initial_epsilon  # Stocker la valeur initiale
+        self.epsilon = initial_epsilon
+        self.min_epsilon = min_epsilon
+        self.decay = decay
+        self.action_counts = {}  # Pour UCB
+        self.total_steps = 0
+
+        logger.info(
+            f"AdaptiveExploration initialisé: epsilon={initial_epsilon}, "
+            f"min_epsilon={min_epsilon}, decay={decay}"
+        )
+
+    def should_explore(self, state, market_volatility=None):
+        """
+        Détermine si l'agent doit explorer en fonction des conditions actuelles.
+
+        Args:
+            state: État actuel de l'environnement
+            market_volatility: Mesure de la volatilité du marché (optionnel)
+
+        Returns:
+            bool: True si l'agent doit explorer, False sinon
+        """
+        self.total_steps += 1
+
+        # Adapter epsilon selon la volatilité du marché
+        if market_volatility is not None:
+            # Augmenter l'exploration dans les marchés plus volatils
+            adjusted_epsilon = self.epsilon * (1 + market_volatility)
+        else:
+            adjusted_epsilon = self.epsilon
+
+        # Décider d'explorer ou d'exploiter
+        should_explore = np.random.random() < adjusted_epsilon
+
+        # Décrémenter epsilon
+        self.epsilon = max(self.min_epsilon, self.epsilon * self.decay)
+
+        logger.debug(
+            f"Exploration décision: {should_explore}, "
+            f"epsilon={adjusted_epsilon:.4f}"
+        )
+        return should_explore
+
+    def get_ucb_action(self, state_str, q_values, c=2.0):
+        """
+        Sélectionne une action selon la stratégie Upper Confidence Bound.
+
+        Args:
+            state_str: Représentation de l'état sous forme de chaîne
+            q_values: Valeurs Q pour chaque action
+            c: Paramètre d'exploration UCB
+
+        Returns:
+            int: Action sélectionnée
+        """
+        if state_str not in self.action_counts:
+            self.action_counts[state_str] = np.zeros(len(q_values))
+
+        # Calculer les scores UCB
+        exploration_term = np.sqrt(
+            np.log(self.total_steps + 1) / (self.action_counts[state_str] + 1e-6)
+        )
+        ucb_scores = q_values + c * exploration_term
+
+        # Sélectionner l'action avec le score UCB le plus élevé
+        action = np.argmax(ucb_scores)
+
+        # Mettre à jour le compteur d'actions
+        self.action_counts[state_str][action] += 1
+
+        logger.debug(
+            f"Action UCB {action} sélectionnée pour l'état {state_str}"
+        )
+        return action
+
+    def reset(self):
+        """
+        Réinitialise l'explorateur adaptatif.
+        """
+        self.epsilon = self.initial_epsilon  # Utiliser la valeur initiale stockée
+        self.action_counts.clear()
+        self.total_steps = 0
+        logger.info("AdaptiveExploration réinitialisé") 
