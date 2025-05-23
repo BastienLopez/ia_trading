@@ -7,6 +7,8 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
+from ai_trading.rl.replay_buffer import PrioritizedReplayBuffer
+
 # Configuration du logger
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -17,106 +19,6 @@ if not logger.handlers:
     )
     handler.setFormatter(formatter)
     logger.addHandler(handler)
-
-
-class PrioritizedReplayBuffer:
-    """
-    Tampon de replay à priorité pour stocker et échantillonner des expériences.
-    """
-
-    def __init__(self, buffer_size=10000, alpha=0.6, beta=0.4, beta_increment=0.001):
-        """
-        Initialise le tampon de replay prioritaire.
-
-        Args:
-            buffer_size (int): Taille maximale du tampon
-            alpha (float): Facteur d'exponentiation pour les priorités (0=uniforme, 1=totalement prioritaire)
-            beta (float): Facteur de correction du biais d'importance-sampling
-            beta_increment (float): Incrément de beta à chaque échantillonnage pour atteindre 1.0
-        """
-        self.buffer = []
-        self.priorities = np.zeros(buffer_size, dtype=np.float32)
-        self.buffer_size = buffer_size
-        self.position = 0
-        self.size = 0
-
-        self.alpha = alpha
-        self.beta = beta
-        self.beta_increment = beta_increment
-        self.max_priority = 1.0
-
-    def add(self, state, action, reward, next_state, done):
-        """
-        Ajoute une expérience au tampon.
-
-        Args:
-            state: État actuel
-            action: Action effectuée
-            reward: Récompense reçue
-            next_state: État suivant
-            done: Indicateur de fin d'épisode
-        """
-        # Utiliser la priorité maximale pour les nouvelles expériences
-        max_priority = self.max_priority if self.size > 0 else 1.0
-
-        if len(self.buffer) < self.buffer_size:
-            self.buffer.append((state, action, reward, next_state, done))
-        else:
-            self.buffer[self.position] = (state, action, reward, next_state, done)
-
-        self.priorities[self.position] = max_priority
-        self.position = (self.position + 1) % self.buffer_size
-        self.size = min(self.size + 1, self.buffer_size)
-
-    def sample(self, batch_size):
-        """
-        Échantillonne un lot d'expériences selon leurs priorités.
-
-        Args:
-            batch_size (int): Taille du lot à échantillonner
-
-        Returns:
-            tuple: Contient (états, actions, récompenses, états suivants, indicateurs de fin, indices, poids IS)
-        """
-        if self.size < batch_size:
-            idx = range(self.size)
-        else:
-            # Calculer les probabilités d'échantillonnage basées sur les priorités
-            priorities = self.priorities[: self.size] ** self.alpha
-            probabilities = priorities / np.sum(priorities)
-
-            # Échantillonner selon les probabilités
-            idx = np.random.choice(
-                self.size, batch_size, replace=False, p=probabilities
-            )
-
-        # Calculer les poids d'importance-sampling
-        weights = (self.size * probabilities[idx]) ** (-self.beta)
-        weights /= np.max(weights)  # Normaliser pour stabilité
-
-        # Incrémenter beta vers 1
-        self.beta = min(1.0, self.beta + self.beta_increment)
-
-        # Extraire les échantillons
-        states = np.array([self.buffer[i][0] for i in idx])
-        actions = np.array([self.buffer[i][1] for i in idx])
-        rewards = np.array([self.buffer[i][2] for i in idx])
-        next_states = np.array([self.buffer[i][3] for i in idx])
-        dones = np.array([self.buffer[i][4] for i in idx])
-
-        return states, actions, rewards, next_states, dones, idx, weights
-
-    def update_priorities(self, indices, priorities):
-        """
-        Met à jour les priorités des expériences.
-
-        Args:
-            indices (list): Indices des expériences à mettre à jour
-            priorities (list): Nouvelles priorités
-        """
-        for idx, priority in zip(indices, priorities):
-            self.priorities[idx] = priority
-            self.max_priority = max(self.max_priority, priority)
 
 
 class DQNNetwork(nn.Module):

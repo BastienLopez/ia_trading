@@ -190,9 +190,9 @@
 - [ ] **Disk Replay Buffer** : Implémenté dans `ai_trading/rl/disk_replay_buffer.py`
   - [ ] Tests : `ai_trading/tests/test_disk_replay_buffer.py`
   - [ ] Exemple : `ai_trading/examples/disk_replay_demo.py`
-- [ ] **Enhanced Prioritized Replay** : Implémenté dans `ai_trading/rl/prioritized_replay.py`
-  - [ ] Tests : `ai_trading/tests/test_prioritized_replay.py`
-  - [ ] Exemple : `ai_trading/examples/prioritized_replay_demo.py`
+- [ ] **Enhanced Prioritized Replay** : Implémenté dans `ai_trading/rl/replay_buffer.py`
+  - [ ] Tests : `ai_trading/tests/rl/memory/test_replay_buffer.py`
+  - [ ] Exemple : `ai_trading/examples/rl/memory/replay_buffer_example.py`
 - [ ] **Frame stacking/compression** : Implémenté dans `ai_trading/rl/frame_compression.py`
   - [ ] Tests : `ai_trading/tests/test_frame_compression.py`
   - [ ] Exemple : `ai_trading/examples/frame_compression_demo.py`

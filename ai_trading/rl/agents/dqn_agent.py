@@ -10,6 +10,7 @@ from collections import deque, namedtuple
 import random
 from typing import Dict, List, Tuple, Optional, Union
 import logging
+from ai_trading.rl.replay_buffer import PrioritizedReplayBuffer
 
 logger = logging.getLogger(__name__)
 

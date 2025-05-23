@@ -23,8 +23,3 @@ si `replay_buffer.py, `test_replay_buffer.py` et `replay_buffer_example.py` sont
 puisqu'il sont dans mtn regrouper en d'aute fichier
 
 verif que tt les fichier ayant deja été regroupé n'ont pas de perte, qu'il ne manque rien et que tout foncitonne 
-
-python -m pytest ai_trading/tests/rl/test_entropy_regularization.py -v -rs
-python -m pytest ai_trading/tests/rl/test_noisy_sac_agent.py -v -rs
-python -m pytest ai_trading/tests/rl/test_sac_agent.py -v -rs
-python -m pytest ai_trading/tests/rl/test_n_step_sac_agent.py

@@ -12,6 +12,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.distributions import Normal
+from ai_trading.rl.replay_buffer import PrioritizedReplayBuffer
 
 # Configuration du logger
 logger = logging.getLogger(__name__)
