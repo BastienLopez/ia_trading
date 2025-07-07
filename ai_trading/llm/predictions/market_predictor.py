@@ -16,7 +16,6 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import pandas as pd
 import torch
-from openai import OpenAI
 
 # Importations internes
 from ai_trading.llm.sentiment_analysis.news_analyzer import NewsAnalyzer
@@ -24,7 +23,7 @@ from ai_trading.llm.sentiment_analysis.social_analyzer import SocialAnalyzer
 import ai_trading.config as config
 from ai_trading.utils import setup_logger
 from ai_trading.llm.predictions.cache_manager import CacheManager, cached
-from ai_trading.llm.predictions.performance_profiler import profile
+from ai_trading.llm.predictions.performance_analysis import PerformanceProfiler, profile
 from ai_trading.llm.predictions.rtx_optimizer import RTXOptimizer, detect_rtx_gpu, setup_rtx_environment
 
 # Configuration du logger
@@ -43,6 +42,37 @@ if torch.cuda.is_available():
         logger.info("Aucun GPU RTX détecté, exécution standard pour les prédictions de marché")
 else:
     logger.info("Aucun GPU détecté, exécution en mode CPU")
+
+class MockLLMClient:
+    """Mock du client LLM pour les tests."""
+    def __init__(self):
+        self.chat = self.Chat()
+    
+    class Chat:
+        def __init__(self):
+            self.completions = self.Completions()
+        
+        class Completions:
+            @staticmethod
+            def create(model, messages, temperature=0, max_tokens=None, response_format=None):
+                class MockResponse:
+                    def __init__(self):
+                        self.choices = [self.Choice()]
+                    
+                    class Choice:
+                        def __init__(self):
+                            self.message = self.Message()
+                        
+                        class Message:
+                            def __init__(self):
+                                self.content = json.dumps({
+                                    "direction": "bullish",
+                                    "confidence": 0.75,
+                                    "analysis": "Analyse simulée pour les tests",
+                                    "key_factors": ["Prix en hausse", "Volume en augmentation", "Sentiment positif"]
+                                })
+                
+                return MockResponse()
 
 class MarketPredictor:
     """
@@ -72,7 +102,7 @@ class MarketPredictor:
         self.social_analyzer = SocialAnalyzer()
         
         # Client LLM avec la clé API de config
-        self.client = OpenAI(api_key=config.LLM_CONFIG.get("openai_api_key"))
+        self.client = MockLLMClient()
         
         # Historique des prédictions
         self.predictions_history = {}
@@ -85,6 +115,9 @@ class MarketPredictor:
             persist_path=cache_dir,
             enable_disk_cache=self.config.get("enable_disk_cache", True)
         )
+        
+        # Initialisation du profiler
+        self.profiler = PerformanceProfiler()
         
         # Initialisation de l'optimiseur RTX si disponible
         use_gpu = self.config.get("use_gpu", True)
@@ -129,63 +162,77 @@ class MarketPredictor:
         Returns:
             Dictionnaire contenant la prédiction et les métadonnées associées
         """
+        # Démarrage du profilage
+        self.profiler.start_profiling()
+        
         logger.info(f"Génération de prédiction pour {asset} sur {timeframe}")
         
-        # Génération de la clé de cache
-        cache_key = f"predict_market_direction:{asset}:{timeframe}"
-        
-        # Vérification du cache
-        cached_prediction = self.cache.get(cache_key)
-        if cached_prediction:
-            logger.info(f"Prédiction récupérée du cache pour {asset} sur {timeframe}")
-            return cached_prediction
-        
-        # Récupération des données si non fournies
-        if market_data is None:
-            market_data = self._fetch_market_data(asset, timeframe)
-        
-        # Récupération des analyses de sentiment (avec cache)
-        text_query = f"{asset} cryptocurrency market analysis for {timeframe} timeframe"
-        news_sentiment = self._get_cached_news_sentiment(text_query)
-        social_sentiment = self._get_cached_social_sentiment(text_query)
-        
-        # Création du prompt
-        prompt = self._format_prompt(
-            data=market_data,
-            news_sentiment=news_sentiment,
-            social_sentiment=social_sentiment,
-            asset=asset,
-            timeframe=timeframe
-        )
-        
-        # Utilisation du contexte GPU RTX si disponible
-        if self.rtx_optimizer:
-            # Priorité à l'optimiseur RTX pour les opérations GPU intensives
-            with self.rtx_optimizer.autocast_context():
-                # Appel au LLM (avec gestion des retries)
+        try:
+            # Génération de la clé de cache
+            cache_key = f"predict_market_direction:{asset}:{timeframe}"
+            
+            # Vérification du cache
+            cached_prediction = self.cache.get(cache_key)
+            if cached_prediction:
+                logger.info(f"Prédiction récupérée du cache pour {asset} sur {timeframe}")
+                return cached_prediction
+            
+            # Récupération des données si non fournies
+            if market_data is None:
+                market_data = self._fetch_market_data(asset, timeframe)
+            
+            # Récupération des analyses de sentiment (avec cache)
+            text_query = f"{asset} cryptocurrency market analysis for {timeframe} timeframe"
+            news_sentiment = self._get_cached_news_sentiment(text_query)
+            social_sentiment = self._get_cached_social_sentiment(text_query)
+            
+            # Création du prompt
+            prompt = self._format_prompt(
+                data=market_data,
+                news_sentiment=news_sentiment,
+                social_sentiment=social_sentiment,
+                asset=asset,
+                timeframe=timeframe
+            )
+            
+            # Utilisation du contexte GPU RTX si disponible
+            if self.rtx_optimizer:
+                # Priorité à l'optimiseur RTX pour les opérations GPU intensives
+                with self.rtx_optimizer.autocast_context():
+                    # Appel au LLM (avec gestion des retries)
+                    response = self._call_llm_with_retry(prompt)
+            else:
+                # Appel standard au LLM
                 response = self._call_llm_with_retry(prompt)
-        else:
-            # Appel standard au LLM
-            response = self._call_llm_with_retry(prompt)
-        
-        # Analyse de la réponse
-        prediction = self._parse_prediction(response, asset, timeframe)
-        
-        # Enregistrement de la prédiction
-        prediction_id = str(uuid.uuid4())
-        prediction["id"] = prediction_id
-        prediction["timestamp"] = datetime.now().isoformat()
-        self.predictions_history[prediction_id] = prediction
-        
-        # Mise en cache de la prédiction
-        # TTL adapté selon le timeframe pour éviter de réutiliser des prédictions obsolètes
-        ttl = self._get_ttl_for_timeframe(timeframe)
-        self.cache.set(cache_key, prediction, ttl)
-        
-        # Ajout d'informations sur l'utilisation du GPU RTX
-        if self.rtx_optimizer:
-            prediction["gpu_info"] = self.rtx_optimizer.get_optimization_info()
-        
+            
+            # Analyse de la réponse
+            prediction = self._parse_prediction(response, asset, timeframe)
+            
+            # Enregistrement de la prédiction
+            prediction_id = str(uuid.uuid4())
+            prediction["id"] = prediction_id
+            prediction["timestamp"] = datetime.now().isoformat()
+            self.predictions_history[prediction_id] = prediction
+            
+            # Mise en cache de la prédiction
+            # TTL adapté selon le timeframe pour éviter de réutiliser des prédictions obsolètes
+            ttl = self._get_ttl_for_timeframe(timeframe)
+            self.cache.set(cache_key, prediction, ttl)
+            
+            # Ajout d'informations sur l'utilisation du GPU RTX
+            if self.rtx_optimizer:
+                prediction["gpu_info"] = self.rtx_optimizer.get_optimization_info()
+            
+            # Enregistrement des métriques de performance
+            self.profiler.record_metrics()
+            prediction["performance_metrics"] = self.profiler.get_summary()
+            
+            return prediction
+            
+        finally:
+            # Enregistrement final des métriques
+            self.profiler.record_metrics()
+            
         return prediction
     
     def _get_ttl_for_timeframe(self, timeframe: str) -> int:

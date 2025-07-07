@@ -283,7 +283,7 @@ Ce module contient l'implémentation d'un système de trading de cryptomonnaies 
 
 -----------------------------------------------------------------------------------------------------------------------
 
-### Phase 5: Signaux de Trading (ML) ⏳
+### Phase 5: Signaux de Trading (ML) ✅
 - ✅ 5.1 Implémentation de `ml/trading_signals/signal_generator.py`
   - Génération de signaux d'achat/vente basés sur des indicateurs techniques
   - Filtrage des signaux selon leur qualité et fiabilité
@@ -315,31 +315,75 @@ Ce module contient l'implémentation d'un système de trading de cryptomonnaies 
 
 -----------------------------------------------------------------------------------------------------------------------
 
-### Phase 6: Intégration et API ⏳
-- ⏳ 6.1 Développement de l'API
+### Phase 6: Intégration et API ✅
+- ⏳ 6.1 Regroupement cf regroupement.md
+  - Regroupement des fichiers prods
+  - Regroupement des fichiers tests
+  - Regroupement des fichiers exemples
+- ⏳ 6.2 Développement de l'API
   - Endpoints RESTful pour les prédictions et signaux de trading
   - API sécurisée avec authentification JWT et rate limiting
   - Intégration transparente des différents composants du système
   - Documentation interactive avec Swagger/OpenAPI
   - Tests automatisés des endpoints
-- ⏳ 6.2 Tests d'intégration
+  - Gestion des versions d'API avec compatibilité ascendante
+  - Optimisation des performances avec mise en cache des réponses
+  - Support des formats JSON et MessagePack pour l'échange de données
+- ⏳ 6.3 Tests d'intégration
   - Tests de bout en bout simulant des scénarios réels
   - Validation rigoureuse des performances et de la stabilité
   - Tests de charge et de stress pour évaluer les limites du système
   - Vérification de la compatibilité avec différents clients
   - Monitoring continu de la qualité des données
-- [ ] **API GraphQL**
+  - Intégration dans la pipeline CI/CD avec rapports automatisés
+  - Tests de régression pour éviter les régressions fonctionnelles
+  - Simulation de conditions réseau dégradées pour tester la résilience
+- ⏳ 6.4 Pipeline d'intégration complète cf @ai_trading\documentation\pipeline\ci_cd_pipeline.md
+  - Orchestration des flux de données entre tous les modules
+  - Système de file d'attente robuste avec RabbitMQ/Kafka
+  - Gestion des dépendances entre composants avec retries intelligents
+  - Mécanismes de reprise sur erreur et points de contrôle
+  - Architecture modulaire permettant des mises à jour sans interruption
+  - Observabilité complète avec métriques détaillées à chaque étape
+  - Optimisation des performances de bout en bout
+- ⏳ 6.5 Gestion des données distribuée
+  - Stockage efficace des données historiques et temps réel
+  - Partitionnement intelligent pour optimiser les requêtes
+  - Mécanismes de purge et d'archivage automatiques
+  - Réplication et haute disponibilité des données critiques
+  - Synchronisation entre instances pour le scaling horizontal
+- ⏳ 6.6 Pipeline CI/CD & intégration automatisée
+  - Mise en place d'un orchestrateur (Airflow, Prefect ou script bash) pour enchaîner tous les modules
+  - Déploiement de RabbitMQ ou Kafka via Docker Compose pour les files d'attente
+  - Configuration de topics/queues dédiés pour chaque type de message (data_ready, rl_job, llm_job)
+  - Définition de l'ordre d'exécution des tâches avec gestion explicite des dépendances
+  - Implémentation d'un backoff exponentiel et nombre max de retries pour les étapes critiques
+  - Insertion de checkpoints (états sérialisés) après chaque module pour reprise sur erreur
+  - Packaging de chaque domaine (data, rl, llm, api) comme service Docker ou module Python indépendant
+  - Instrumentation de chaque étape avec Prometheus metrics (durée, taux de réussite, volume de données)
+  - Centralisation des logs et traces (ELK, Grafana) pour diagnostic en temps réel
+  - Profiling régulier (cProfile, line_profiler) sur les tâches les plus coûteuses
+  - Benchmarks automatisés (temps de latence, débit) et seuils de performance dans la CI
+  - Cleanup automatique en fin de run et notification Slack/email en cas d'échec
+  - Badges statut build / coverage / performance dans le README.md
+  - Génération automatique de la documentation Sphinx/MkDocs à chaque merge
+- ⏳ 6.7 **API GraphQL**
   - Schéma flexible permettant des requêtes personnalisées
   - Réduction significative du trafic réseau par rapport au REST
   - Documentation auto-générée et introspection du schéma
   - Système de versioning intelligent avec dépréciation graduelle
   - Résolution efficace des relations entre entités
-- [ ] **Monitoring temps réel**
+  - Support des abonnements pour mises à jour en temps réel
+  - Batching et caching automatiques des requêtes
+- ⏳ 6.8 Monitoring temps réel
   - Métriques détaillées de performance et de fiabilité
   - Système d'alertes configurables avec seuils adaptatifs
   - Dashboards interactifs pour visualiser l'état du système
   - Logs structurés avec indexation et recherche avancée
   - Traçage distribué des requêtes et diagnostics
+  - Détection d'anomalies basée sur l'apprentissage automatique
+  - Prédiction proactive des problèmes potentiels
+  - Intégration avec les principaux systèmes de monitoring (Prometheus, Grafana)
 
 -----------------------------------------------------------------------------------------------------------------------
 

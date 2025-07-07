@@ -41,49 +41,10 @@ class MockSocialAnalyzer:
             "discussion_volume": "high" if np.random.random() > 0.5 else "medium"
         }
 
-# Patch pour les classes OpenAI
-class MockOpenAI:
-    class ChatCompletions:
-        def create(self, model, messages, temperature, max_tokens):
-            # Simuler une réponse en fonction du prompt
-            prompt = messages[1]["content"]
-            if "prédisez la direction du marché" in prompt:
-                return MagicMock(
-                    choices=[
-                        MagicMock(
-                            message=MagicMock(
-                                content=json.dumps({
-                                    "direction": np.random.choice(["bullish", "bearish", "neutral"]),
-                                    "confidence": np.random.choice(["low", "medium", "high"]),
-                                    "factors": ["Price trend", "Volume increase", "Positive sentiment"],
-                                    "contradictions": ["Market uncertainty"],
-                                    "volatility": np.random.choice(["low", "medium", "high"])
-                                })
-                            )
-                        )
-                    ]
-                )
-            else:
-                return MagicMock(
-                    choices=[
-                        MagicMock(
-                            message=MagicMock(
-                                content="Analyse détaillée du marché... [Contenu simulé pour les tests]"
-                            )
-                        )
-                    ]
-                )
-
-# Créer un mock pour OpenAI
-mock_openai = MagicMock()
-mock_openai.chat = MagicMock()
-mock_openai.chat.completions = MockOpenAI.ChatCompletions()
-
 # Patch des modules pour les tests
 patches = [
     patch("ai_trading.llm.sentiment_analysis.news_analyzer.NewsAnalyzer", MockNewsAnalyzer),
     patch("ai_trading.llm.sentiment_analysis.social_analyzer.SocialAnalyzer", MockSocialAnalyzer),
-    patch("openai.OpenAI", return_value=mock_openai)
 ]
 
 # Appliquer les patches

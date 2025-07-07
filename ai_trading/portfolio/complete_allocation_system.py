@@ -315,14 +315,18 @@ class CompleteAllocationSystem:
         """
         if self.current_weights is None:
             logger.warning("Pas d'allocation courante définie")
-            return False, None
+            return False, pd.Series(index=self.assets)
         
         # Utiliser les derniers prix disponibles si non fournis
         if current_prices is None:
             current_prices = self.prices.iloc[-1]
         
+        # S'assurer que current_prices est une série pandas avec les bons index
+        if not isinstance(current_prices, pd.Series):
+            current_prices = pd.Series(current_prices, index=self.assets)
+        
         # Calculer la valeur actuelle de chaque position
-        position_values = self.current_weights * 1  # Valeur normalisée du portefeuille
+        position_values = pd.Series(self.current_weights, index=self.assets)  # Valeur normalisée du portefeuille
         
         # Calculer les nouveaux poids basés sur l'évolution des prix
         price_changes = current_prices / self.prices.iloc[-1]
@@ -331,11 +335,11 @@ class CompleteAllocationSystem:
         drift_weights = new_position_values / new_portfolio_value
         
         # Calculer les déviations
-        weight_deviations = drift_weights - self.current_weights
+        weight_deviations = drift_weights - position_values
         max_deviation = weight_deviations.abs().max()
         
         # Déterminer si un rééquilibrage est nécessaire
-        need_rebalance = max_deviation > self.rebalance_threshold
+        need_rebalance = bool(max_deviation > self.rebalance_threshold)
         
         if need_rebalance:
             logger.info(f"Rééquilibrage nécessaire, déviation maximale: {max_deviation:.4f}")

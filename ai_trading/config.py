@@ -89,7 +89,6 @@ BINANCE_CONFIG = {
 
 # Configuration des modèles LLM
 LLM_CONFIG = {
-    "openai_api_key": os.getenv("OPENAI_API_KEY"),
     "huggingface_api_key": os.getenv("HUGGINGFACE_API_KEY"),
     "sentiment_model_path": os.getenv(
         "SENTIMENT_MODEL_PATH", "ai_trading/info_retour/models/sentiment"

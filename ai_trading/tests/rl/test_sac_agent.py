@@ -12,10 +12,15 @@ import sys
 import tempfile
 import unittest
 import warnings
+from pathlib import Path
 
+import gymnasium as gym
 import numpy as np
 import pandas as pd
 import tensorflow as tf
+import torch
+from gymnasium import spaces
+import pytest
 
 # Filtres pour ignorer les avertissements de dépréciation connus
 warnings.filterwarnings(
@@ -28,29 +33,107 @@ warnings.filterwarnings("ignore", message=".*tensorflow.*deprecated.*")
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Configurer le niveau de log pour réduire les sorties de TensorFlow
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
+tf.get_logger().setLevel("ERROR")
+
 # Ajouter le répertoire parent au chemin pour l'importation
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from ai_trading.rl.agents.sac_agent import SACAgent
+from ai_trading.rl.agents.sac_agent import TransformerSACAgent
 from ai_trading.rl.trading_environment import TradingEnvironment
+from ai_trading.data.synthetic_data_generator import generate_synthetic_market_data
+
+
+class SimpleEnv(gym.Env):
+    """Environnement simplifié pour tester l'agent."""
+
+    def __init__(self, state_dim=10, action_dim=2, sequence_length=5):
+        super(SimpleEnv, self).__init__()
+        self.state_dim = state_dim
+        self.action_dim = action_dim
+        self.sequence_length = sequence_length
+        self.current_step = 0
+        self.max_steps = 100
+
+        # Définir les espaces d'observation et d'action
+        self.observation_space = spaces.Box(
+            low=-np.inf, high=np.inf, shape=(state_dim,), dtype=np.float32
+        )
+        self.action_space = spaces.Box(
+            low=-1.0, high=1.0, shape=(action_dim,), dtype=np.float32
+        )
+
+    def reset(self, seed=None, options=None):
+        super().reset(seed=seed)
+        self.current_step = 0
+        # Générer un état aléatoire
+        state = np.random.random(self.state_dim).astype(np.float32)
+        return state, {}
+
+    def step(self, action):
+        # Incrémenter le compteur d'étapes
+        self.current_step += 1
+
+        # Générer un nouvel état
+        next_state = np.random.random(self.state_dim).astype(np.float32)
+
+        # Calculer une récompense simple basée sur l'action
+        reward = float(np.sum(action)) / self.action_dim
+
+        # Vérifier si l'épisode est terminé
+        done = self.current_step >= self.max_steps
+
+        return next_state, reward, done, False, {}
 
 
 class TestSACAgent(unittest.TestCase):
-    """Tests unitaires pour l'agent SAC (Soft Actor-Critic)"""
+    """Tests pour l'agent SAC avec architecture Transformer."""
 
     def setUp(self):
-        """Configuration pour chaque test"""
-        # Créer un petit environnement de test avec des données synthétiques
-        np.random.seed(42)  # Pour la reproductibilité
-        tf.random.set_seed(42)
+        """Configuration pour chaque test."""
+        # Paramètres pour l'agent et l'environnement
+        self.state_dim = 10
+        self.action_dim = 2
+        self.sequence_length = 5
 
-        # Générer des données synthétiques pour l'environnement
+        # Créer l'environnement de test
+        self.env = SimpleEnv(
+            state_dim=self.state_dim,
+            action_dim=self.action_dim,
+            sequence_length=self.sequence_length,
+        )
+
+        # Créer l'agent
+        self.agent = TransformerSACAgent(
+            state_dim=self.state_dim,
+            action_dim=self.action_dim,
+            d_model=32,
+            n_heads=4,
+            num_layers=2,
+            dim_feedforward=64,
+            dropout=0.1,
+            activation="gelu",
+            max_seq_len=20,
+            sequence_length=self.sequence_length,
+            hidden_dim=32,
+            learning_rate=3e-4,
+            gamma=0.99,
+            tau=0.005,
+            alpha=0.2,
+            buffer_size=100,
+            batch_size=4,
+            device="cpu",
+            action_bounds=(-1.0, 1.0),
+        )
+
+        # Créer un environnement de trading pour les tests d'intégration
+        np.random.seed(42)
         n_samples = 100
         dates = pd.date_range(start="2023-01-01", periods=n_samples)
         prices = np.linspace(100, 200, n_samples) + np.random.normal(0, 5, n_samples)
         volumes = np.random.normal(1000, 200, n_samples)
 
-        # Créer un DataFrame avec les données
         self.df = pd.DataFrame(
             {
                 "timestamp": dates,
@@ -63,223 +146,323 @@ class TestSACAgent(unittest.TestCase):
             }
         )
 
-        # Créer l'environnement avec action_type="continuous"
-        self.env = TradingEnvironment(
+        self.trading_env = TradingEnvironment(
             df=self.df,
             initial_balance=10000.0,
             transaction_fee=0.001,
             window_size=10,
-            action_type="continuous",  # Important pour tester un agent avec actions continues
+            action_type="continuous",
         )
 
-        # Créer un état pour déterminer sa taille réelle
-        state, _ = self.env.reset()
-        logger.info(f"État réel shape: {state.shape}")
-        # Dans l'implémentation actuelle, la taille réelle de l'état diffère
-        # de celle déclarée dans observation_space
-        self.state_size = state.shape[
-            0
-        ]  # Utiliser la taille réelle, pas la taille déclarée
-        logger.info(f"State size utilisé: {self.state_size}")
+    def test_initialization(self):
+        """Teste l'initialisation de l'agent."""
+        # Vérifier que les attributs principaux sont correctement initialisés
+        self.assertEqual(self.agent.state_dim, self.state_dim)
+        self.assertEqual(self.agent.action_dim, self.action_dim)
+        self.assertEqual(self.agent.sequence_length, self.sequence_length)
 
-        # Créer l'agent SAC avec la bonne taille d'état
-        self.agent = SACAgent(
-            state_size=self.state_size,
-            action_size=1,  # L'environnement a un espace d'action de dimension 1
-            hidden_size=64,
-            learning_rate=3e-4,
-            gamma=0.99,
-            tau=0.005,
-            alpha=0.2,
-            buffer_size=5000,
-            batch_size=32,
-            sequence_length=1,
-            use_gru=False,
-            device="cpu",  # Utiliser CPU pour les tests
-        )
-
-        # Collecter quelques expériences pour le tampon de replay
-        state, _ = self.env.reset()
-        for _ in range(50):
-            action = np.random.uniform(-1, 1, 1)
-            next_state, reward, terminated, truncated, _ = self.env.step(action)
-            self.agent.remember(state, action, reward, next_state, terminated)
-            if terminated or truncated:
-                state, _ = self.env.reset()
-            else:
-                state = next_state
-
-    def test_agent_initialization(self):
-        """Teste que l'agent est correctement initialisé"""
-        self.assertEqual(self.agent.state_size, self.state_size)
-        self.assertEqual(self.agent.action_size, 1)
-        self.assertEqual(self.agent.action_low, -1)
-        self.assertEqual(self.agent.action_high, 1)
+        # Vérifier que les réseaux sont initialisés
         self.assertIsNotNone(self.agent.actor)
-        self.assertIsNotNone(self.agent.critic_1)
-        self.assertIsNotNone(self.agent.critic_2)
-        # Vérifier si les attributs existent, sinon les ignorer
-        if hasattr(self.agent, "target_critic_1"):
-            self.assertIsNotNone(self.agent.target_critic_1)
-            self.assertIsNotNone(self.agent.target_critic_2)
+        self.assertIsNotNone(self.agent.critic1)
+        self.assertIsNotNone(self.agent.critic2)
+        self.assertIsNotNone(self.agent.target_critic1)
+        self.assertIsNotNone(self.agent.target_critic2)
 
     def test_action_selection(self):
-        """Teste que l'agent peut sélectionner des actions correctement"""
-        state, _ = self.env.reset()
+        """Teste la sélection d'actions."""
+        state = np.random.random(self.state_dim).astype(np.float32)
 
         # Test mode stochastique
         action = self.agent.select_action(state)
         self.assertIsInstance(action, np.ndarray)
-        self.assertEqual(action.shape, (1,))
-        self.assertTrue(-1 <= action[0] <= 1)
+        self.assertEqual(action.shape, (self.action_dim,))
+        self.assertTrue(np.all(action >= -1.0) and np.all(action <= 1.0))
 
-        # Test mode déterministe (évaluation)
-        action_det = self.agent.select_action(state, evaluate=True)
+        # Test mode déterministe
+        action_det = self.agent.select_action(state, deterministic=True)
         self.assertIsInstance(action_det, np.ndarray)
-        self.assertEqual(action_det.shape, (1,))
-        self.assertTrue(-1 <= action_det[0] <= 1)
+        self.assertEqual(action_det.shape, (self.action_dim,))
+        self.assertTrue(np.all(action_det >= -1.0) and np.all(action_det <= 1.0))
 
     def test_training(self):
-        """Teste que l'agent peut être entraîné"""
-        # Entraîner l'agent sur un lot
+        """Teste l'entraînement de l'agent."""
+        # Ajouter quelques expériences au buffer
+        for _ in range(10):
+            state = np.random.random(self.state_dim).astype(np.float32)
+            action = np.random.uniform(-1.0, 1.0, size=self.action_dim)
+            reward = np.random.random()
+            next_state = np.random.random(self.state_dim).astype(np.float32)
+            done = False
+            self.agent.replay_buffer.add(state, action, reward, next_state, done)
+
+        # Entraîner l'agent
         metrics = self.agent.train()
 
-        # Vérifier que les métriques existent
-        self.assertIn("critic_loss", metrics)
+        # Vérifier les métriques
+        self.assertIn("critic1_loss", metrics)
+        self.assertIn("critic2_loss", metrics)
         self.assertIn("actor_loss", metrics)
-        if "alpha_loss" in metrics:
-            self.assertIn("alpha_loss", metrics)
-        self.assertIn("entropy", metrics)
-        if "alpha" in metrics:
-            self.assertIn("alpha", metrics)
-
-        # Vérifier que les historiques sont mis à jour si disponibles
-        if hasattr(self.agent, "critic_loss_history"):
-            self.assertEqual(len(self.agent.critic_loss_history), 1)
-            self.assertEqual(len(self.agent.actor_loss_history), 1)
-            if hasattr(self.agent, "alpha_loss_history"):
-                self.assertEqual(len(self.agent.alpha_loss_history), 1)
-            self.assertEqual(len(self.agent.entropy_history), 1)
+        self.assertIn("alpha_loss", metrics)
+        self.assertIn("alpha", metrics)
 
     def test_save_load(self):
-        """Teste les fonctionnalités de sauvegarde et chargement"""
+        """Teste la sauvegarde et le chargement du modèle."""
         # Créer un répertoire temporaire
-        temp_dir = tempfile.mkdtemp()
-        try:
-            # Sauvegarder l'agent
-            self.agent.save(temp_dir)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Sauvegarder le modèle
+            save_path = os.path.join(temp_dir, "model.pt")
+            self.agent.save(save_path)
 
-            # Vérifier que les fichiers existent selon l'implémentation actuelle
-            # Les noms de fichiers peuvent varier selon l'implémentation
-            self.assertTrue(
-                os.path.exists(os.path.join(temp_dir, "actor.h5"))
-                or os.path.exists(os.path.join(temp_dir, "actor"))
-            )
-            self.assertTrue(
-                os.path.exists(os.path.join(temp_dir, "critic_1.h5"))
-                or os.path.exists(os.path.join(temp_dir, "critic_1"))
-            )
-            self.assertTrue(
-                os.path.exists(os.path.join(temp_dir, "critic_2.h5"))
-                or os.path.exists(os.path.join(temp_dir, "critic_2"))
-            )
+            # Vérifier que le fichier existe
+            self.assertTrue(os.path.exists(save_path))
 
-            # Créer un nouvel agent avec les mêmes paramètres
-            new_agent = SACAgent(
-                state_size=self.state_size,
-                action_size=1,
-                hidden_size=64,
+            # Créer un nouvel agent
+            new_agent = TransformerSACAgent(
+                state_dim=self.state_dim,
+                action_dim=self.action_dim,
+                d_model=32,
+                n_heads=4,
+                num_layers=2,
+                dim_feedforward=64,
+                dropout=0.1,
+                activation="gelu",
+                max_seq_len=20,
+                sequence_length=self.sequence_length,
+                hidden_dim=32,
                 learning_rate=3e-4,
                 gamma=0.99,
                 tau=0.005,
                 alpha=0.2,
-                buffer_size=5000,
-                batch_size=32,
-                sequence_length=1,
-                use_gru=False,
-                device="cpu",  # Utiliser CPU pour les tests
+                buffer_size=100,
+                batch_size=4,
+                device="cpu",
+                action_bounds=(-1.0, 1.0),
             )
 
-            # Charger les poids
-            new_agent.load(temp_dir)
+            # Charger le modèle
+            new_agent.load(save_path)
 
-            # Tester une action avec l'agent original et l'agent chargé
-            state, _ = self.env.reset()
-            action_original = self.agent.select_action(state, evaluate=True)
-            action_loaded = new_agent.select_action(state, evaluate=True)
+            # Vérifier que les poids sont identiques
+            for p1, p2 in zip(self.agent.actor.parameters(), new_agent.actor.parameters()):
+                self.assertTrue(torch.allclose(p1, p2))
 
-            # Les actions devraient être similaires (pas forcément identiques)
-            # Différence relative faible
-            rel_diff = np.abs(action_original - action_loaded) / (
-                np.abs(action_original) + 1e-9
-            )
-            self.assertTrue(
-                np.all(rel_diff < 0.5),
-                f"Actions trop différentes: {action_original} vs {action_loaded}",
-            )
+    def test_trading_integration(self):
+        """Teste l'intégration avec l'environnement de trading."""
+        # Réinitialiser l'environnement
+        state, _ = self.trading_env.reset()
 
-        finally:
-            # Nettoyer
-            shutil.rmtree(temp_dir)
+        # Exécuter quelques étapes
+        for _ in range(10):
+            # Sélectionner une action
+            action = self.agent.select_action(state)
 
-    def test_replay_buffer(self):
-        """Teste le fonctionnement du tampon de replay"""
-        # Vérifier si l'agent a un tampon de replay
-        if hasattr(self.agent, "replay_buffer"):
-            # Utiliser replay_buffer
-            initial_size = len(self.agent.replay_buffer)
+            # Exécuter l'action
+            next_state, reward, terminated, truncated, _ = self.trading_env.step(action)
 
-            # Ajouter une expérience
-            state = np.random.random(self.state_size)
-            action = np.array([0.5])
-            reward = 1.0
-            next_state = np.random.random(self.state_size)
-            done = False
+            # Mémoriser l'expérience
+            self.agent.replay_buffer.add(state, action, reward, next_state, terminated)
 
-            self.agent.remember(state, action, reward, next_state, done)
+            # Mettre à jour l'état
+            state = next_state
 
-            # Vérifier que la taille a augmenté
-            self.assertEqual(len(self.agent.replay_buffer), initial_size + 1)
+            # Entraîner l'agent si suffisamment d'expériences
+            if len(self.agent.replay_buffer) >= self.agent.batch_size:
+                metrics = self.agent.train()
+                self.assertIsInstance(metrics, dict)
 
-            # Échantillonner un lot si possible
-            if (
-                hasattr(self.agent.replay_buffer, "sample")
-                and len(self.agent.replay_buffer) >= self.agent.batch_size
-            ):
-                batch = self.agent.replay_buffer.sample(self.agent.batch_size)
+    def test_transformer_architecture(self):
+        """Teste spécifiquement l'architecture Transformer."""
+        # Créer une séquence d'états
+        batch_size = 4
+        states = np.random.random((batch_size, self.sequence_length, self.state_dim)).astype(np.float32)
+        states_tensor = torch.FloatTensor(states)
 
-                # Vérifier que le lot a le bon format (peut varier selon l'implémentation)
-                self.assertIsNotNone(batch)
-                if isinstance(batch, tuple) and len(batch) == 5:
-                    states, actions, rewards, next_states, dones = batch
-                    # Vérifier les dimensions
-                    self.assertEqual(len(states), self.agent.batch_size)
-                    self.assertEqual(len(actions), self.agent.batch_size)
-                    self.assertEqual(len(rewards), self.agent.batch_size)
-                    self.assertEqual(len(next_states), self.agent.batch_size)
-                    self.assertEqual(len(dones), self.agent.batch_size)
+        # Tester le forward pass de l'acteur
+        mean, log_std = self.agent.actor(states_tensor)
+        self.assertEqual(mean.shape, (batch_size, self.action_dim))
+        self.assertEqual(log_std.shape, (batch_size, self.action_dim))
 
-    def test_scale_unscale_actions(self):
-        """Teste les fonctions de mise à l'échelle et déséchelonnage des actions"""
-        # Initialiser un agent avec des limites d'action personnalisées
-        agent = SACAgent(
-            state_size=self.state_size,
-            action_size=1,
-            action_bounds=(-2, 3),  # Limites personnalisées
-        )
+        # Tester le forward pass des critiques
+        actions = np.random.uniform(-1.0, 1.0, size=(batch_size, self.action_dim)).astype(np.float32)
+        actions_tensor = torch.FloatTensor(actions)
 
-        # Tester le dimensionnement
-        normalized_actions = np.array([[-1.0], [0.0], [1.0]])
-        scaled_actions = agent._scale_action(normalized_actions)
+        q1 = self.agent.critic1(states_tensor, actions_tensor)
+        q2 = self.agent.critic2(states_tensor, actions_tensor)
 
-        # Vérifier les valeurs
-        np.testing.assert_array_almost_equal(
-            scaled_actions, np.array([[-2.0], [0.5], [3.0]])
-        )
+        self.assertEqual(q1.shape, (batch_size, 1))
+        self.assertEqual(q2.shape, (batch_size, 1))
 
-        # Tester le dédimensionnement
-        unscaled_actions = agent._unscale_action(scaled_actions)
-        np.testing.assert_array_almost_equal(unscaled_actions, normalized_actions)
+
+@pytest.fixture
+def sac_agent():
+    state_dim = 10
+    action_dim = 2
+    sequence_length = 5
+    return TransformerSACAgent(
+        state_dim=state_dim,
+        action_dim=action_dim,
+        d_model=64,  # Taille réduite pour les tests
+        n_heads=2,   # Moins de têtes pour les tests
+        num_layers=2, # Moins de couches pour les tests
+        dim_feedforward=256,
+        dropout=0.1,
+        activation="gelu",
+        max_seq_len=20,
+        sequence_length=sequence_length,
+        hidden_dim=32,
+        learning_rate=3e-4,
+        gamma=0.99,
+        tau=0.005,
+        alpha=0.2,
+        buffer_size=100,
+        batch_size=4,
+        device="cpu",
+        action_bounds=(-1.0, 1.0),
+    )
+
+def test_sequence_handling(sac_agent):
+    # Test avec une séquence d'états
+    sequence = np.random.randn(5, 10)  # (seq_len, state_dim)
+    action = sac_agent.select_action(sequence)
+    assert action.shape == (2,)
+    
+    # Test avec un état unique (devrait être converti en séquence)
+    single_state = np.random.randn(10)
+    action = sac_agent.select_action(single_state)
+    assert action.shape == (2,)
+
+def test_training_with_sequences(sac_agent):
+    # Créer des données de test avec séquences
+    state_seq = np.random.randn(5, 10)  # (seq_len, state_dim)
+    action = np.random.randn(2)
+    reward = 1.0
+    next_state_seq = np.random.randn(5, 10)
+    done = False
+
+    # Ajouter l'expérience au buffer
+    sac_agent.replay_buffer.add(state_seq, action, reward, next_state_seq, done)
+
+    # Entraîner l'agent
+    metrics = sac_agent.train()
+    
+    assert "critic1_loss" in metrics
+    assert "critic2_loss" in metrics
+    assert "actor_loss" in metrics
+    assert "alpha_loss" in metrics
+
+def test_transformer_architecture(sac_agent):
+    # Vérifier que l'architecture Transformer est correctement configurée
+    assert hasattr(sac_agent.actor, 'transformer')
+    assert hasattr(sac_agent.critic1, 'transformer')
+    assert hasattr(sac_agent.critic2, 'transformer')
+    
+    # Vérifier les dimensions
+    assert sac_agent.actor.transformer.layers[0].self_attn.num_heads == 2
+    assert sac_agent.actor.transformer.layers[0].linear1.out_features == 256
+
+def test_noise_injection(sac_agent):
+    # Test avec exploration (stochastic=True)
+    state = np.random.randn(5, 10)  # (seq_len, state_dim)
+    action = sac_agent.select_action(state, deterministic=False)
+    assert action.shape == (2,)
+    
+    # Vérifier que l'action est dans les limites [-1, 1]
+    assert np.all(action >= -1) and np.all(action <= 1)
+
+def test_noise_scale(sac_agent):
+    # Vérifier que le bruit est correctement appliqué
+    state = np.random.randn(5, 10)
+    
+    # Obtenir plusieurs actions pour le même état
+    actions = [sac_agent.select_action(state, deterministic=False) for _ in range(10)]
+    actions = np.array(actions)
+    
+    # Vérifier que les actions sont différentes (à cause du bruit)
+    assert not np.allclose(actions[0], actions[1])
+    
+    # Vérifier que la variance est raisonnable
+    action_std = np.std(actions, axis=0)
+    assert np.all(action_std > 0)  # Devrait y avoir de la variance
+    assert np.all(action_std < 0.5)  # Mais pas trop de variance
+
+def test_deterministic_actions(sac_agent):
+    # Test sans exploration (stochastic=False)
+    state = np.random.randn(5, 10)
+    action1 = sac_agent.select_action(state, deterministic=True)
+    action2 = sac_agent.select_action(state, deterministic=True)
+    
+    # Les actions devraient être identiques en mode déterministe
+    assert np.allclose(action1, action2)
+
+def test_entropy_regularization(sac_agent):
+    # Vérifier que la régularisation d'entropie fonctionne
+    state = np.random.randn(5, 10)
+    
+    # Test action déterministe
+    action_det = sac_agent.select_action(state, deterministic=True)
+    assert action_det.shape == (2,)
+    
+    # Test action stochastique
+    action_stoch = sac_agent.select_action(state, deterministic=False)
+    assert action_stoch.shape == (2,)
+    
+    # Les actions devraient être différentes
+    assert not np.array_equal(action_det, action_stoch)
+
+def test_save_load(sac_agent, tmp_path):
+    # Test sauvegarde et chargement du modèle
+    save_path = os.path.join(tmp_path, "sac_agent.pt")
+    
+    # Sauvegarder le modèle
+    sac_agent.save(save_path)
+    assert os.path.exists(save_path)
+    
+    # Créer un nouvel agent
+    new_agent = TransformerSACAgent(
+        state_dim=10,
+        action_dim=2,
+        d_model=64,
+        n_heads=2,
+        num_layers=2,
+        dim_feedforward=256,
+        dropout=0.1,
+        activation="gelu",
+        max_seq_len=20,
+        sequence_length=5,
+        hidden_dim=32,
+        learning_rate=3e-4,
+        gamma=0.99,
+        tau=0.005,
+        alpha=0.2,
+        buffer_size=100,
+        batch_size=4,
+        device="cpu",
+        action_bounds=(-1.0, 1.0),
+    )
+    
+    # Charger le modèle
+    new_agent.load(save_path)
+    
+    # Vérifier que les poids sont identiques
+    state = np.random.randn(5, 10)
+    action1 = sac_agent.select_action(state, deterministic=True)
+    action2 = new_agent.select_action(state, deterministic=True)
+    assert np.allclose(action1, action2)
+
+def test_replay_buffer(sac_agent):
+    # Test du buffer de replay
+    for _ in range(10):
+        state = np.random.randn(5, 10)
+        action = np.random.randn(2)
+        reward = np.random.randn()
+        next_state = np.random.randn(5, 10)
+        done = False
+        
+        sac_agent.replay_buffer.add(state, action, reward, next_state, done)
+    
+    # Vérifier que l'entraînement fonctionne avec le buffer
+    metrics = sac_agent.train()
+    assert all(key in metrics for key in ["critic1_loss", "critic2_loss", "actor_loss"])
 
 
 if __name__ == "__main__":

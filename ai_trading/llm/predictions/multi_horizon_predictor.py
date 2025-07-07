@@ -5,7 +5,7 @@ import os
 import logging
 import json
 from datetime import datetime, timedelta
-from typing import Dict, List, Union, Optional, Tuple
+from typing import Dict, List, Union, Optional, Tuple, Any
 
 from ai_trading.utils import setup_logger
 from ai_trading.llm.predictions.market_predictor import MarketPredictor
@@ -31,7 +31,8 @@ class MultiHorizonPredictor:
     def __init__(self, 
                 llm_model: str = "gpt-4", 
                 model_save_dir: Optional[str] = None,
-                use_hybrid: bool = True):
+                use_hybrid: bool = True,
+                custom_config: Optional[Dict[str, Any]] = None):
         """
         Initialise le prédicteur multi-horizons.
         
@@ -39,12 +40,15 @@ class MultiHorizonPredictor:
             llm_model (str): Modèle LLM à utiliser (gpt-3.5-turbo, gpt-4, etc.)
             model_save_dir (str, optional): Répertoire de sauvegarde des modèles
             use_hybrid (bool): Utiliser le modèle hybride (True) ou uniquement LLM (False)
+            custom_config (Dict[str, Any], optional): Configuration personnalisée pour le MarketPredictor
         """
         self.llm_model = llm_model
         self.use_hybrid = use_hybrid
         
-        # Initialisation du MarketPredictor de base
-        self.market_predictor = MarketPredictor(custom_config={"model_name": llm_model})
+        # Initialisation du MarketPredictor de base avec la configuration personnalisée
+        market_predictor_config = custom_config or {}
+        market_predictor_config["model_name"] = llm_model
+        self.market_predictor = MarketPredictor(custom_config=market_predictor_config)
         
         # Dictionnaire pour stocker les modèles de prédiction par horizon
         self.prediction_models = {}

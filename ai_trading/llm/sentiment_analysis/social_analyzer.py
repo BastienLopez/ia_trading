@@ -7,7 +7,7 @@ import logging
 import re  # Ajout de l'import manquant pour les regex
 from collections import Counter
 from datetime import datetime
-from typing import Dict, List
+from typing import Dict, List, Any
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -61,6 +61,45 @@ class SocialAnalyzer(EnhancedNewsAnalyzer):
             raise ValueError(
                 f"Plateforme non supportée: {platform}. Choisissez entre {list(self.platform_config.keys())}"
             )
+
+    def analyze_sentiment(self, text: str) -> Dict[str, Any]:
+        """
+        Analyse le sentiment d'un texte.
+        
+        Args:
+            text: Texte à analyser
+            
+        Returns:
+            Dictionnaire contenant le sentiment et le score
+        """
+        # Utiliser la méthode de la classe parente
+        return self._analyze_text(text)
+
+    def analyze_news_dataframe(self, df: pd.DataFrame, text_col: str = "text", **kwargs) -> pd.DataFrame:
+        """
+        Analyse un DataFrame de posts sociaux.
+        
+        Args:
+            df: DataFrame à analyser
+            text_col: Nom de la colonne contenant le texte
+            **kwargs: Arguments supplémentaires
+            
+        Returns:
+            DataFrame enrichi avec l'analyse de sentiment
+        """
+        # Vérifier que la colonne de texte existe
+        if text_col not in df.columns:
+            logger.error(f"Colonne {text_col} non trouvée dans le DataFrame")
+            return df
+
+        # Analyse de sentiment
+        df["sentiment"] = df[text_col].apply(self.analyze_sentiment)
+        
+        # Extraction des labels et scores
+        df["sentiment_label"] = df["sentiment"].apply(lambda x: x.get("label", "neutral"))
+        df["sentiment_score"] = df["sentiment"].apply(lambda x: x.get("score", 0.5))
+
+        return df
 
     def analyze_social_posts(self, posts: List[Dict]) -> pd.DataFrame:
         """Analyse un batch de posts sociaux."""

@@ -1,59 +1,39 @@
-Ajouter **NumPy** à ton pipeline « LLM + RL » peut sembler anodin, mais dans la pratique ça débloque beaucoup de choses :
+prod : 
+- **Training**:
+  - Regrouper `train.py`, `train_with_curriculum.py` et `train_with_gradient_accumulation.py` en `training.py` (environ 1275 lignes)
 
-### 1. Vitesse et vectorisation
+  - Regrouper `distributed_ppo_training.py` et `distributed_transformer_ppo_training.py` en `distributed_training.py` (environ 988 lignes)
 
-* **Boucles Python → vecteurs NumPy** : les mises à jour Q-learning, calculs de récompenses cumulées, échantillonnage d’actions ε-greedy, etc., deviennent des opérations matricielles ultra-rapides plutôt que des for-loops lents.
-* Pour un backtest sur plusieurs milliers de pas de temps, tu peux gagner un facteur 10-100 en temps de calcul.
+test:
+ - Regrouper `test_basic_training.py` et `test_curriculum_learning.py` et `test_gradient_accumulation.py` en `tests/rl/training/test_training.py`
 
-### 2. Manipulation numérique propre
+ - Regrouper `test_ppo_distribution.py` et `test_transformer_distribution.py` en `tests/rl/training/test_distributed_training.py`
 
-* Tableaux `ndarray` : formats homogènes, broadcasting, masques booléens pour appliquer des règles de money-management en une ligne.
-* Random module : tirages pseudo-aléatoires cohérents pour tes trajectoires, avec gestion des seeds → backtests parfaitement reproductibles.
+examples : 
+ - Regrouper `example_basic_training.py` et `example_curriculum.py` et `example_gradient_acc.py` en `examples/rl/training/training_example.py`
 
-### 3. Pré-processing et features
+  - Regrouper `example_ppo_cluster.py` et `example_transformer_parallel.py` en `examples/rl/training/distributed_training_example.py`
 
-* **Indicateurs techniques** : moyennes mobiles, RSI, ATR, volatility clustering… se codent en 2-3 lignes vectorisées.
-* Encodage pour ton LLM : transformation d’un book d’ordres ou d’un OHLCV en séquences normalisées avant de les « feed » au modèle.
 
-### 4. Intégration naturelle avec le reste de l’écosystème
+si `exploration.py, `test_exploration.py` et `exploration_example.py` sont bien implementer et sans perte du au regroupement,
+ test les et si ca fonctionne supprime : 
+- `train.py` 
+- `train_with_curriculum.py` 
+- `train_with_gradient_accumulation.py` 
+- `distributed_ppo_training` 
+- `distributed_transformer_ppo_training`
+- `test_basic_training`
+- `test_curriculum_learning`
+- `test_gradient_accumulation`
+- `test_ppo_distribution`
+- `test_transformer_distribution`
+- `example_basic_training`
+- `example_curriculum`
+- `example_gradient_acc`
+- `example_ppo_cluster`
+- `example_transformer_parallel`
 
-* **Pandas** repose sur NumPy : tu convertis un DataFrame en `values` NumPy, tu fais le heavy-lifting, tu reviens en DataFrame pour logger / afficher.
-* **PyTorch / TensorFlow / JAX** acceptent directement les `ndarray` ou fournissent des wrappers (`torch.from_numpy`) ; aucune copie inutile.
-* `gymnasium` ou `stable-baselines3` manipulent déjà des obs/actions NumPy. Ajouter NumPy te rend compatible nativement.
 
-### 5. Calculs analytiques et métriques de risque
+puisqu'il sont dans mtn regrouper en d'aute fichier
 
-* Espérance, variance, VaR, Sharpe, drawdown maximum… tous dispo en quelques opérations vectorisées.
-* Tu peux évaluer la robustesse de ta politique RL ou les deltas de performance entre deux checkpoints en temps réel.
-
-### 6. Exemple concret : mise à jour Q-learning vectorisée
-
-```python
-# s, a, r, s', done : tableaux 1-D de taille batch
-q = np.zeros((n_states, n_actions))
-
-# prédictions courantes
-q_sa = q[s, a]
-
-# cible = r + γ * max_a' Q(s', a')  (0 si terminal)
-next_max = np.max(q[s_next], axis=1)
-targets = r + gamma * next_max * (1 - done)
-
-# update
-q[s, a] += alpha * (targets - q_sa)
-```
-
-Sans NumPy tu aurais au minimum une triple boucle Python.
-
----
-
-## Quand NumPy n’apporte pas grand-chose
-
-* Si tu utilises déjà **JAX** ou **PyTorch** partout (tensor core). Dans ce cas tu peux faire 100 % tensor et te passer de NumPy, mais beaucoup de libs RL classiques s’appuient encore dessus.
-* Si ton LLM tourne sur un service externe et que tu ne fais pas de post-processing local.
-
----
-
-### En résumé
-
-NumPy, c’est la colle numérique qui accélère tes algos, simplifie tes features et harmonise tes datas entre LLM, RL et backtests. Même si tu passes ensuite à du GPU/tensor, avoir NumPy dans la boucle reste un gros raccourci de productivité.
+verif que tt les fichier ayant deja été regroupé n'ont pas de perte, qu'il ne manque rien et que tout foncitonne 

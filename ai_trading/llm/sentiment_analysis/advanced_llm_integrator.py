@@ -42,7 +42,7 @@ except (ImportError, AttributeError):
 
 import numpy as np
 
-from .sentiment_tools import SentimentCache, text_hash
+from .sentiment_utils import SentimentCache, text_hash
 
 logger = logging.getLogger(__name__)
 

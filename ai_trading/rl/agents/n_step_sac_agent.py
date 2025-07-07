@@ -3,6 +3,7 @@ import os
 
 import numpy as np
 import tensorflow as tf
+import torch
 
 from ai_trading.rl.agents.n_step_replay_buffer import NStepReplayBuffer
 from ai_trading.rl.agents.sac_agent import SACAgent
@@ -65,9 +66,11 @@ class NStepSACAgent(SACAgent):
             target_entropy (float): Entropie cible pour l'adaptation automatique d'alpha
             n_steps (int): Nombre d'étapes pour calculer les retours multi-étapes
         """
-        # Stocker n_steps avant d'appeler le constructeur parent
         self.n_steps = n_steps
-        self.discount_factor = discount_factor  # Stocker le facteur d'actualisation
+        self.discount_factor = discount_factor
+        self.state_size = state_size
+        self.action_size = action_size
+        self.train_alpha = train_alpha
 
         # Initialiser la classe parente sans créer le tampon de replay standard
         # Nous allons créer notre propre tampon de replay avec retours multi-étapes
@@ -84,17 +87,14 @@ class NStepSACAgent(SACAgent):
 
         # Appel au constructeur parent
         super(NStepSACAgent, self).__init__(
-            state_size=state_size,
-            action_size=action_size,
+            state_dim=state_size,
+            action_dim=action_size,
             action_bounds=action_bounds,
             learning_rate=learning_rate,
             gamma=discount_factor,
             tau=tau,
             batch_size=batch_size,
             buffer_size=buffer_size,
-            hidden_size=hidden_size,
-            train_alpha=train_alpha,
-            target_entropy=target_entropy,
         )
 
         # Créer le tampon de replay avec retours multi-étapes
@@ -269,8 +269,91 @@ class NStepSACAgent(SACAgent):
         Returns:
             dict: Dictionnaire contenant les métriques d'entraînement
         """
-        # Méthode identique à la classe parente, mais gardée par cohérence
-        return super(NStepSACAgent, self).train()
+        if len(self.replay_buffer) < self.batch_size:
+            return {}
+
+        # Échantillonner un lot d'expériences
+        states, actions, rewards, next_states, dones = self.replay_buffer.sample(self.batch_size)
+
+        # Convertir les numpy arrays en tenseurs PyTorch et s'assurer qu'ils sont sur le bon device
+        if not isinstance(states, torch.Tensor):
+            states = torch.FloatTensor(states).to(self.device)
+        if not isinstance(actions, torch.Tensor):
+            actions = torch.FloatTensor(actions).to(self.device)
+        if not isinstance(rewards, torch.Tensor):
+            rewards = torch.FloatTensor(rewards).to(self.device)
+        if not isinstance(next_states, torch.Tensor):
+            next_states = torch.FloatTensor(next_states).to(self.device)
+        if not isinstance(dones, torch.Tensor):
+            dones = torch.FloatTensor(dones).to(self.device)
+
+        # S'assurer que les états ont la bonne forme pour le transformer
+        if len(states.shape) == 2:
+            states = states.unsqueeze(1)
+        if len(next_states.shape) == 2:
+            next_states = next_states.unsqueeze(1)
+
+        # --- Logique d'entraînement SAC en PyTorch (copiée/adaptée de SACAgent) ---
+        # 1. Critic update
+        with torch.no_grad():
+            next_actions, next_log_probs = self.actor.get_action_and_log_prob(next_states)
+            q1_next = self.target_critic1(next_states, next_actions)
+            q2_next = self.target_critic2(next_states, next_actions)
+            q_next = torch.min(q1_next, q2_next) - self.alpha * next_log_probs
+            target_q = rewards + (1 - dones) * self.n_step_discount_factor * q_next
+
+        q1 = self.critic1(states, actions)
+        q2 = self.critic2(states, actions)
+        critic1_loss = torch.nn.functional.mse_loss(q1, target_q)
+        critic2_loss = torch.nn.functional.mse_loss(q2, target_q)
+
+        self.critic1_optimizer.zero_grad()
+        critic1_loss.backward()
+        self.critic1_optimizer.step()
+
+        self.critic2_optimizer.zero_grad()
+        critic2_loss.backward()
+        self.critic2_optimizer.step()
+
+        # 2. Actor update
+        new_actions, log_probs = self.actor.get_action_and_log_prob(states)
+        q1_new = self.critic1(states, new_actions)
+        q2_new = self.critic2(states, new_actions)
+        q_new = torch.min(q1_new, q2_new)
+        actor_loss = (self.alpha * log_probs - q_new).mean()
+
+        self.actor_optimizer.zero_grad()
+        actor_loss.backward()
+        self.actor_optimizer.step()
+
+        # 3. Alpha (entropy) update
+        if self.train_alpha:
+            alpha_loss = -(self.log_alpha * (log_probs + self.target_entropy).detach()).mean()
+            self.alpha_optimizer.zero_grad()
+            alpha_loss.backward()
+            self.alpha_optimizer.step()
+            self.alpha = self.log_alpha.exp().item()
+        else:
+            alpha_loss = torch.tensor(0.0)
+
+        # 4. Soft update des cibles
+        for target_param, param in zip(self.target_critic1.parameters(), self.critic1.parameters()):
+            target_param.data.copy_(target_param.data * (1.0 - self.tau) + param.data * self.tau)
+        for target_param, param in zip(self.target_critic2.parameters(), self.critic2.parameters()):
+            target_param.data.copy_(target_param.data * (1.0 - self.tau) + param.data * self.tau)
+
+        # 5. Historique pour suivi
+        self.critic_loss_history.append(((critic1_loss.item() + critic2_loss.item()) / 2.0))
+        self.actor_loss_history.append(actor_loss.item())
+        self.alpha_loss_history.append(alpha_loss.item())
+        self.entropy_history.append(-log_probs.mean().item())
+
+        return {
+            'critic_loss': (critic1_loss.item() + critic2_loss.item()) / 2.0,
+            'actor_loss': actor_loss.item(),
+            'alpha_loss': alpha_loss.item(),
+            'entropy': -log_probs.mean().item(),
+        }
 
     def save(self, filepath):
         """
@@ -280,16 +363,27 @@ class NStepSACAgent(SACAgent):
             filepath (str): Chemin de base pour la sauvegarde
         """
         # Créer le répertoire si nécessaire
-        os.makedirs(
-            os.path.dirname(filepath) if os.path.dirname(filepath) else ".",
-            exist_ok=True,
-        )
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
 
-        super(NStepSACAgent, self).save(filepath)
+        # Sauvegarder les modèles
+        state_dict = {
+            'actor': self.actor.state_dict(),
+            'critic1': self.critic1.state_dict(),
+            'critic2': self.critic2.state_dict(),
+            'target_critic1': self.target_critic1.state_dict(),
+            'target_critic2': self.target_critic2.state_dict(),
+            'log_alpha': self.log_alpha.item(),
+            'n_steps': self.n_steps,
+            'n_step_discount_factor': self.n_step_discount_factor
+        }
+
+        # Sauvegarder le state_dict
+        torch.save(state_dict, filepath)
 
         # Sauvegarder les informations sur les étapes multiples
+        n_step_info_path = os.path.join(os.path.dirname(filepath), "n_step_info.npz")
         np.savez(
-            f"{filepath}/n_step_info.npz",
+            n_step_info_path,
             n_steps=np.array([self.n_steps]),
             n_step_discount_factor=np.array([self.n_step_discount_factor]),
         )
@@ -305,31 +399,31 @@ class NStepSACAgent(SACAgent):
         Args:
             filepath (str): Chemin de base pour le chargement
         """
-        super(NStepSACAgent, self).load(filepath)
+        # Charger le state_dict
+        state_dict = torch.load(filepath)
+        
+        # Charger les poids des modèles
+        self.actor.load_state_dict(state_dict['actor'])
+        self.critic1.load_state_dict(state_dict['critic1'])
+        self.critic2.load_state_dict(state_dict['critic2'])
+        self.target_critic1.load_state_dict(state_dict['target_critic1'])
+        self.target_critic2.load_state_dict(state_dict['target_critic2'])
+        self.log_alpha.data = torch.tensor(state_dict['log_alpha'])
+        
+        # Charger les paramètres n-step
+        self.n_steps = state_dict['n_steps']
+        self.n_step_discount_factor = state_dict['n_step_discount_factor']
 
-        # Charger les informations sur les étapes multiples si elles existent
-        n_step_info_path = f"{filepath}/n_step_info.npz"
-        if os.path.exists(n_step_info_path):
-            n_step_info = np.load(n_step_info_path)
-            self.n_steps = int(n_step_info["n_steps"][0])
-            self.n_step_discount_factor = float(
-                n_step_info["n_step_discount_factor"][0]
-            )
+        # Recréer le tampon de replay avec les paramètres chargés
+        self.replay_buffer = NStepReplayBuffer(
+            buffer_size=self.replay_buffer.buffer.maxlen,
+            n_steps=self.n_steps,
+            gamma=self.discount_factor,
+        )
 
-            # Recréer le tampon de replay avec les paramètres chargés
-            self.replay_buffer = NStepReplayBuffer(
-                buffer_size=self.replay_buffer.buffer.maxlen,
-                n_steps=self.n_steps,
-                gamma=self.discount_factor,
-            )
-
-            logger.info(
-                f"Informations sur les retours multi-étapes chargées depuis {filepath}"
-            )
-        else:
-            logger.warning(
-                f"Aucune information sur les retours multi-étapes trouvée dans {filepath}"
-            )
+        logger.info(
+            f"Informations sur les retours multi-étapes chargées depuis {filepath}"
+        )
 
 
 # Importation requise pour la méthode _train_step

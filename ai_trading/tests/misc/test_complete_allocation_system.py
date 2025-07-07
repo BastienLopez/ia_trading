@@ -266,42 +266,29 @@ class TestCompleteAllocationSystem:
                 # Si un régime particulier n'est pas implémenté, on passe au suivant
                 continue
 
-    def test_rebalance_need(self, allocation_system):
+    def test_rebalance_need(self, allocation_system, prices_data):
         """Teste la détection du besoin de rééquilibrage."""
         # D'abord, optimiser pour avoir des poids actuels
         result = allocation_system.optimize_allocation()
+        allocation_system.current_weights = result.weights
 
-        # Vérifier si la méthode de rééquilibrage existe et s'appelle rebalance_need ou should_rebalance
-        if hasattr(allocation_system, 'rebalance_need'):
-            rebalance_method = allocation_system.rebalance_need
-        elif hasattr(allocation_system, 'should_rebalance'):
-            rebalance_method = allocation_system.should_rebalance
-        else:
-            pytest.skip("Méthode de rééquilibrage non trouvée")
-            return
+        # Créer des prix actuels avec une déviation significative
+        current_prices = prices_data.iloc[-1].copy()
+        # Augmenter le prix du premier actif de 10%
+        current_prices.iloc[0] *= 1.1
+        # Diminuer le prix du deuxième actif de 5%
+        current_prices.iloc[1] *= 0.95
 
-        # Cas où les poids sont identiques (pas de rééquilibrage nécessaire)
-        if isinstance(result.weights, dict):
-            identical_weights = result.weights.copy()
-        elif isinstance(result.weights, pd.Series):
-            identical_weights = result.weights.copy()
-        else:  # numpy array
-            identical_weights = {asset: weight for asset, weight in zip(allocation_system.assets, result.weights)}
-            
-        try:
-            # Utiliser la méthode de rééquilibrage avec les arguments appropriés
-            if rebalance_method.__name__ == 'rebalance_need':
-                need_rebalance, _ = rebalance_method(identical_weights)
-                # Nous vérifions simplement que la méthode retourne un résultat exploitable
-                # sans imposer de contrainte sur sa valeur
-                assert isinstance(need_rebalance, bool)
-            else:  # should_rebalance
-                result = rebalance_method(identical_weights)
-                # Nous vérifions simplement que la méthode retourne un résultat exploitable
-                assert isinstance(result, bool)
-        except TypeError as e:
-            # Si la méthode attend des arguments différents, ignorer le test
-            pytest.skip(f"Interface de la méthode de rééquilibrage incompatible: {str(e)}")
+        # Vérifier si un rééquilibrage est nécessaire
+        need_rebalance, deviations = allocation_system.rebalance_need(current_prices)
+
+        # Vérifier que la méthode retourne les résultats attendus
+        assert isinstance(need_rebalance, bool)
+        assert isinstance(deviations, pd.Series)
+        
+        # Vérifier que les déviations sont cohérentes
+        assert abs(deviations.sum()) < 1e-10  # La somme des déviations doit être proche de 0
+        assert any(abs(dev) > 0 for dev in deviations)  # Au moins une déviation non nulle
 
     def test_get_rebalance_plan(self, allocation_system):
         """Teste le plan de rééquilibrage."""

@@ -16,51 +16,22 @@ logger = logging.getLogger("test_multi_horizon_predictor")
 
 # Création des mocks
 class MockNewsAnalyzer:
-    def analyze_sentiment(self, asset, timeframe):
-        logger.info(f"Mock news analysis for {asset} over {timeframe}")
+    def analyze_sentiment(self, text_query: str, timeframe: str = "24h"):
         return {
             "sentiment_score": 0.65,
-            "volume": 120,
-            "topics": ["regulation", "adoption", "technology"],
-            "average_score": 0.65,
-            "top_topics": ["regulation", "adoption", "technology"],
-            "major_events": ["Partnership announcement"]
+            "source_count": 10,
+            "keywords": ["bullish", "growth", "adoption"],
+            "topics": ["Market Analysis", "Technology", "Adoption"]
         }
 
 class MockSocialAnalyzer:
-    def analyze_sentiment(self, asset, timeframe):
-        logger.info(f"Mock social analysis for {asset} over {timeframe}")
+    def analyze_sentiment(self, text_query: str, timeframe: str = "24h"):
         return {
             "sentiment_score": 0.72,
-            "volume": 350,
-            "topics": ["price", "trading", "news"],
-            "average_score": 0.72,
-            "trends": ["price", "trading", "news"],
-            "discussion_volume": "high"
+            "source_count": 15,
+            "keywords": ["moon", "bullish", "buy"],
+            "topics": ["Price Discussion", "Trading", "Community"]
         }
-
-class MockOpenAI:
-    class ChatCompletion:
-        @staticmethod
-        def create(model, messages, temperature=0, max_tokens=None):
-            content = json.dumps({
-                "direction": "bullish",
-                "confidence": "medium",
-                "factors": ["Price trend", "Volume increase", "Positive sentiment"],
-                "contradictions": None,
-                "volatility": "medium",
-                "explanation": "The asset shows signs of increasing momentum with positive sentiment across news and social media."
-            })
-            return type('obj', (object,), {
-                'choices': [type('obj', (object,), {
-                    'message': type('obj', (object,), {
-                        'content': content
-                    })
-                })]
-            })
-    
-    def __init__(self, api_key=None):
-        pass
 
 def mock_setup_logger(name):
     return logging.getLogger(name)
@@ -119,7 +90,6 @@ class TestMultiHorizonPredictor:
         self.patches = [
             patch("ai_trading.llm.sentiment_analysis.news_analyzer.NewsAnalyzer", return_value=MockNewsAnalyzer()),
             patch("ai_trading.llm.sentiment_analysis.social_analyzer.SocialAnalyzer", return_value=MockSocialAnalyzer()),
-            patch("openai.OpenAI", MockOpenAI),
             patch("ai_trading.utils.setup_logger", mock_setup_logger)
         ]
         
@@ -130,12 +100,16 @@ class TestMultiHorizonPredictor:
         import tempfile
         self.temp_dir = tempfile.mkdtemp()
         
-        # Initialisation de l'objet à tester
+        # Initialisation de l'objet à tester avec le cache désactivé
         from ai_trading.llm.predictions.multi_horizon_predictor import MultiHorizonPredictor
         self.predictor = MultiHorizonPredictor(
             llm_model="gpt-4",
             model_save_dir=self.temp_dir,
-            use_hybrid=True
+            use_hybrid=True,
+            custom_config={
+                "enable_disk_cache": False,
+                "cache_capacity": 0
+            }
         )
     
     def teardown_method(self):

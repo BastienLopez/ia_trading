@@ -10,7 +10,7 @@ from textblob import TextBlob
 from transformers import pipeline
 
 from .news_analyzer import NewsAnalyzer
-from .sentiment_tools import get_llm_client
+from .sentiment_utils import get_llm_client
 
 
 class FakeNewsDetector:

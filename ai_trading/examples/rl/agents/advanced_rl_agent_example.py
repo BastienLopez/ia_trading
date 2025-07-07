@@ -18,7 +18,7 @@ from ai_trading.rl.agents.dqn_agent import DQNAgent
 from ai_trading.rl.agents.sac_agent import SACAgent
 from ai_trading.rl.agents.layers.noisy_linear import NoisyLinear
 from ai_trading.rl.environments.trading_environment import TradingEnvironment
-from ai_trading.rl.memory.prioritized_replay import PrioritizedReplayBuffer
+from ai_trading.rl.replay_buffer import PrioritizedReplayBuffer
 
 def load_market_data():
     """Charge des données de marché pour l'entraînement."""

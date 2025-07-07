@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-Module de prédictions de marché basées sur les LLM.
+Module de prédictions pour le trading algorithmique.
 
 Ce module contient des composants qui utilisent des grands modèles de langage
 pour générer des prédictions et des analyses du marché des cryptomonnaies.
