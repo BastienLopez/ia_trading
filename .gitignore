@@ -360,3 +360,8 @@ zero_checkpoint/
 *_ds_model/
 ds_config*.json
 ds_report/ 
+
+AGENTS.md
+PROJECT_MEMORY.md
+.codex
+.ai

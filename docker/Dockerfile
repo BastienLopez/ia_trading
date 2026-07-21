@@ -1,62 +1,82 @@
-# 1. Image de base NVIDIA CUDA (runtime)
+# Image CUDA conservée pour compatibilité avec les dépendances ML.
+# Le compose CPU par défaut fonctionne aussi sans pilote NVIDIA.
 FROM nvidia/cuda:12.2.0-runtime-ubuntu22.04
 
-# 2. Répertoire de travail
 WORKDIR /app
 
-# 3. Variables d'environnement
+ARG DEBIAN_FRONTEND=noninteractive
+ARG ONNXRUNTIME_PACKAGE=onnxruntime
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    DEBIAN_FRONTEND=noninteractive \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1 \
     TF_CPP_MIN_LOG_LEVEL=2 \
     CUDA_HOME=/usr/local/cuda \
-    NVIDIA_VISIBLE_DEVICES=all \
     XLA_FLAGS=--xla_gpu_cuda_data_dir=/usr/local/cuda \
-    PYTORCH_USE_SAFE_MODE=0 \
-    TF_FORCE_GPU_ALLOW_GROWTH=true
+    TF_FORCE_GPU_ALLOW_GROWTH=true \
+    PYTHONPATH=/app
 
-# 4. Copier uniquement les dépendances pour tirer parti du cache Docker
-COPY requirements.txt .
-
-# 5. Installation système + Python en une seule couche
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-      python3 python3-dev python3-pip \
-      build-essential ca-certificates curl wget git \
-      libjpeg-dev libpng-dev libopenblas-dev libgomp1 libgl1 \
- && rm -rf /var/lib/apt/lists/* \
- && pip3 install --upgrade pip setuptools wheel \
- && pip3 install --no-cache-dir -r requirements.txt \
- && pip3 install --no-cache-dir dash-bootstrap-components>=1.4.0 \
- && pip3 cache purge
+      python3 \
+      python3-dev \
+      python3-pip \
+      build-essential \
+      ca-certificates \
+      curl \
+      wget \
+      git \
+      libjpeg-dev \
+      libpng-dev \
+      libopenblas-dev \
+      libgomp1 \
+      libgl1 \
+ && rm -rf /var/lib/apt/lists/*
 
-# 6. Création d'un user non-root
+# On copie les dépendances avant le code pour profiter du cache Docker.
+COPY requirements.txt /tmp/requirements.raw.txt
+
+# Corrections de compatibilité sans modifier le requirements.txt du projet :
+# - gym-trading==0.0.1 n'existe pas sur PyPI.
+# - gym-trading-env 0.3.5 force Flask 2.2.5 et entre en conflit avec Flask>=2.3.3.
+# - 0.3.2 accepte la version Flask utilisée par le projet.
+# - onnxruntime et onnxruntime-gpu ne doivent pas être installés ensemble.
+# - la pile ONNX est verrouillée pour éviter le conflit précédemment rencontré.
+RUN set -eux; \
+    grep -Ev '^[[:space:]]*(gym-trading|gym-trading-env|onnx|onnxruntime|onnxruntime-gpu|tf2onnx|dash-bootstrap-components)([<>=!~ ].*)?([[:space:]]*#.*)?$' \
+      /tmp/requirements.raw.txt > /tmp/requirements.base.txt; \
+    cat /tmp/requirements.base.txt > /tmp/requirements.txt; \
+    printf '%s\n' \
+      'gym-trading-env==0.3.2' \
+      'onnx==1.17.0' \
+      'tf2onnx==1.17.0' \
+      "${ONNXRUNTIME_PACKAGE}==1.23.2" \
+      'dash-bootstrap-components>=1.4.0' \
+      >> /tmp/requirements.txt; \
+    python3 -m pip install --upgrade pip setuptools wheel; \
+    python3 -m pip install --prefer-binary -r /tmp/requirements.txt; \
+    python3 -m pip check; \
+    rm -f /tmp/requirements.raw.txt /tmp/requirements.base.txt /tmp/requirements.txt
+
+# Préparer les dossiers persistants avant de passer en utilisateur non-root.
 RUN useradd --create-home --shell /bin/bash appuser \
+ && mkdir -p \
+      /app/ai_trading/info_retour/data \
+      /app/ai_trading/info_retour/logs \
+      /app/ai_trading/info_retour/models \
+      /app/ai_trading/info_retour/cache \
  && chown -R appuser:appuser /app
+
+COPY --chown=appuser:appuser . /app
+
+RUN ln -sfn /app/ai_trading/info_retour/data /app/data \
+ && ln -sfn /app/ai_trading/info_retour/logs /app/logs \
+ && ln -sfn /app/ai_trading/info_retour/models /app/models
+
 USER appuser
 
-# 7. Copier le code de l'application
-COPY --chown=appuser:appuser . .
+EXPOSE 5000 5555 8000 8050 8501 8786 8787
 
-# 7b. Créer les répertoires de données et les liens symboliques
-RUN mkdir -p /app/ai_trading/info_retour/data \
-    /app/ai_trading/info_retour/logs \
-    /app/ai_trading/info_retour/models \
-    /app/ai_trading/info_retour/cache \
-    && ln -sfn /app/ai_trading/info_retour/data /app/data \
-    && ln -sfn /app/ai_trading/info_retour/logs /app/logs \
-    && ln -sfn /app/ai_trading/info_retour/models /app/models
-
-# 8. Déclarations volumes et ports
-VOLUME ["/app/ai_trading/info_retour/data", "/app/ai_trading/info_retour/logs", "/app/ai_trading/info_retour/models"]
-EXPOSE 5000 8000 8050 8501
-
-# 9. Vérification GPU (optionnelle, en ligne unique pour ne pas casser le parsing)
-RUN python3 -c "import torch, tensorflow as tf; print('PyTorch CUDA OK:', torch.cuda.is_available()); print('TF GPUs:', tf.config.list_physical_devices('GPU'))"
-
-# 10. Healthcheck
-HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
-  CMD curl -f http://localhost:8050/health || exit 1
-
-# 11. Commande par défaut (remplacée par docker-compose.yml pour le service web_app)
+# Pas de HEALTHCHECK global : la même image exécute plusieurs services différents.
 CMD ["python3", "-m", "ai_trading.dashboard.app"]
