@@ -7,14 +7,6 @@ Ce package inclut:
 - Analyse de sentiment pour les données de marché
 """
 
-from ai_trading.llm.optimization import (
-    ModelOptimizer,
-    QuantizationType,
-    free_gpu_memory,
-    get_memory_info,
-    print_model_info,
-)
-
 __all__ = [
     "ModelOptimizer",
     "QuantizationType",
@@ -22,3 +14,11 @@ __all__ = [
     "get_memory_info",
     "print_model_info",
 ]
+
+
+def __getattr__(name):
+    if name not in __all__:
+        raise AttributeError(name)
+    from ai_trading.llm import optimization
+
+    return getattr(optimization, name)

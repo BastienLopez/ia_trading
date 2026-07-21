@@ -1,12 +1,15 @@
 import os
+import secrets
 from datetime import datetime
 from pathlib import Path
+
+from ai_trading.runtime_settings import get_runtime_settings
 
 # Configuration de base
 class Config:
     # Configuration générale
-    SECRET_KEY = 'your-secret-key'
-    DEBUG = True
+    SECRET_KEY = os.environ.get('WEB_SECRET_KEY') or os.environ.get('SECRET_KEY') or secrets.token_urlsafe(32)
+    DEBUG = get_runtime_settings().debug
     
     # Chemins de fichiers
     BASE_DIR = os.path.dirname(__file__)
@@ -78,4 +81,4 @@ PROJECT_ROOT = Path(os.path.dirname(os.path.abspath(__file__))).parent
 LOG_DIR = PROJECT_ROOT / "ai_trading" / "info_retour" / "logs"
 
 # Création des dossiers nécessaires
-os.makedirs(LOG_DIR, exist_ok=True) 
+os.makedirs(LOG_DIR, exist_ok=True)

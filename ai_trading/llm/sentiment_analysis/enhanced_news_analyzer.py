@@ -7,7 +7,7 @@ import logging
 import os
 import re
 from datetime import datetime
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -28,6 +28,8 @@ class EnhancedNewsAnalyzer:
         self,
         enable_cache: bool = True,
         cache_dir: str = "ai_trading/info_retour/sentiment_cache",
+        enable_llm: bool = True,
+        llm_client: Any = None,
         **kwargs,
     ):
         """
@@ -38,7 +40,9 @@ class EnhancedNewsAnalyzer:
             cache_dir: Répertoire pour le cache
             **kwargs: Arguments additionnels
         """
-        self.llm_client = get_llm_client()
+        self.llm_client = llm_client if llm_client is not None else (
+            get_llm_client() if enable_llm else None
+        )
         self.cache = SentimentCache(cache_dir) if enable_cache else None
         self.visualization_dir = os.path.join(
             os.path.dirname(os.path.dirname(os.path.dirname(__file__))),

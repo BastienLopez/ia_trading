@@ -123,7 +123,9 @@ class TestDistributedCache:
 
         result = cache.get("test_key")
         assert result == {"key": "value"}
-        mock_redis.return_value.get.assert_called_once_with("test_key")
+        # Le cache commun lit la donnée puis met à jour son compteur de cohérence.
+        mock_redis.return_value.get.assert_any_call("test_key")
+        mock_redis.return_value.get.assert_any_call("stats:test_key")
 
     def test_cache_set(self, mock_redis):
         """Teste le stockage dans le cache."""
@@ -140,7 +142,9 @@ class TestDistributedCache:
         cache = DistributedCache()
 
         cache.delete("test_key")
-        mock_redis.return_value.delete.assert_called_once_with("test_key")
+        # La suppression invalide aussi les statistiques associées à la clé.
+        mock_redis.return_value.delete.assert_any_call("test_key")
+        mock_redis.return_value.delete.assert_any_call("stats:test_key")
 
 
 class TestAsyncBlockchainCollector:
@@ -202,23 +206,18 @@ class TestAsyncBlockchainCollector:
         # Simuler un cache miss pour tester le chemin de requête complet
         collector.cache.get.return_value = None
 
-        # Désactiver le décorateur retry pour simplifier le test
-        with patch(
-            "ai_trading.utils.async_blockchain_collector.retry",
-            return_value=lambda f: f,
-        ):
-            result = await collector._make_request(
-                mock_aiohttp_session,
-                "https://api.example.com",
-                params={"param": "value"},
-                source="etherscan",
-            )
+        result = await collector._make_request(
+            mock_aiohttp_session,
+            "https://api.example.com",
+            params={"param": "value"},
+            source="etherscan",
+        )
 
-            assert result == {"result": "success"}
-            mock_aiohttp_session.get.assert_called_once_with(
-                "https://api.example.com", params={"param": "value"}
-            )
-            collector.rate_limiters["etherscan"].acquire.assert_called_once()
+        assert result == {"result": "success"}
+        mock_aiohttp_session.get.assert_called_once_with(
+            "https://api.example.com", params={"param": "value"}
+        )
+        collector.rate_limiters["etherscan"].acquire.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_get_eth_transactions_async(self, collector):
@@ -322,21 +321,16 @@ class TestAsyncBlockchainCollector:
             # Créer un mock session qui ne sera en fait pas utilisé
             mock_session = MagicMock()
 
-            # Désactiver les retries pour ce test
-            with patch(
-                "ai_trading.utils.async_blockchain_collector.retry",
-                return_value=lambda f: f,
-            ):
-                with pytest.raises(aiohttp.ClientError) as excinfo:
-                    await collector._make_request(
-                        mock_session,
-                        "https://api.example.com",
-                        params={},
-                        source="test",
-                    )
+            with pytest.raises(aiohttp.ClientError) as excinfo:
+                await collector._make_request(
+                    mock_session,
+                    "https://api.example.com",
+                    params={},
+                    source="test",
+                )
 
-                # Vérifier que c'est bien notre erreur
-                assert str(excinfo.value) == "Test error"
+            # Vérifier que c'est bien notre erreur
+            assert str(excinfo.value) == "Test error"
         finally:
             # Restaurer la méthode originale
             collector._make_request = original_make_request

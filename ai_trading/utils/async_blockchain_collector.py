@@ -9,17 +9,24 @@ Ce module étend le collecteur de données blockchain de base avec :
 """
 
 import asyncio
-import json
 import logging
+import os
 import time
 from typing import Any, Dict, Optional, Union
 
-import aiohttp
 import pandas as pd
-import redis
-from tenacity import retry, stop_after_attempt, wait_exponential
 
-from .blockchain_data_collector import BlockchainDataCollector
+try:
+    import aiohttp
+except ImportError:
+    aiohttp = None
+
+from .blockchain_data_collector import (
+    DEFILLAMA_BASE_URL,
+    ETHERSCAN_BASE_URL,
+    BlockchainDataCollector,
+)
+from .enhanced_cache import EnhancedDistributedCache
 
 # Configuration du logging
 logging.basicConfig(level=logging.INFO)
@@ -61,8 +68,8 @@ class RateLimiter:
             self.calls.append(now)
 
 
-class DistributedCache:
-    """Cache distribué utilisant Redis."""
+class DistributedCache(EnhancedDistributedCache):
+    """Alias de compatibilité du cache commun pour le collecteur asynchrone."""
 
     def __init__(self, host: str = "localhost", port: int = 6379, db: int = 0):
         """
@@ -73,31 +80,9 @@ class DistributedCache:
             port: Port Redis
             db: Base de données Redis
         """
-        self.redis = redis.Redis(host=host, port=port, db=db)
-        self.default_ttl = 3600  # 1 heure
-
-    def get(self, key: str) -> Optional[Any]:
-        """Récupère une valeur du cache."""
-        value = self.redis.get(key)
-        if value:
-            return json.loads(value)
-        return None
-
-    def set(self, key: str, value: Any, ttl: int = None) -> None:
-        """
-        Stocke une valeur dans le cache.
-
-        Args:
-            key: Clé de cache
-            value: Valeur à stocker
-            ttl: Durée de vie en secondes
-        """
-        ttl = ttl or self.default_ttl
-        self.redis.setex(key, ttl, json.dumps(value))
-
-    def delete(self, key: str) -> None:
-        """Supprime une valeur du cache."""
-        self.redis.delete(key)
+        super().__init__(host=host, port=port, db=db, prefetch_enabled=True)
+        # Conservé pour les intégrations historiques qui accèdent à ``.redis``.
+        self.redis = self.client
 
 
 class AsyncBlockchainCollector:
@@ -105,7 +90,13 @@ class AsyncBlockchainCollector:
     Collecteur de données blockchain asynchrone avec gestion avancée des ressources.
     """
 
-    def __init__(self, cache_host: str = "localhost", cache_port: int = 6379):
+    def __init__(
+        self,
+        cache_host: Optional[str] = None,
+        cache_port: int = 6379,
+        max_retries: int = 3,
+        retry_backoff: float = 0.5,
+    ):
         """
         Initialise le collecteur asynchrone.
 
@@ -114,28 +105,30 @@ class AsyncBlockchainCollector:
             cache_port: Port du cache Redis
         """
         self.base_collector = BlockchainDataCollector()
-        self.cache = DistributedCache(host=cache_host, port=cache_port)
+        self.cache = DistributedCache(
+            host=cache_host or os.getenv("REDIS_HOST", "redis"), port=cache_port
+        )
+        self.max_retries = max(0, max_retries)
+        self.retry_backoff = max(0.0, retry_backoff)
 
         # Rate limiters par API
         self.rate_limiters = {
-            "etherscan": RateLimiter(calls_per_second=0.2),  # 5 appels/sec
-            "defillama": RateLimiter(calls_per_second=0.5),  # 2 appels/sec
-            "blockchair": RateLimiter(calls_per_second=0.1),  # 10 appels/sec
+            "etherscan": RateLimiter(calls_per_second=0.2),
+            "defillama": RateLimiter(calls_per_second=0.5),
+            "blockchair": RateLimiter(calls_per_second=0.1),
         }
 
         # Priorités des sources (1 = plus haute priorité)
         self.source_priorities = {
-            "etherscan": 1,
-            "defillama": 2,
-            "blockchair": 3,
+            "transactions": 1,
+            "tvl": 2,
+            "pools": 3,
+            "staking": 4,
         }
 
-    @retry(
-        stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10)
-    )
     async def _make_request(
         self,
-        session: aiohttp.ClientSession,
+        session: Any,
         url: str,
         params: Dict = None,
         source: str = None,
@@ -153,6 +146,8 @@ class AsyncBlockchainCollector:
             Dict: Réponse JSON
         """
         # Vérifier le cache
+        if aiohttp is None:
+            raise RuntimeError("aiohttp est requis pour les requetes HTTP directes")
         cache_key = f"{url}_{str(params)}"
         cached_data = self.cache.get(cache_key)
         if cached_data:
@@ -162,58 +157,90 @@ class AsyncBlockchainCollector:
         if source and source in self.rate_limiters:
             await self.rate_limiters[source].acquire()
 
-        try:
-            async with session.get(url, params=params) as response:
-                response.raise_for_status()
-                data = await response.json()
+        for attempt in range(self.max_retries + 1):
+            try:
+                async with session.get(url, params=params) as response:
+                    response.raise_for_status()
+                    data = await response.json()
+                    self.cache.set(cache_key, data)
+                    return data
+            except (aiohttp.ClientError, asyncio.TimeoutError) as error:
+                if attempt >= self.max_retries:
+                    logger.error("Requête échouée après %s tentative(s): %s", attempt + 1, error)
+                    raise
+                await asyncio.sleep(self.retry_backoff * (2**attempt))
 
-                # Mettre en cache
-                self.cache.set(cache_key, data)
-                return data
-
-        except aiohttp.ClientError as e:
-            logger.error(f"Erreur lors de la requête {url}: {e}")
-            raise
+        raise RuntimeError("Boucle de retry terminée sans réponse")
 
     async def get_eth_transactions_async(
         self, address: str = None, block: Union[int, str] = None
     ) -> pd.DataFrame:
-        """Version asynchrone de get_eth_transactions."""
+        """Récupère et transforme les transactions Ethereum sans bloquer la boucle."""
+        if not address and not block:
+            return pd.DataFrame()
+
+        params: Dict[str, Any]
+        if address:
+            params = {
+                "module": "account", "action": "txlist", "address": address,
+                "startblock": 0, "endblock": 99999999, "sort": "desc",
+            }
+        else:
+            params = {
+                "module": "proxy", "action": "eth_getBlockByNumber",
+                "tag": block, "boolean": "true",
+            }
+
         async with aiohttp.ClientSession() as session:
-            params = (
-                {
-                    "module": "account",
-                    "action": "txlist",
-                    "address": address,
-                    "startblock": 0,
-                    "endblock": 99999999,
-                    "sort": "desc",
-                }
-                if address
-                else {
-                    "module": "proxy",
-                    "action": "eth_getBlockByNumber",
-                    "tag": block if block != "latest" else "latest",
-                    "boolean": "true",
-                }
-            )
-
             data = await self._make_request(
-                session,
-                self.base_collector.ETHERSCAN_BASE_URL,
-                params=params,
-                source="etherscan",
+                session, ETHERSCAN_BASE_URL, params=params, source="etherscan"
             )
 
-            return self.base_collector._process_eth_transactions(data)
+        processor = getattr(self.base_collector, "_process_eth_transactions", None)
+        if processor:
+            return processor(data)
+        return self._transactions_dataframe(data, address=address)
 
     async def get_defi_data_async(self, protocol: str = None) -> pd.DataFrame:
-        """Version asynchrone de get_defillama_tvl."""
+        """Récupère les données TVL DefiLlama avec la couche HTTP asynchrone."""
+        url = (
+            f"{DEFILLAMA_BASE_URL}/protocol/{protocol}"
+            if protocol
+            else f"{DEFILLAMA_BASE_URL}/protocols"
+        )
         async with aiohttp.ClientSession() as session:
-            url = f"{self.base_collector.DEFILLAMA_BASE_URL}/{'protocol/' + protocol if protocol else 'protocols'}"
             data = await self._make_request(session, url, source="defillama")
 
-            return self.base_collector._process_defi_data(data, protocol)
+        processor = getattr(self.base_collector, "_process_defi_data", None)
+        if processor:
+            return processor(data, protocol=protocol)
+        if protocol:
+            frame = pd.DataFrame(data.get("tvl", [])) if isinstance(data, dict) else pd.DataFrame()
+            if "date" in frame.columns:
+                frame["date"] = pd.to_datetime(frame["date"], unit="s", errors="coerce")
+            return frame
+        frame = pd.DataFrame(data)
+        if "lastFullyUpdated" in frame.columns:
+            frame["lastUpdated"] = pd.to_datetime(
+                frame["lastFullyUpdated"], unit="s", errors="coerce"
+            )
+        return frame
+
+    @staticmethod
+    def _transactions_dataframe(data: Dict[str, Any], address: Optional[str]) -> pd.DataFrame:
+        result = data.get("result") if isinstance(data, dict) else None
+        if not result:
+            return pd.DataFrame()
+        rows = result if address else result.get("transactions", [])
+        frame = pd.DataFrame(rows)
+        if "timeStamp" in frame.columns:
+            frame["timeStamp"] = pd.to_datetime(
+                pd.to_numeric(frame["timeStamp"], errors="coerce"), unit="s", errors="coerce"
+            )
+        if "value" in frame.columns:
+            values = pd.to_numeric(frame["value"], errors="coerce")
+            frame["ether_value"] = values / 1e18
+        return frame
 
     async def collect_all_async(self, address: str = None) -> Dict[str, pd.DataFrame]:
         """
@@ -225,34 +252,25 @@ class AsyncBlockchainCollector:
         Returns:
             Dict[str, pd.DataFrame]: Données collectées par type
         """
-        async with aiohttp.ClientSession() as session:
-            tasks = []
-
-            # Prioriser les tâches selon leur importance
-            if address:
-                tasks.append(("transactions", self.get_eth_transactions_async(address)))
-
-            tasks.extend(
-                [
-                    ("tvl", self.get_defi_data_async()),
-                    ("pools", self.base_collector.get_defillama_pools()),
-                    ("staking", self.base_collector.get_staking_data()),
-                ]
-            )
-
-            # Trier les tâches par priorité
-            tasks.sort(key=lambda x: self.source_priorities.get(x[0], 999))
-
-            # Exécuter les tâches en parallèle
-            results = {}
-            for name, task in tasks:
-                try:
-                    results[name] = await task
-                except Exception as e:
-                    logger.error(f"Erreur lors de la collecte de {name}: {e}")
-                    results[name] = pd.DataFrame()
-
-            return results
+        tasks = [("tvl", self.get_defi_data_async())]
+        if address:
+            tasks.append(("transactions", self.get_eth_transactions_async(address)))
+        tasks.extend(
+            [
+                ("pools", asyncio.to_thread(self.base_collector.get_defillama_pools)),
+                ("staking", asyncio.to_thread(self.base_collector.get_staking_data)),
+            ]
+        )
+        tasks.sort(key=lambda item: self.source_priorities[item[0]])
+        values = await asyncio.gather(*(task for _, task in tasks), return_exceptions=True)
+        results = {}
+        for (name, _), value in zip(tasks, values):
+            if isinstance(value, Exception):
+                logger.error(f"Erreur lors de la collecte de {name}: {value}")
+                results[name] = pd.DataFrame()
+            else:
+                results[name] = value
+        return results
 
 
 # Exemple d'utilisation

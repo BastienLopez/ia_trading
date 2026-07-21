@@ -22,6 +22,7 @@ class TestEnhancedNewsAnalyzer(unittest.TestCase):
         self.analyzer = EnhancedNewsAnalyzer(
             enable_cache=True,
             cache_dir=self.temp_dir,
+            enable_llm=False,
         )
         
         # Données de test

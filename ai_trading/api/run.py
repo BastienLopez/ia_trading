@@ -8,9 +8,6 @@ import logging
 import os
 import sys
 
-# Ajouter le répertoire parent au chemin Python pour pouvoir importer les modules
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
-
 from ai_trading.api import run
 
 if __name__ == "__main__":

@@ -50,17 +50,24 @@ services:
   ai_api:
     <<: *app-common
     container_name: ai_trading_api
-    # Le dépôt contient ai_trading/api.py et ai_trading/api/.
-    # On charge explicitement le fichier api.py pour éviter le conflit d'import.
-    command:
-      - python3
-      - -c
-      - >-
-        import runpy, uvicorn;
-        module = runpy.run_path('/app/ai_trading/api.py');
-        uvicorn.run(module['app'], host='0.0.0.0', port=8000)
+    # La facade ai_trading.api delegue temporairement vers ai_trading/api.py.
+    command: ["python3", "-m", "ai_trading.api.run"]
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
+    environment:
+      <<: *base-environment
+      API_BIND_HOST: 0.0.0.0
+      API_PORT: "8000"
+      APP_DEBUG: "false"
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 15s
@@ -78,10 +85,12 @@ services:
     container_name: ai_trading_web_app
     command: ["python3", "-m", "web_app.app"]
     ports:
-      - "5000:5000"
+      - "127.0.0.1:5000:5000"
     environment:
       <<: *base-environment
       API_URL: http://ai_api:8000
+      API_BIND_HOST: 0.0.0.0
+      APP_DEBUG: "false"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
       interval: 15s
@@ -99,11 +108,11 @@ services:
     image: postgres:15-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
       POSTGRES_USER: postgres
       POSTGRES_DB: ai_trading
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -118,7 +127,7 @@ services:
     image: redis:7-alpine
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:

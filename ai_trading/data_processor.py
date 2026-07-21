@@ -12,6 +12,7 @@ import pandas as pd
 import ta
 
 from ai_trading.config import EMA_RIBBON_PERIODS
+from ai_trading.data.quality import validate_ohlcv_frame
 
 # Configuration du logger
 logging.basicConfig(
@@ -132,10 +133,7 @@ class DataProcessor:
 
     def add_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
         """Ajoute les indicateurs techniques au DataFrame."""
-        required_columns = {"open", "high", "low", "close", "volume"}
-        missing = required_columns - set(df.columns)
-        if missing:
-            raise ValueError(f"Colonnes manquantes pour les indicateurs: {missing}")
+        validate_ohlcv_frame(df)
 
         print("Ajout des indicateurs techniques...")
 

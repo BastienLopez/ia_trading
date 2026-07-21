@@ -108,17 +108,10 @@ class SocialAnalyzer(EnhancedNewsAnalyzer):
         # Nettoyage et prétraitement
         df = self._preprocess_social_data(posts)
 
-        # Analyse de sentiment conditionnelle
-        if not df.empty and "clean_text" in df.columns:
-            df = self.analyze_news_dataframe(df)
-            # Renommage des colonnes de sentiment pour Reddit
-            if self.platform == "reddit":
-                df = df.rename(
-                    columns={
-                        "global_sentiment_label": "sentiment_label",
-                        "global_sentiment_score": "sentiment_score",
-                    }
-                )
+        # Le texte source conserve les tickers, chiffres et ponctuations utiles au
+        # modèle de sentiment. ``clean_text`` reste disponible pour les features NLP.
+        if not df.empty and "text" in df.columns:
+            df = self.analyze_news_dataframe(df, text_col="text")
         else:
             logger.warning("Données insuffisantes pour l'analyse de sentiment")
             df["sentiment_label"] = "neutral"
@@ -131,10 +124,16 @@ class SocialAnalyzer(EnhancedNewsAnalyzer):
         if "sentiment_label" not in df.columns:
             df["sentiment_label"] = "neutral"
 
-        # Calcul du score de sentiment numérique
-        df["sentiment_score"] = df["sentiment_label"].apply(
-            lambda x: 1.0 if x == "positive" else -1.0 if x == "negative" else 0.0
-        )
+        # Conserver le score continu produit par l'analyseur. Le mapping par label
+        # ne sert que de repli quand le texte n'a pas pu être analysé.
+        if "sentiment_score" in df.columns:
+            df["sentiment_score"] = pd.to_numeric(
+                df["sentiment_score"], errors="coerce"
+            ).fillna(0.0).clip(-1.0, 1.0)
+        else:
+            df["sentiment_score"] = df["sentiment_label"].map(
+                {"positive": 1.0, "negative": -1.0}
+            ).fillna(0.0)
 
         # Ajout de la colonne engagement
         df["engagement"] = df.apply(
@@ -245,22 +244,60 @@ class SocialAnalyzer(EnhancedNewsAnalyzer):
 
     def generate_social_report(self, df: pd.DataFrame) -> Dict:
         """Génère un rapport complet pour les données sociales."""
-        report = super().generate_sentiment_report(df)
+        report_data = df.copy()
+        if "global_sentiment" not in report_data.columns:
+            report_data["global_sentiment"] = report_data.apply(
+                lambda row: {
+                    "label": row.get("sentiment_label", "neutral"),
+                    "score": float(row.get("sentiment_score", 0.0)),
+                },
+                axis=1,
+            )
+        if "published_at" not in report_data.columns:
+            if "created_at" in report_data.columns:
+                report_data["published_at"] = pd.to_datetime(
+                    report_data["created_at"], errors="coerce", utc=True
+                )
+            elif "created_utc" in report_data.columns:
+                report_data["published_at"] = pd.to_datetime(
+                    report_data["created_utc"], errors="coerce", unit="s", utc=True
+                )
+            else:
+                report_data["published_at"] = pd.NaT
+        if "entities" not in report_data.columns:
+            report_data["entities"] = [{} for _ in range(len(report_data))]
+
+        report = super().generate_report(report_data)
+
+        hashtags = df["hashtags"] if "hashtags" in df.columns else pd.Series(dtype=object)
+        flattened_hashtags = [
+            hashtag
+            for values in hashtags.dropna()
+            if isinstance(values, list)
+            for hashtag in values
+        ]
+        engagement = (
+            pd.to_numeric(df["engagement_score"], errors="coerce")
+            if "engagement_score" in df.columns
+            else pd.Series(dtype=float)
+        )
 
         # Métriques spécifiques aux réseaux sociaux
         report.update(
             {
                 "top_hashtags": dict(
-                    Counter(
-                        [h for sublist in df["hashtags"] for h in sublist]
-                    ).most_common(10)
+                    Counter(flattened_hashtags).most_common(10)
                 ),
                 "engagement_stats": {
-                    "mean": df["engagement_score"].mean(),
-                    "max": df["engagement_score"].max(),
-                    "min": df["engagement_score"].min(),
+                    "mean": float(engagement.mean()) if not engagement.empty else 0.0,
+                    "max": float(engagement.max()) if not engagement.empty else 0.0,
+                    "min": float(engagement.min()) if not engagement.empty else 0.0,
                 },
-                "viral_posts": self._identify_viral_posts(df),
+                "viral_posts": (
+                    self._identify_viral_posts(df)
+                    if "engagement_score" in df.columns
+                    else []
+                ),
             }
         )
 

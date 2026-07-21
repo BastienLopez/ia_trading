@@ -29,6 +29,7 @@ Pendant cet audit, aucun fichier de code, configuration, dependance ou test n'a 
 4. [Registre de regroupement](04_AUDIT_REGROUPEMENT.md)
 5. [Strategie de validation](05_STRATEGIE_TESTS.md)
 6. [Plan P0 a P4](13_PLAN_EXECUTION_DETAILLE_P0_A_P4.md)
+7. [Rapport P0](14_RAPPORT_EXECUTION_P0.md), [rapport P1](15_RAPPORT_EXECUTION_P1.md) et [rapport P2](16_RAPPORT_EXECUTION_P2.md)
 
 Les CSV `06`, `11` et `12` sont des inventaires statiques. Ils decrivent l'existant et ne constituent pas une demande de suppression.
 
@@ -36,8 +37,8 @@ Les CSV `06`, `11` et `12` sont des inventaires statiques. Ils decrivent l'exist
 
 | Gate | Etat | Condition de sortie |
 | --- | --- | --- |
-| P0 - baseline et securite | NON DEMARRE | configuration connue, comportements preserves, risques priorises |
-| P1 - contrats data et validation | NON DEMARRE | un chemin canonique documente et compatible avec les appelants |
-| P2 - consolidation progressive | NON DEMARRE | doublons migres par lots, sans regression prouvee |
+| P0 - baseline et securite | PASS | configuration runtime testee, defaults locaux et Compose valide |
+| P1 - contrats data et validation | PASS | qualite OHLCV, folds progressifs et indicateurs historiques valides |
+| P2 - consolidation progressive | PASS | facade API migree sans suppression, health check FastAPI valide |
 | P3 - mesure et qualite | NON DEMARRE | tests classes et performances mesurees avant optimisation |
 | P4 - exploitation paper | NON DEMARRE | fonctionnement observable et procedure de reprise documentee |

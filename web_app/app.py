@@ -12,6 +12,7 @@ import math
 from werkzeug.middleware.proxy_fix import ProxyFix
 from web_app.config import Config
 from web_app.routes.transaction_routes import transaction_bp
+from ai_trading.runtime_settings import get_runtime_settings
 
 # Configuration du logging
 logging.basicConfig(
@@ -983,4 +984,5 @@ def internal_server_error(e):
 
 if __name__ == "__main__":
     logger.info("Démarrage du serveur web Flask")
-    app.run(host='0.0.0.0', port=5000, debug=True) 
+    settings = get_runtime_settings()
+    app.run(host=settings.api_bind_host, port=5000, debug=settings.debug)

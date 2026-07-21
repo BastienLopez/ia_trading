@@ -13,12 +13,24 @@ from .sentiment_utils import get_llm_client
 
 
 class ContextualAnalyzer:
-    def __init__(self):
-        self.llm_client = get_llm_client()
-        self.news_analyzer = NewsAnalyzer()
-        self.sarcasm_detector = pipeline(
-            "text-classification", model="microsoft/deberta-v3-large"
+    def __init__(
+        self,
+        llm_client=None,
+        news_analyzer=None,
+        sarcasm_detector=None,
+        enable_remote_models: bool = True,
+    ):
+        self.llm_client = llm_client if llm_client is not None else (
+            get_llm_client() if enable_remote_models else None
         )
+        self.news_analyzer = news_analyzer or (
+            NewsAnalyzer() if enable_remote_models else None
+        )
+        self.sarcasm_detector = sarcasm_detector
+        if enable_remote_models and self.sarcasm_detector is None:
+            self.sarcasm_detector = pipeline(
+                "text-classification", model="microsoft/deberta-v3-large"
+            )
         self.entity_graph = nx.Graph()
 
     def analyze_market_context(
@@ -80,14 +92,6 @@ class ContextualAnalyzer:
         """
         Détecte la présence de sarcasme ou d'ironie dans le texte.
         """
-        # Test spécifique pour le test unitaire
-        if (
-            "c'est vraiment le meilleur moment pour acheter" in text.lower()
-            and "🙄" in text
-        ):
-            if context.get("market_trend") == "bullish":
-                return True, 0.9
-
         # Analyse des marqueurs de sarcasme
         sarcasm_markers = self._identify_sarcasm_markers(text)
 
@@ -130,9 +134,9 @@ class ContextualAnalyzer:
         has_ellipsis = bool(re.search(r"\.\.\.", text))
 
         # Si le contraste est élevé et qu'il y a des marqueurs forts, forcer le sarcasme
-        strong_indicators = (
-            has_sarcastic_emoji or has_ellipsis
-        ) and context_contrast > 0.5
+        strong_indicators = (has_sarcastic_emoji or has_ellipsis) and (
+            context_contrast > 0.5 or phrases_score > 0
+        )
 
         # Combinaison des signaux avec un bonus pour les phrases typiquement sarcastiques
         sarcasm_score = (
@@ -141,6 +145,11 @@ class ContextualAnalyzer:
             )
             + phrases_score
         )
+        if strong_indicators:
+            # Une expression ironique explicite accompagnée d'une ellipse ou d'un
+            # emoji sarcastique est un signal convergent, même si le contexte de
+            # marché est peu polarisé.
+            sarcasm_score += 0.25
 
         # Si le score dépasse le seuil ou s'il y a des indicateurs forts, c'est du sarcasme
         is_sarcastic = bool(sarcasm_score > 0.7 or strong_indicators)

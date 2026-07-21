@@ -15,7 +15,16 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import redis
-from rediscluster import RedisCluster
+
+from .smart_cache import SmartCache
+
+try:
+    from rediscluster import RedisCluster
+except ImportError:
+    try:
+        from redis.cluster import RedisCluster
+    except ImportError:
+        RedisCluster = None
 
 # Configuration du logging
 logging.basicConfig(level=logging.INFO)
@@ -130,7 +139,13 @@ class AccessPattern:
 
 
 class EnhancedDistributedCache:
-    """Cache distribué amélioré avec Redis Cluster et préchargement intelligent."""
+    """Cache à deux niveaux : LRU local résilient puis Redis/Redis Cluster.
+
+    ``SmartCache`` est le niveau L1 commun : il apporte l'éviction LRU, la
+    compression et la cohérence en mémoire. Redis reste le niveau L2 partagé
+    entre les conteneurs. Une indisponibilité temporaire de Redis ne doit donc
+    jamais interrompre la collecte.
+    """
 
     def __init__(
         self,
@@ -142,6 +157,8 @@ class EnhancedDistributedCache:
         prefetch_enabled: bool = True,
         max_prefetch: int = 5,
         stats_ttl: int = 86400,  # 24 heures
+        local_max_size: int = 1_000,
+        compression_level: int = 3,
     ):
         """
         Initialise le cache distribué amélioré.
@@ -155,17 +172,27 @@ class EnhancedDistributedCache:
             prefetch_enabled: Activer le préchargement intelligent
             max_prefetch: Nombre maximum d'éléments à précharger
             stats_ttl: Durée de vie des statistiques en secondes
+            local_max_size: Taille maximale du cache LRU local
+            compression_level: Niveau de compression du cache LRU local
         """
         self.use_cluster = use_cluster
         self.prefetch_enabled = prefetch_enabled
         self.max_prefetch = max_prefetch
         self.default_ttl = 3600  # 1 heure
         self.stats_ttl = stats_ttl
+        self.local_cache = SmartCache(
+            max_size=local_max_size,
+            ttl=self.default_ttl,
+            compression_level=compression_level,
+            persist=False,
+        )
 
         # Initialiser le client Redis
         if use_cluster:
             startup_nodes = startup_nodes or [{"host": host, "port": port}]
             try:
+                if RedisCluster is None:
+                    raise RuntimeError("Le support Redis Cluster n'est pas installe")
                 self.client = RedisCluster(
                     startup_nodes=startup_nodes, decode_responses=False
                 )
@@ -213,11 +240,19 @@ class EnhancedDistributedCache:
 
         # Mettre à jour les statistiques dans Redis
         stat_key = self._get_stat_key(key)
-        stats = self.client.get(stat_key)
+        try:
+            stats = self.client.get(stat_key)
+        except (redis.RedisError, OSError) as error:
+            logger.warning("Redis indisponible, statistiques locales uniquement: %s", error)
+            return
 
         now = datetime.now().timestamp()
         if stats:
-            stats = json.loads(stats)
+            try:
+                stats = json.loads(stats)
+            except (TypeError, ValueError):
+                stats = None
+        if isinstance(stats, dict) and isinstance(stats.get("accesses"), list):
             stats["accesses"].append(now)
             # Garder seulement les 100 derniers accès
             if len(stats["accesses"]) > 100:
@@ -233,7 +268,26 @@ class EnhancedDistributedCache:
             }
 
         # Sauvegarder les statistiques
-        self.client.setex(stat_key, self.stats_ttl, json.dumps(stats))
+        try:
+            self.client.setex(stat_key, self.stats_ttl, json.dumps(stats))
+        except (redis.RedisError, OSError) as error:
+            logger.warning("Redis indisponible, statistiques non persistées: %s", error)
+
+    @staticmethod
+    def _decode(value: Any) -> Any:
+        """Décode de façon uniforme les valeurs JSON lues depuis Redis."""
+        if isinstance(value, bytes):
+            value = value.decode("utf-8")
+        return json.loads(value)
+
+    def _read_remote(self, key: str) -> Optional[Any]:
+        """Lit Redis sans faire échouer le chemin de collecte en cas de panne."""
+        try:
+            value = self.client.get(key)
+        except (redis.RedisError, OSError) as error:
+            logger.warning("Redis indisponible, repli sur le cache LRU: %s", error)
+            return None
+        return self._decode(value) if value is not None else None
 
     def _prefetch(self, current_key: str) -> None:
         """
@@ -263,8 +317,21 @@ class EnhancedDistributedCache:
         # Marquer les clés comme en cours de préchargement
         self.prefetching_keys.update(keys_to_prefetch)
 
-        # On ne fait rien de plus ici, le préchargement se fera lors des prochains accès
-        # C'est une stratégie passive de préchargement
+        try:
+            if self.use_cluster:
+                values = [self.client.get(key) for key in keys_to_prefetch]
+            else:
+                values = self.client.mget(keys_to_prefetch)
+        except (redis.RedisError, OSError) as error:
+            logger.warning("Préchargement Redis indisponible: %s", error)
+            self.prefetching_keys.difference_update(keys_to_prefetch)
+            return
+
+        for key, value in zip(keys_to_prefetch, values):
+            if value is None:
+                self.prefetching_keys.discard(key)
+                continue
+            self.local_cache.set(key, self._decode(value))
 
     def get(self, key: str) -> Optional[Any]:
         """
@@ -276,8 +343,14 @@ class EnhancedDistributedCache:
         Returns:
             Optional[Any]: Valeur cachée ou None
         """
-        value = self.client.get(key)
-        hit = value is not None
+        missing = object()
+        value = self.local_cache.get(key, missing)
+        hit = value is not missing
+        if not hit:
+            value = self._read_remote(key)
+            hit = value is not None
+            if hit:
+                self.local_cache.set(key, value)
 
         self._update_stats(key, hit)
 
@@ -290,7 +363,7 @@ class EnhancedDistributedCache:
             # Précharger les prochaines clés probables
             self._prefetch(key)
 
-            return json.loads(value)
+            return value
 
         return None
 
@@ -307,38 +380,7 @@ class EnhancedDistributedCache:
         if not keys:
             return {}
 
-        if self.use_cluster:
-            # Redis Cluster n'a pas de mget natif, on fait des get individuels
-            result = {}
-            for key in keys:
-                value = self.get(key)
-                if value is not None:
-                    result[key] = value
-            return result
-        else:
-            # Redis standard peut utiliser mget
-            values = self.client.mget(keys)
-            result = {}
-
-            for key, value in zip(keys, values):
-                if value is not None:
-                    hit = True
-                    parsed_value = json.loads(value)
-                    result[key] = parsed_value
-                else:
-                    hit = False
-
-                self._update_stats(key, hit)
-
-                if hit and key in self.prefetching_keys:
-                    self.prefetch_hits += 1
-                    self.prefetching_keys.remove(key)
-
-            # Précharger les prochaines clés probables pour la dernière clé accédée
-            if keys:
-                self._prefetch(keys[-1])
-
-            return result
+        return {key: value for key in keys if (value := self.get(key)) is not None}
 
     def set(self, key: str, value: Any, ttl: int = None) -> None:
         """
@@ -354,7 +396,11 @@ class EnhancedDistributedCache:
         if key in self.prefetching_keys:
             self.prefetching_keys.remove(key)
 
-        self.client.setex(key, ttl, json.dumps(value))
+        self.local_cache.set(key, value)
+        try:
+            self.client.setex(key, ttl, json.dumps(value))
+        except (redis.RedisError, OSError) as error:
+            logger.warning("Redis indisponible, écriture conservée en LRU: %s", error)
 
     def mset(self, mapping: Dict[str, Any], ttl: int = None) -> None:
         """
@@ -371,16 +417,20 @@ class EnhancedDistributedCache:
             if key in self.prefetching_keys:
                 self.prefetching_keys.remove(key)
 
-        if self.use_cluster:
-            # Redis Cluster n'a pas de mset natif avec TTL, on fait des set individuels
-            for key, value in mapping.items():
-                self.set(key, value, ttl)
-        else:
-            # Redis standard peut utiliser pipeline
-            pipeline = self.client.pipeline()
-            for key, value in mapping.items():
-                pipeline.setex(key, ttl, json.dumps(value))
-            pipeline.execute()
+        for key, value in mapping.items():
+            self.local_cache.set(key, value)
+
+        try:
+            if self.use_cluster:
+                for key, value in mapping.items():
+                    self.client.setex(key, ttl, json.dumps(value))
+            else:
+                pipeline = self.client.pipeline()
+                for key, value in mapping.items():
+                    pipeline.setex(key, ttl, json.dumps(value))
+                pipeline.execute()
+        except (redis.RedisError, OSError) as error:
+            logger.warning("Redis indisponible, écritures conservées en LRU: %s", error)
 
     def delete(self, key: str) -> None:
         """
@@ -392,10 +442,12 @@ class EnhancedDistributedCache:
         if key in self.prefetching_keys:
             self.prefetching_keys.remove(key)
 
-        self.client.delete(key)
-
-        # Supprimer aussi les statistiques
-        self.client.delete(self._get_stat_key(key))
+        self.local_cache.delete(key)
+        try:
+            self.client.delete(key)
+            self.client.delete(self._get_stat_key(key))
+        except (redis.RedisError, OSError) as error:
+            logger.warning("Redis indisponible, suppression LRU appliquée: %s", error)
 
     def get_stats(self) -> Dict[str, Any]:
         """
@@ -418,6 +470,7 @@ class EnhancedDistributedCache:
             "prefetch_ratio": self.prefetch_hits / self.hits if self.hits > 0 else 0,
             "hot_keys": hot_keys,
             "prefetching_keys": list(self.prefetching_keys),
+            "local": self.local_cache.get_stats(),
         }
 
     def clear_stats(self) -> None:
@@ -438,7 +491,11 @@ class EnhancedDistributedCache:
             Dict[str, Any]: Statistiques de la clé
         """
         stat_key = self._get_stat_key(key)
-        stats = self.client.get(stat_key)
+        try:
+            stats = self.client.get(stat_key)
+        except (redis.RedisError, OSError) as error:
+            logger.warning("Redis indisponible, statistiques par clé absentes: %s", error)
+            return {"accesses": [], "hits": 0, "misses": 0, "created_at": None}
 
         if stats:
             return json.loads(stats)

@@ -7,8 +7,11 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from ai_trading.runtime_settings import get_runtime_settings
+
 # Chargement des variables d'environnement
 load_dotenv()
+RUNTIME_SETTINGS = get_runtime_settings()
 
 # Obtenir le chemin absolu du répertoire du projet
 PROJECT_ROOT = Path(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

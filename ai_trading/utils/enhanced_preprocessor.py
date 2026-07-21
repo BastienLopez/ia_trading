@@ -7,18 +7,41 @@ import os
 import re
 from typing import Dict, List, Tuple
 
-import nltk
 import numpy as np
 import pandas as pd
-import ta  # Bibliothèque pour les indicateurs techniques
-from nltk.corpus import stopwords
-from nltk.stem import WordNetLemmatizer
-from nltk.tokenize import word_tokenize
-from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 # Configuration du logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("EnhancedPreprocessor")
+
+
+class _FeatureScaler:
+    """Normaliseur numpy minimal, sans dépendance d'exécution à scikit-learn."""
+
+    def __init__(self, scaling: str):
+        self.scaling = scaling
+        self.location = None
+        self.scale = None
+
+    def fit(self, values):
+        values = np.asarray(values, dtype=np.float64)
+        if self.scaling == "minmax":
+            self.location = np.nanmin(values, axis=0)
+            self.scale = np.nanmax(values, axis=0) - self.location
+        else:
+            self.location = np.nanmean(values, axis=0)
+            self.scale = np.nanstd(values, axis=0)
+
+        self.scale = np.where(self.scale == 0, 1.0, self.scale)
+        return self
+
+    def transform(self, values):
+        if self.location is None or self.scale is None:
+            raise RuntimeError("Le normaliseur doit etre ajuste avant transformation")
+        return (np.asarray(values, dtype=np.float64) - self.location) / self.scale
+
+    def fit_transform(self, values):
+        return self.fit(values).transform(values)
 
 
 class EnhancedMarketDataPreprocessor:
@@ -49,8 +72,8 @@ class EnhancedMarketDataPreprocessor:
             # Copie du dataframe pour éviter de modifier l'original
             data = data.copy()
 
-            # Traitement des valeurs manquantes - utiliser float32 pour les opérations pandas
-            data = data.ffill().bfill()
+            # Ne jamais injecter une valeur future dans une serie temporelle.
+            data = data.ffill().dropna()
 
             # Suppression des doublons
             data = data.drop_duplicates()
@@ -67,8 +90,8 @@ class EnhancedMarketDataPreprocessor:
                 upper_bound = Q3 + 1.5 * IQR
                 data[col] = data[col].clip(lower_bound, upper_bound)
 
-            # Conversion finale en float16 après toutes les opérations
-            data[numeric_cols] = data[numeric_cols].astype(np.float16)
+            # float16 deborde sur les capitalisations crypto usuelles (ex: 1_000_000).
+            data[numeric_cols] = data[numeric_cols].astype(np.float32)
 
             return data
         except Exception as e:
@@ -80,10 +103,7 @@ class EnhancedMarketDataPreprocessor:
         try:
             numeric_cols = data.select_dtypes(include=[np.number]).columns
 
-            if self.scaling == "minmax":
-                self.scaler = MinMaxScaler()
-            else:
-                self.scaler = StandardScaler()
+            self.scaler = _FeatureScaler(self.scaling)
 
             # Normalisation avec clipping pour éviter les valeurs infinies
             normalized_data = data.copy()
@@ -98,6 +118,22 @@ class EnhancedMarketDataPreprocessor:
         except Exception as e:
             self.logger.error(f"Erreur lors de la normalisation des données: {str(e)}")
             raise
+
+    def normalize_splits(
+        self, train_data: pd.DataFrame, validation_data: pd.DataFrame, test_data: pd.DataFrame
+    ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+        """Ajuste le normaliseur sur le train, puis transforme validation et test."""
+        numeric_cols = train_data.select_dtypes(include=[np.number]).columns
+        self.scaler = _FeatureScaler(self.scaling).fit(train_data[numeric_cols])
+
+        normalized_splits = []
+        for split in (train_data, validation_data, test_data):
+            normalized = split.copy()
+            normalized[numeric_cols] = self.scaler.transform(split[numeric_cols])
+            normalized[numeric_cols] = normalized[numeric_cols].clip(-1e6, 1e6)
+            normalized_splits.append(normalized)
+
+        return tuple(normalized_splits)
 
     def create_target_variable(self, data, horizon=1, method="return"):
         """Crée la variable cible pour l'apprentissage."""
@@ -399,22 +435,23 @@ class EnhancedTextDataPreprocessor:
             language: Langue pour les stopwords ('english', 'french', etc.)
         """
         self.language = language
-
-        # Téléchargement des ressources NLTK si nécessaire
-        try:
-            nltk.data.find(f"corpora/stopwords")
-        except LookupError:
-            nltk.download("stopwords")
+        self._word_tokenize = None
+        self._stopwords = set()
+        self._lemmatizer = None
 
         try:
-            nltk.data.find(f"tokenizers/punkt")
-        except LookupError:
-            nltk.download("punkt")
+            from nltk.corpus import stopwords
+            from nltk.stem import WordNetLemmatizer
+            from nltk.tokenize import word_tokenize
 
-        try:
-            nltk.data.find(f"corpora/wordnet")
-        except LookupError:
-            nltk.download("wordnet")
+            self._word_tokenize = word_tokenize
+            try:
+                self._stopwords = set(stopwords.words(language))
+                self._lemmatizer = WordNetLemmatizer()
+            except LookupError:
+                logger.warning("Ressources NLTK absentes: tokenization locale simplifiee")
+        except ImportError:
+            logger.warning("NLTK absent: tokenization locale simplifiee")
 
         logger.info(
             f"Préprocesseur amélioré de données textuelles initialisé avec langue: {language}"
@@ -473,20 +510,19 @@ class EnhancedTextDataPreprocessor:
         try:
             # Utilisation d'une méthode de tokenization plus simple en cas d'erreur
             try:
-                tokens = word_tokenize(text)
+                tokens = self._word_tokenize(text) if self._word_tokenize else text.split()
             except LookupError:
                 # Fallback simple si word_tokenize échoue
                 tokens = text.split()
 
             # Suppression des stopwords
-            stop_words = set(stopwords.words(self.language))
             tokens = [
-                token.lower() for token in tokens if token.lower() not in stop_words
+                token.lower() for token in tokens if token.lower() not in self._stopwords
             ]
 
             # Lemmatization
-            lemmatizer = WordNetLemmatizer()
-            tokens = [lemmatizer.lemmatize(token) for token in tokens]
+            if self._lemmatizer:
+                tokens = [self._lemmatizer.lemmatize(token) for token in tokens]
 
             return tokens
         except Exception as e:

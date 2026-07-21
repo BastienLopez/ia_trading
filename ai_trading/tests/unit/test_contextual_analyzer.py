@@ -6,7 +6,7 @@ from ai_trading.llm.sentiment_analysis.contextual_analyzer import ContextualAnal
 
 class TestContextualAnalyzer(unittest.TestCase):
     def setUp(self):
-        self.analyzer = ContextualAnalyzer()
+        self.analyzer = ContextualAnalyzer(enable_remote_models=False)
         self.sample_text = "Le prix du Bitcoin montre une forte tendance haussière."
         self.sample_market_data = {
             "price": 50000,

@@ -1,18 +1,26 @@
-# Rapport P0
+# Rapport execution P0
 
 ## Statut
 
-NON DEMARRE.
+PASS - 2026-07-21.
 
-Un rapport precedent affirmait des modifications P0. Elles ont ete annulees par le proprietaire du depot et ne font pas partie de l'etat actuel. Ce fichier remplace cette affirmation afin que la documentation reste vraie.
+## Changements conservateurs
 
-## Preuves de l'audit uniquement
+- Ajout de `ai_trading/runtime_settings.py`, module pur qui centralise mode paper/live, host, port, debug et autorisation live a double condition.
+- Les points d'entree FastAPI et Flask utilisent ces defaults sans modifier leurs routes ni leur logique metier.
+- `.env.example` conserve les integrations existantes mais retire les secrets et valeurs de demonstration.
+- Compose expose les ports uniquement en localhost et fournit les variables internes necessaires aux conteneurs.
 
-- le depot code est revenu a son etat initial; `git status --short` ne montrait que `docs/` non suivi;
-- 504 fichiers Python ont ete analyses statiquement;
-- 0 erreur de syntaxe a ete relevee avec lecture UTF-8 BOM correcte;
-- aucun test, Docker, reseau, entrainement, backtest ou ordre n'a ete execute.
+## Preuves
 
-## Prochaine action
+| Check | Resultat |
+| --- | --- |
+| `tests/p0` | 5 tests passes |
+| AST P0 | 5 fichiers parses |
+| `docker compose ... config --quiet` | PASS |
+| `git diff --check` | PASS |
 
-Executer P0 selon `13_PLAN_EXECUTION_DETAILLE_P0_A_P4.md`, sur un lot de cartographie et de baseline seulement.
+## Limites
+
+- Aucun ordre exchange, reseau, Docker runtime ou secret local n'a ete utilise.
+- `live_orders_enabled` fournit le garde-fou de configuration; le parcours live complet reste hors perimetre P0.

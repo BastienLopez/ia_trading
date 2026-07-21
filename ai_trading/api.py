@@ -7,21 +7,23 @@ import uvicorn
 from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-from ai_trading.data_processor import DataProcessor
-from ai_trading.rl.trading_environment import TradingEnvironment
-from ai_trading.rl_agent import RLAgent
-
-# Configuration du logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.FileHandler("ai_trading/info_retour/logs/api.log", mode="a"),
-        logging.StreamHandler(),
-    ],
-)
+from ai_trading.runtime_settings import get_runtime_settings
 
 logger = logging.getLogger("trading_api")
+
+
+def configure_logging() -> None:
+    """Configure les logs au demarrage sans effet de bord a l'import."""
+    log_directory = os.path.join(os.path.dirname(__file__), "info_retour", "logs")
+    os.makedirs(log_directory, exist_ok=True)
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        handlers=[
+            logging.FileHandler(os.path.join(log_directory, "api.log"), mode="a"),
+            logging.StreamHandler(),
+        ],
+    )
 
 # Initialisation de l'application FastAPI
 app = FastAPI(
@@ -72,6 +74,9 @@ class BacktestRequest(BaseModel):
 
 # Dépendances
 def get_data_processor():
+    # Le health check et les metadonnees API ne doivent pas charger ccxt/ta.
+    from ai_trading.data_processor import DataProcessor
+
     return DataProcessor(
         data_dir=os.path.join(
             os.path.dirname(os.path.dirname(__file__)), "ai_trading/info_retour/data"
@@ -80,6 +85,9 @@ def get_data_processor():
 
 
 def get_agent():
+    # Le modele RL n'est necessaire que pour les endpoints metier.
+    from ai_trading.rl_agent import RLAgent
+
     return RLAgent(
         model_dir=os.path.join(
             os.path.dirname(os.path.dirname(__file__)), "ai_trading/info_retour/models"
@@ -96,8 +104,8 @@ async def root():
 @app.post("/predict")
 async def predict(
     request: PredictionRequest,
-    data_processor: DataProcessor = Depends(get_data_processor),
-    agent: RLAgent = Depends(get_agent),
+    data_processor=Depends(get_data_processor),
+    agent=Depends(get_agent),
 ):
     try:
         logger.info(f"Prédiction demandée pour {request.symbol} sur {request.exchange}")
@@ -142,6 +150,8 @@ async def predict(
         agent.load(model_path)
 
         # Créer un environnement pour la dernière donnée
+        from ai_trading.rl.trading_environment import TradingEnvironment
+
         env = TradingEnvironment(
             df.iloc[-20:]
         )  # Utiliser les 20 dernières observations avec TradingEnvironment au lieu de CryptoTradingEnv
@@ -189,8 +199,8 @@ async def predict(
 @app.post("/train")
 async def train(
     request: TrainingRequest,
-    data_processor: DataProcessor = Depends(get_data_processor),
-    agent: RLAgent = Depends(get_agent),
+    data_processor=Depends(get_data_processor),
+    agent=Depends(get_agent),
 ):
     try:
         logger.info(
@@ -261,8 +271,8 @@ async def train(
 @app.post("/backtest")
 async def backtest(
     request: BacktestRequest,
-    data_processor: DataProcessor = Depends(get_data_processor),
-    agent: RLAgent = Depends(get_agent),
+    data_processor=Depends(get_data_processor),
+    agent=Depends(get_agent),
 ):
     try:
         logger.info(f"Backtest demandé pour {request.symbol} sur {request.exchange}")
@@ -373,16 +383,18 @@ async def get_ema_metrics():
 def run():
     """Fonction pour exécuter l'API directement"""
     # Créer le dossier logs s'il n'existe pas
-    os.makedirs(
-        os.path.join(os.path.dirname(__file__), "info_retour/logs"), exist_ok=True
-    )
+    configure_logging()
     logger.info("Démarrage de l'API Trading")
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    settings = get_runtime_settings()
+    uvicorn.run(app, host=settings.api_bind_host, port=settings.api_port, reload=settings.debug)
 
 
 if __name__ == "__main__":
-    # Créer le dossier logs s'il n'existe pas
-    os.makedirs(
-        os.path.join(os.path.dirname(__file__), "info_retour/logs"), exist_ok=True
+    configure_logging()
+    settings = get_runtime_settings()
+    uvicorn.run(
+        app,
+        host=settings.api_bind_host,
+        port=settings.api_port,
+        reload=settings.debug,
     )
-    uvicorn.run("ai_trading.api:app", host="0.0.0.0", port=8000, reload=True)

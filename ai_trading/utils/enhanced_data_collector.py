@@ -6,13 +6,19 @@ import logging
 import os
 import time
 from pathlib import Path
-from typing import Dict, List
+from typing import Any, Callable, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
 import requests
 from dotenv import load_dotenv
 from pycoingecko import CoinGeckoAPI
+
+from ai_trading.utils.resilient_requester import (
+    AllSourcesFailedError,
+    MultiSourceRequester,
+    ResilientRequester,
+)
 
 # Chargement des variables d'environnement
 load_dotenv()
@@ -34,10 +40,29 @@ class EnhancedDataCollector:
     - Alternative.me (Fear & Greed Index)
     """
 
-    def __init__(self):
-        """Initialise le collecteur de données avec plusieurs APIs."""
+    def __init__(
+        self,
+        coingecko_client: Optional[Any] = None,
+        http_get: Optional[Callable[..., Any]] = None,
+        requester: Optional[ResilientRequester] = None,
+        request_timeout: float = 10.0,
+    ):
+        """Initialise le collecteur avec des dependances injectables pour les tests."""
         # CoinGecko API
-        self.coingecko = CoinGeckoAPI()
+        self.coingecko = coingecko_client or CoinGeckoAPI()
+        self._http_get = http_get or requests.get
+        self.requester = requester or ResilientRequester(timeout=request_timeout)
+        self.request_timeout = request_timeout
+        self.price_requester = MultiSourceRequester(
+            sources={
+                "coingecko": (self._coingecko_price_source, {"max_retries": 0}),
+                "coincap": (self._coincap_price_source, {"max_retries": 0}),
+                "cryptocompare": (self._cryptocompare_price_source, {"max_retries": 0}),
+            },
+            source_priority=["coingecko", "coincap", "cryptocompare"],
+            global_timeout=request_timeout * 3,
+            requester_config={"timeout": request_timeout, "jitter": 0},
+        )
 
         # Endpoints des autres APIs
         self.coincap_base_url = "https://api.coincap.io/v2"
@@ -49,6 +74,53 @@ class EnhancedDataCollector:
 
         self.logger = logging.getLogger("EnhancedDataCollector")
         self.logger.info("Collecteur de données amélioré initialisé")
+
+    def _request_json(self, url: str, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute un appel HTTP avec timeout, retries et circuit breaker communs."""
+        def request_json() -> Dict[str, Any]:
+            response = self._http_get(url, params=params, timeout=self.request_timeout)
+            response.raise_for_status()
+            return response.json()
+
+        return self.requester.request(request_json)
+
+    @staticmethod
+    def _require_price_frame(frame: pd.DataFrame, source: str) -> pd.DataFrame:
+        """Transforme une réponse vide en échec pour activer le vrai fallback."""
+        if frame.empty or "price" not in frame.columns:
+            raise ValueError(f"La source {source} n'a retourné aucune donnée de prix")
+        return frame
+
+    def _coingecko_price_source(
+        self, coin_id: str, vs_currency: str, days: int
+    ) -> pd.DataFrame:
+        return self._require_price_frame(
+            self.get_crypto_prices_coingecko(coin_id, vs_currency, days), "coingecko"
+        )
+
+    def _coincap_price_source(
+        self, coin_id: str, vs_currency: str, days: int
+    ) -> pd.DataFrame:
+        del vs_currency  # CoinCap ne propose ici que son prix USD.
+        return self._require_price_frame(
+            self.get_crypto_prices_coincap(coin_id, days=days), "coincap"
+        )
+
+    def _cryptocompare_price_source(
+        self, coin_id: str, vs_currency: str, days: int
+    ) -> pd.DataFrame:
+        return self._require_price_frame(
+            self.get_crypto_prices_cryptocompare(
+                self.get_symbol_from_id(coin_id), vs_currency, days
+            ),
+            "cryptocompare",
+        )
+
+    def get_best_available_price_data(
+        self, coin_id: str, days: int = 30, vs_currency: str = "usd"
+    ) -> tuple[pd.DataFrame, str]:
+        """Retourne la première source prioritaire valide, avec fallback mesuré."""
+        return self.price_requester.request(coin_id, vs_currency, days)
 
     def get_crypto_prices_coingecko(
         self, coin_id: str = "bitcoin", vs_currency: str = "usd", days: int = 30
@@ -68,8 +140,10 @@ class EnhancedDataCollector:
             self.logger.info(
                 f"Récupération des prix pour {coin_id} sur {days} jours via CoinGecko"
             )
-            data = self.coingecko.get_coin_market_chart_by_id(
-                id=coin_id, vs_currency=vs_currency, days=days
+            data = self.requester.request(
+                lambda: self.coingecko.get_coin_market_chart_by_id(
+                    id=coin_id, vs_currency=vs_currency, days=days
+                )
             )
 
             # Création du DataFrame
@@ -126,9 +200,7 @@ class EnhancedDataCollector:
             url = f"{self.coincap_base_url}/assets/{coin_id}/history"
             params = {"interval": interval, "start": start, "end": end}
 
-            response = requests.get(url, params=params)
-            response.raise_for_status()
-            data = response.json()
+            data = self._request_json(url, params)
 
             # Création du DataFrame
             df = pd.DataFrame(data["data"])
@@ -178,9 +250,7 @@ class EnhancedDataCollector:
             url = f"{self.cryptocompare_base_url}/v2/histoday"
             params = {"fsym": coin_symbol, "tsym": vs_currency, "limit": days}
 
-            response = requests.get(url, params=params)
-            response.raise_for_status()
-            data = response.json()
+            data = self._request_json(url, params)
 
             # Création du DataFrame
             df = pd.DataFrame(data["Data"]["Data"])
@@ -227,9 +297,7 @@ class EnhancedDataCollector:
             url = "https://api.alternative.me/fng/"
             params = {"limit": days, "format": "json"}
 
-            response = requests.get(url, params=params)
-            response.raise_for_status()
-            data = response.json()
+            data = self._request_json(url, params)
 
             # Conversion en DataFrame
             df = pd.DataFrame(data["data"])
@@ -268,7 +336,7 @@ class EnhancedDataCollector:
         """
         try:
             self.logger.info("Récupération des cryptos tendance via CoinGecko")
-            trending = self.coingecko.get_search_trending()
+            trending = self.requester.request(self.coingecko.get_search_trending)
             return trending["coins"]
         except Exception as e:
             self.logger.error(f"Erreur lors de la récupération des tendances: {e}")
@@ -285,7 +353,7 @@ class EnhancedDataCollector:
             self.logger.info(
                 "Récupération des données globales du marché crypto via CoinGecko"
             )
-            global_data = self.coingecko.get_global()
+            global_data = self.requester.request(self.coingecko.get_global)
             return global_data
         except Exception as e:
             self.logger.error(
@@ -319,9 +387,7 @@ class EnhancedDataCollector:
                 "limit": limit,
             }
 
-            response = requests.get(url, params=params)
-            response.raise_for_status()
-            data = response.json()
+            data = self._request_json(url, params)
 
             self.logger.info(f"Actualités récupérées: {len(data['results'])} entrées")
             return data["results"]
@@ -370,85 +436,24 @@ class EnhancedDataCollector:
             mock_df["close"] = mock_df["price"]
             return mock_df
 
-        # Récupération des données de chaque source
+        # Une seule source est interrogée à la fois. En cas de panne ou de réponse
+        # vide, MultiSourceRequester bascule vers la suivante avec ses métriques.
         try:
-            df_coingecko = self.get_crypto_prices_coingecko(coin_id, days, vs_currency)
-        except Exception as e:
-            self.logger.warning(
-                f"Erreur lors de la récupération des données CoinGecko: {e}"
+            df_merged, primary_source = self.get_best_available_price_data(
+                coin_id=coin_id, days=days, vs_currency=vs_currency
             )
-            df_coingecko = pd.DataFrame()
-
-        try:
-            df_coincap = self.get_crypto_prices_coincap(coin_id, days)
-        except Exception as e:
-            self.logger.warning(
-                f"Erreur lors de la récupération des données CoinCap: {e}"
-            )
-            df_coincap = pd.DataFrame()
-
-        # Conversion de l'ID CoinGecko vers le symbole pour CryptoCompare
-        coin_symbol = self.get_symbol_from_id(coin_id)
-
-        try:
-            df_cryptocompare = self.get_crypto_prices_cryptocompare(
-                coin_symbol, days, vs_currency
-            )
-        except Exception as e:
-            self.logger.warning(
-                f"Erreur lors de la récupération des données CryptoCompare: {e}"
-            )
-            df_cryptocompare = pd.DataFrame()
-
-        # Vérification qu'au moins une source a des données
-        if df_coingecko.empty and df_coincap.empty and df_cryptocompare.empty:
-            self.logger.error("Aucune donnée disponible pour aucune source")
-            # Si toutes les sources sont vides et que nous ne sommes pas en mode test,
-            # essayer avec des données fictives
-            if not mock_data:
-                self.logger.warning("Utilisation de données fictives comme fallback")
-                return self.get_merged_price_data(
-                    coin_id, days, vs_currency, include_fear_greed, mock_data=True
-                )
-            else:
-                # Créer un DataFrame vide avec les colonnes attendues
-                return pd.DataFrame(columns=["price", "volume", "market_cap", "source"])
-
-        # Détermination de la source primaire (celle avec le plus de données)
-        sources = {
-            "coingecko": len(df_coingecko),
-            "coincap": len(df_coincap),
-            "cryptocompare": len(df_cryptocompare),
-        }
-
-        primary_source = max(sources, key=sources.get)
-        self.logger.info(
-            f"Source primaire: {primary_source} avec {sources[primary_source]} entrées"
-        )
-
-        # Utilisation de la source primaire comme base
-        if primary_source == "coingecko" and not df_coingecko.empty:
-            df_merged = df_coingecko.copy()
-        elif primary_source == "coincap" and not df_coincap.empty:
-            df_merged = df_coincap.copy()
-        elif primary_source == "cryptocompare" and not df_cryptocompare.empty:
-            df_merged = df_cryptocompare.copy()
-        else:
-            # Fallback si toutes les sources sont vides
-            self.logger.error("Aucune source primaire valide")
-            if not mock_data:
-                self.logger.warning("Utilisation de données fictives comme fallback")
-                return self.get_merged_price_data(
-                    coin_id, days, vs_currency, include_fear_greed, mock_data=True
-                )
-            else:
-                return pd.DataFrame(columns=["price", "volume", "market_cap", "source"])
+        except AllSourcesFailedError as error:
+            self.logger.error("Toutes les sources de prix ont échoué: %s", error)
+            return pd.DataFrame(columns=["price", "volume", "market_cap", "source"])
 
         # Standardisation des noms de colonnes
         if "price" in df_merged.columns and "close" not in df_merged.columns:
             df_merged["close"] = df_merged["price"]
         elif "close" in df_merged.columns and "price" not in df_merged.columns:
             df_merged["price"] = df_merged["close"]
+
+        # Le DataFrame fusionne doit conserver la provenance de la source primaire.
+        df_merged["source"] = primary_source
 
         # Ajout de l'indice Fear & Greed si demandé
         if include_fear_greed:

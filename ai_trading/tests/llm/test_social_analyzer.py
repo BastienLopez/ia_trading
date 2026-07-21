@@ -13,8 +13,8 @@ from ai_trading.llm.sentiment_analysis.social_analyzer import SocialAnalyzer
 
 class TestSocialAnalyzer(unittest.TestCase):
     def setUp(self):
-        self.twitter_analyzer = SocialAnalyzer(platform="twitter")
-        self.reddit_analyzer = SocialAnalyzer(platform="reddit")
+        self.twitter_analyzer = SocialAnalyzer(platform="twitter", enable_llm=False)
+        self.reddit_analyzer = SocialAnalyzer(platform="reddit", enable_llm=False)
 
         # Ajout du processeur de données
         self.processor = DataProcessor()
@@ -82,6 +82,15 @@ class TestSocialAnalyzer(unittest.TestCase):
         df = self.twitter_analyzer.analyze_social_posts([self.sample_tweet])
         self.assertBetween(df.iloc[0]["retweet_count_norm"], 0.0, 1.0)
         self.assertFalse(df["engagement_score"].isnull().any())
+
+    def test_generate_social_report_supports_reddit_without_hashtags(self):
+        df = self.reddit_analyzer.analyze_social_posts([self.sample_reddit_post])
+
+        report = self.reddit_analyzer.generate_social_report(df)
+
+        self.assertEqual(report["total_articles"], 1)
+        self.assertEqual(report["top_hashtags"], {})
+        self.assertIn("engagement_stats", report)
 
     def assertBetween(self, value, min_val, max_val):
         """Helper pour vérifier les plages de valeurs."""

@@ -77,8 +77,8 @@ class TestEnhancedMarketDataPreprocessor(unittest.TestCase):
         # Vérification qu'il n'y a pas de valeurs manquantes
         assert cleaned_data.isna().sum().sum() == 0
 
-        # Vérification que les données sont en float16
-        assert all(cleaned_data.dtypes == np.float16)
+        # float32 conserve les capitalisations crypto sans débordement.
+        assert all(cleaned_data.dtypes == np.float32)
 
         # Vérification qu'il n'y a pas de doublons
         assert not cleaned_data.duplicated().any()

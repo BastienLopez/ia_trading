@@ -181,7 +181,11 @@ class BlockchainDataCollector:
 
                 # Conversion de timestamp si présent
                 if "timeStamp" in df.columns:
-                    df["timeStamp"] = pd.to_datetime(df["timeStamp"], unit="s")
+                    df["timeStamp"] = pd.to_datetime(
+                        pd.to_numeric(df["timeStamp"], errors="coerce"),
+                        unit="s",
+                        errors="coerce",
+                    )
 
                 # Conversion des montants wei en ether si value est présent
                 if "value" in df.columns:

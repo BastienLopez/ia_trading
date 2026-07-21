@@ -18,8 +18,8 @@ from ai_trading.rl.data_integration import RLDataIntegrator
 
 class TestSentimentIntegration(unittest.TestCase):
     def setUp(self):
-        self.news_analyzer = EnhancedNewsAnalyzer()
-        self.social_analyzer = SocialAnalyzer(platform="twitter")
+        self.news_analyzer = EnhancedNewsAnalyzer(enable_llm=False)
+        self.social_analyzer = SocialAnalyzer(platform="twitter", enable_llm=False)
 
         self.sample_news = [
             {

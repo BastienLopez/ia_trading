@@ -5,9 +5,22 @@ Tests pour le collecteur de données blockchain.
 import sys
 import unittest
 from pathlib import Path
+from types import ModuleType
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
+
+if "requests" not in sys.modules:
+    requests = ModuleType("requests")
+    requests.get = lambda *args, **kwargs: None
+    requests.post = lambda *args, **kwargs: None
+    requests.RequestException = Exception
+    sys.modules["requests"] = requests
+
+if "dotenv" not in sys.modules:
+    dotenv = ModuleType("dotenv")
+    dotenv.load_dotenv = lambda: None
+    sys.modules["dotenv"] = dotenv
 
 # Ajuster le chemin pour inclure le répertoire racine du projet
 ROOT_DIR = Path(__file__).parent.parent.parent.parent
@@ -295,7 +308,11 @@ class TestBlockchainDataCollector(unittest.TestCase):
         self.assertTrue(isinstance(df, pd.DataFrame))
         # Les tests précis dépendraient de comment les mocks sont traités par la méthode
 
-    def test_get_top_eth_gas_consumers(self):
+    @patch(
+        "ai_trading.utils.blockchain_data_collector.BlockchainDataCollector._make_request",
+        return_value={"result": "1"},
+    )
+    def test_get_top_eth_gas_consumers(self, _mock_make_request):
         """Teste la méthode get_top_eth_gas_consumers."""
         # Appeler la méthode
         df = self.collector.get_top_eth_gas_consumers()

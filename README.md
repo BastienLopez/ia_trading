@@ -5,6 +5,9 @@ Ce module contient l'implémentation d'un système de trading de cryptomonnaies 
 ## État du Projet
 
 ### Phase 1: Collecte et Prétraitement des Données ✅
+
+> Validée dans Docker : 112 tests couvrent collecteurs, prétraitement, cache
+> LRU/compressé à deux niveaux, blockchain synchrone/asynchrone et résilience HTTP.
 - ✅ 1.1 Implémentation de `utils/enhanced_data_collector.py`
   - Connexion à plusieurs APIs de cryptomonnaies (CoinGecko, CoinCap, CryptoCompare)
   - Collecte des données de prix, volumes et capitalisation
@@ -39,6 +42,15 @@ Ce module contient l'implémentation d'un système de trading de cryptomonnaies 
 -----------------------------------------------------------------------------------------------------------------------
 
 ### Phase 2: Analyse de Sentiment (LLM) ✅
+
+> Validée dans Docker : le pipeline unifié sentiment + crédibilité + propagation
+> + contexte est testé. BERTweet a été adapté sur 23 301 articles crypto DLT,
+> en CUDA/FP16 avec validation temporelle isolée complète (4 661 articles :
+> accuracy 54,82 %, macro-F1 54,19 %). Le meilleur checkpoint est sélectionné
+> sur le macro-F1 avec pondération des classes ; l'ancienne mesure sur 512
+> articles (57,03 % / 56,82 %) n'était pas directement comparable.
+> L'artefact et son manifeste sont dans `ai_trading/info_retour/models/` (ignorés
+> de Git) ; le corpus CC-BY-NC-4.0 est réservé à l'usage personnel non commercial.
 - ✅ 2.1 Implémentation de `llm/sentiment_analysis/news_analyzer.py`
   - Analyse des actualités crypto
   - Extraction des entités et sentiments

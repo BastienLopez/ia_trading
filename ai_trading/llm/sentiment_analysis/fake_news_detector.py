@@ -1,26 +1,31 @@
 import re
 from datetime import datetime
-from typing import Dict, List
+from typing import Any, Dict, List
 
-import networkx as nx
 import numpy as np
-import whois
-from sklearn.ensemble import IsolationForest
-from textblob import TextBlob
-from transformers import pipeline
-
-from .news_analyzer import NewsAnalyzer
-from .sentiment_utils import get_llm_client
+try:
+    import networkx as nx
+except ImportError:
+    nx = None
+try:
+    import whois
+except ImportError:
+    whois = None
+try:
+    from sklearn.ensemble import IsolationForest
+except ImportError:
+    IsolationForest = None
+try:
+    from textblob import TextBlob
+except ImportError:
+    TextBlob = None
 
 
 class FakeNewsDetector:
     def __init__(self):
-        self.llm_client = get_llm_client()
-        self.news_analyzer = NewsAnalyzer()
-        self.fact_checker = pipeline(
-            "text-classification", model="facebook/bart-large-mnli"
+        self.bot_detector = (
+            IsolationForest(contamination=0.1) if IsolationForest is not None else None
         )
-        self.bot_detector = IsolationForest(contamination=0.1)
 
     def verify_source_credibility(self, source_url: str, source_content: str) -> float:
         """
@@ -49,6 +54,8 @@ class FakeNewsDetector:
         """
         Analyse le modèle de propagation d'une nouvelle.
         """
+        if nx is None:
+            return {"velocity": 0.0, "centrality": {}, "suspicious_patterns": 0.0}
         G = nx.DiGraph()
         for share in sharing_data:
             G.add_edge(
@@ -71,6 +78,8 @@ class FakeNewsDetector:
             return [self._is_bot_by_rules(behavior) for behavior in user_behaviors]
 
         try:
+            if self.bot_detector is None:
+                raise RuntimeError("IsolationForest indisponible")
             # Extraction des caractéristiques pour la détection
             features = self._extract_bot_features(user_behaviors)
 
@@ -468,7 +477,7 @@ class FakeNewsDetector:
 
         return coherence_score
 
-    def _calculate_propagation_velocity(self, graph: nx.DiGraph) -> float:
+    def _calculate_propagation_velocity(self, graph: Any) -> float:
         """Calcule la vitesse de propagation de l'information."""
         if not graph.edges:
             return 0.0
@@ -491,7 +500,7 @@ class FakeNewsDetector:
         # Normalisation (considérer qu'un partage par seconde ou plus est suspect)
         return min(velocity, 1.0)
 
-    def _detect_suspicious_patterns(self, graph: nx.DiGraph) -> float:
+    def _detect_suspicious_patterns(self, graph: Any) -> float:
         """Détecte des patterns suspects dans la propagation."""
         if not graph.nodes:
             return 0.0

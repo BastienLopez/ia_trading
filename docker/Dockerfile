@@ -44,7 +44,7 @@ COPY requirements.txt /tmp/requirements.raw.txt
 # - onnxruntime et onnxruntime-gpu ne doivent pas être installés ensemble.
 # - la pile ONNX est verrouillée pour éviter le conflit précédemment rencontré.
 RUN set -eux; \
-    grep -Ev '^[[:space:]]*(gym-trading|gym-trading-env|onnx|onnxruntime|onnxruntime-gpu|tf2onnx|dash-bootstrap-components)([<>=!~ ].*)?([[:space:]]*#.*)?$' \
+    grep -Ev '^[[:space:]]*(gym-trading|gym-trading-env|onnx|onnxruntime|onnxruntime-gpu|tf2onnx|dash-bootstrap-components|deepspeed)([<>=!~ ].*)?([[:space:]]*#.*)?$' \
       /tmp/requirements.raw.txt > /tmp/requirements.base.txt; \
     cat /tmp/requirements.base.txt > /tmp/requirements.txt; \
     printf '%s\n' \
