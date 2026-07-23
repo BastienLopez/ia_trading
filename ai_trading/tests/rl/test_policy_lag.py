@@ -1,14 +1,9 @@
-import sys
 import time
 import unittest
-from pathlib import Path
 
 import torch
 
-# Ajouter le répertoire parent au chemin pour pouvoir importer les modules
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-from rl.policy_lag import DecoupledPolicyTrainer, PolicyLag
+from ai_trading.rl.policy_lag import DecoupledPolicyTrainer, PolicyLag
 
 
 # Définir un modèle simple pour les tests

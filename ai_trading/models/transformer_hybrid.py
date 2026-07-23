@@ -1,5 +1,7 @@
 import gc
 import logging
+import os
+from pathlib import Path
 
 import tensorflow as tf
 from tensorflow.keras.layers import (
@@ -18,6 +20,33 @@ logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+
+def _configure_tensorflow_gpu() -> bool:
+    """Active TensorFlow sur GPU seulement si le runtime CUDA est complet.
+
+    Les images CUDA ``runtime`` ne livrent pas NVVM/libdevice. Sans ce fichier,
+    TensorFlow/XLA voit le GPU mais échoue à la première opération compilée.
+    Le repli CPU est préférable à un modèle inutilisable; une image CUDA
+    ``devel`` conserve le chemin GPU sans intervention.
+    """
+    gpu_devices = tf.config.list_physical_devices("GPU")
+    cuda_home = Path(os.environ.get("CUDA_HOME", "/usr/local/cuda"))
+    has_libdevice = any(cuda_home.glob("nvvm/libdevice/libdevice*.bc"))
+    if gpu_devices and not has_libdevice:
+        try:
+            tf.config.set_visible_devices([], "GPU")
+            logger.warning(
+                "GPU TensorFlow désactivé : NVVM/libdevice absent de %s; "
+                "repli CPU explicite.",
+                cuda_home,
+            )
+        except RuntimeError as error:
+            logger.warning("Impossible de configurer le repli CPU TensorFlow: %s", error)
+    return bool(tf.config.list_logical_devices("GPU"))
+
+
+TENSORFLOW_GPU_AVAILABLE = _configure_tensorflow_gpu()
 
 
 # Définir une fonction pour obtenir le décorateur register_keras_serializable selon la version de TF
@@ -210,13 +239,15 @@ class TransformerGRUModel(Model):
             use_mixed_precision: Utiliser la précision mixte (float16) pour l'entraînement
         """
         # Activer la politique de précision mixte si demandé
-        if use_mixed_precision:
+        if use_mixed_precision and TENSORFLOW_GPU_AVAILABLE:
             try:
                 policy = tf.keras.mixed_precision.Policy("mixed_float16")
                 tf.keras.mixed_precision.set_global_policy(policy)
                 logger.info("Précision mixte (float16) activée pour le modèle")
             except Exception as e:
                 logger.warning(f"Impossible d'activer la précision mixte: {e}")
+        elif use_mixed_precision:
+            logger.info("Précision mixte TensorFlow ignorée sans GPU CUDA complet")
 
         super(TransformerGRUModel, self).__init__(**kwargs)
 
@@ -388,13 +419,15 @@ class TransformerLSTMModel(Model):
             use_mixed_precision: Utiliser la précision mixte (float16) pour l'entraînement
         """
         # Activer la politique de précision mixte si demandé
-        if use_mixed_precision:
+        if use_mixed_precision and TENSORFLOW_GPU_AVAILABLE:
             try:
                 policy = tf.keras.mixed_precision.Policy("mixed_float16")
                 tf.keras.mixed_precision.set_global_policy(policy)
                 logger.info("Précision mixte (float16) activée pour le modèle")
             except Exception as e:
                 logger.warning(f"Impossible d'activer la précision mixte: {e}")
+        elif use_mixed_precision:
+            logger.info("Précision mixte TensorFlow ignorée sans GPU CUDA complet")
 
         super(TransformerLSTMModel, self).__init__(**kwargs)
 

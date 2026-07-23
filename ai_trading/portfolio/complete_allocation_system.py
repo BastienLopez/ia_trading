@@ -92,6 +92,14 @@ class CompleteAllocationSystem:
             optimization_method: Méthode d'optimisation ('sharpe', 'min_var', 'custom')
         """
         self.returns = returns
+        if not isinstance(returns, pd.DataFrame) or returns.empty:
+            raise ValueError("returns doit être un DataFrame non vide")
+        if returns.isna().all().any():
+            raise ValueError("Chaque actif doit contenir au moins un rendement exploitable")
+        if min_single_asset_weight < 0 or max_single_asset_weight <= 0:
+            raise ValueError("Les bornes de poids doivent être positives")
+        if min_single_asset_weight * len(returns.columns) > 1 or max_single_asset_weight * len(returns.columns) < 1:
+            raise ValueError("Les bornes de poids ne permettent pas une allocation sommant à 1")
         self.prices = prices if prices is not None else (1 + returns).cumprod()
         self.factor_model = factor_model
         self.lookback_window = lookback_window
@@ -159,6 +167,9 @@ class CompleteAllocationSystem:
             method = "max_return_with_risk"  # Maximiser le rendement avec contrainte de risque
         else:
             method = self.optimization_method
+
+        if method == "risk_parity":
+            return self.risk_parity()
         
         # Récupérer les données récentes
         recent_returns = self.returns.iloc[-self.lookback_window:]
@@ -245,12 +256,26 @@ class CompleteAllocationSystem:
         mean_returns = recent_returns.mean() * 252  # Annualisé
         cov_matrix = recent_returns.cov() * 252  # Annualisée
         
-        # Pour la parité de risque, on inverse la volatilité de chaque actif
-        volatilities = np.sqrt(np.diag(cov_matrix))
-        inv_vol = 1 / volatilities
-        
-        # Normaliser pour obtenir des poids qui somment à 1
-        weights = inv_vol / np.sum(inv_vol)
+        def risk_contribution_objective(weights: np.ndarray) -> float:
+            portfolio_variance = float(weights @ cov_matrix.values @ weights)
+            if portfolio_variance <= 0:
+                return float("inf")
+            marginal_risk = cov_matrix.values @ weights
+            contributions = weights * marginal_risk / np.sqrt(portfolio_variance)
+            return float(np.square(contributions - contributions.mean()).sum())
+
+        initial_weights = np.full(self.num_assets, 1.0 / self.num_assets)
+        result = sco.minimize(
+            risk_contribution_objective,
+            initial_weights,
+            method="SLSQP",
+            bounds=[(self.min_single_asset_weight, self.max_single_asset_weight)] * self.num_assets,
+            constraints=[{"type": "eq", "fun": lambda weights: weights.sum() - 1.0}],
+            options={"maxiter": 500, "ftol": 1e-10},
+        )
+        if not result.success:
+            raise RuntimeError(f"Échec de l'optimisation risk parity: {result.message}")
+        weights = result.x
         
         # Créer une série avec les noms des actifs
         risk_parity_weights = pd.Series(weights, index=self.assets)

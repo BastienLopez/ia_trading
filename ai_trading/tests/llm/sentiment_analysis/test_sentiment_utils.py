@@ -17,6 +17,7 @@ from ai_trading.llm.sentiment_analysis.sentiment_utils import (
     SentimentVisualizer,
     calculate_sentiment_metrics,
     get_llm_client,
+    text_hash,
 )
 
 
@@ -122,17 +123,50 @@ class TestSentimentUtils(unittest.TestCase):
         self.assertIn("neutral_ratio", metrics)
 
 
-def test_sentiment_visualization():
-    # Test de la visualisation des sentiments
-    pass
+def test_sentiment_visualization(tmp_path):
+    data = pd.DataFrame(
+        {
+            "date": pd.date_range("2024-01-01", periods=3, freq="D"),
+            "score": [-0.4, 0.0, 0.7],
+            "sentiment": ["negative", "neutral", "positive"],
+        }
+    )
+    visualizer = SentimentVisualizer(output_dir=tmp_path)
 
-def test_sentiment_caching():
-    # Test du cache des sentiments
-    pass
+    visualizer.plot_sentiment_trends(data, "trend.png")
+    visualizer.plot_sentiment_distribution(data, "distribution.png")
+
+    assert (tmp_path / "trend.png").stat().st_size > 0
+    assert (tmp_path / "distribution.png").stat().st_size > 0
+
+
+def test_sentiment_caching(tmp_path):
+    cache = SentimentCache(cache_dir=tmp_path)
+    key = text_hash("bitcoin sentiment")
+    payload = {"score": 0.42, "label": "positive"}
+
+    cache.save(key, payload)
+
+    assert cache.load(key) == payload
+
 
 def test_sentiment_tools():
-    # Test des outils de sentiment
-    pass
+    metrics = calculate_sentiment_metrics(
+        [
+            {"score": 0.8, "label": "positive"},
+            {"score": -0.2, "label": "negative"},
+            {"score": 0.0, "label": "neutral"},
+        ]
+    )
+
+    assert text_hash("bitcoin") == text_hash("bitcoin")
+    assert text_hash("bitcoin") != text_hash("ethereum")
+    assert metrics == {
+        "average_score": pytest.approx(0.2),
+        "positive_ratio": pytest.approx(1 / 3),
+        "negative_ratio": pytest.approx(1 / 3),
+        "neutral_ratio": pytest.approx(1 / 3),
+    }
 
 if __name__ == '__main__':
-    pytest.main([__file__]) 
+    pytest.main([__file__])

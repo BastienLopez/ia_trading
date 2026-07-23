@@ -23,7 +23,7 @@ from sklearn.gaussian_process.kernels import Matern
 
 from ai_trading.config import INFO_RETOUR_DIR
 from ai_trading.rl.agents.sac_agent import SACAgent
-from ai_trading.rl.hyperparameter_optimizer import HyperparameterOptimizer
+from ai_trading.rl.hyperparameter_optimizer import HyperparameterOptimizer, _json_default
 from ai_trading.rl.trading_environment import TradingEnvironment
 
 # Configuration du logger
@@ -241,13 +241,13 @@ class BayesianOptimizer(HyperparameterOptimizer):
         y_best = np.max(self.y_samples)
 
         # Amélioration par rapport au meilleur score
-        with np.errstate(divide="warn"):
-            imp = mu - y_best - xi
-            Z = imp / sigma if sigma > 0 else 0
-            ei = imp * norm.cdf(Z) + sigma * norm.pdf(Z)
-            ei[sigma <= 0.0] = 0.0
-
-        return ei[0]
+        mu = float(np.asarray(mu).reshape(-1)[0])
+        sigma = float(np.asarray(sigma).reshape(-1)[0])
+        if sigma <= 0.0:
+            return 0.0
+        improvement = mu - y_best - xi
+        z_score = improvement / sigma
+        return float(improvement * norm.cdf(z_score) + sigma * norm.pdf(z_score))
 
     def _negative_ei(self, x):
         """
@@ -314,12 +314,12 @@ class BayesianOptimizer(HyperparameterOptimizer):
         """
         # Convertir les listes en tableaux numpy
         X = np.vstack(self.X_samples)
-        y = np.array(self.y_samples).reshape(-1, 1)
+        y = np.asarray(self.y_samples, dtype=float)
 
         # Créer et ajuster le modèle GP avec un noyau Matérn
         kernel = Matern(nu=2.5)
         self.gp_model = GaussianProcessRegressor(
-            kernel=kernel, alpha=self.gp_noise, normalize_y=True, n_restarts_optimizer=5
+            kernel=kernel, alpha=self.gp_noise, normalize_y=True, n_restarts_optimizer=2
         )
         self.gp_model.fit(X, y)
 
@@ -515,7 +515,7 @@ class BayesianOptimizer(HyperparameterOptimizer):
             self.save_dir, f"bayesian_optimization_results_{timestamp}.json"
         )
         with open(json_path, "w") as f:
-            json.dump(bo_results, f, indent=2)
+            json.dump(bo_results, f, indent=2, default=_json_default)
 
         logger.info(f"Historique d'optimisation bayésienne sauvegardé: {csv_path}")
         logger.info(f"Résultats d'optimisation bayésienne sauvegardés: {json_path}")

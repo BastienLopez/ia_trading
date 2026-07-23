@@ -62,27 +62,26 @@ def test_sharpe_ratio_reward():
 
     # Tester avec les différentes séquences
     rewards = []
-
-    print("Rendements positifs et stables:")
     reward_calculator.reset()
     for ret in positive_returns:
         reward = reward_calculator.calculate(ret)
-        print(f"  Rendement: {ret:.4f}, Récompense: {reward:.4f}")
         rewards.append(reward)
 
-    print("\nRendements négatifs:")
+    positive_reward = rewards[-1]
     reward_calculator.reset()
     for ret in negative_returns:
         reward = reward_calculator.calculate(ret)
-        print(f"  Rendement: {ret:.4f}, Récompense: {reward:.4f}")
         rewards.append(reward)
 
-    print("\nRendements volatils:")
+    negative_reward = rewards[-1]
+
     reward_calculator.reset()
     for ret in volatile_returns:
         reward = reward_calculator.calculate(ret)
-        print(f"  Rendement: {ret:.4f}, Récompense: {reward:.4f}")
         rewards.append(reward)
+
+    assert np.isfinite(rewards).all()
+    assert positive_reward > negative_reward
 
 
 def test_transaction_cost_reward():
@@ -126,26 +125,25 @@ def test_transaction_cost_reward():
         },
     ]
 
-    # Tester chaque scénario
     reward_calculator.reset()
+    scenario_rewards = {}
     for scenario in scenarios:
         reward = reward_calculator.calculate(
             scenario["pnl"], scenario["action"], scenario["position_value"]
         )
-        print(f"{scenario['description']}:")
-        print(
-            f"  PnL: {scenario['pnl']:.4f}, Action: {scenario['action']}, "
-            f"Valeur position: {scenario['position_value']:.2f}"
-        )
-        print(f"  Récompense: {reward:.4f}")
+        scenario_rewards[scenario["description"]] = reward
+
+    assert scenario_rewards["Hold sans transaction"] > scenario_rewards["Achat avec profit"]
+    assert scenario_rewards["Hold sans transaction"] > scenario_rewards["Vente avec profit"]
 
     # Tester les transactions fréquentes
-    print("\nTransactions fréquentes:")
     reward_calculator.reset()
     actions = [1, 2, 1, 2, 1]  # Alternance achat/vente
     for i, action in enumerate(actions):
         reward = reward_calculator.calculate(0.01, action, 1000)
-        print(f"  Action {i+1}: {action}, Récompense: {reward:.4f}")
+        if i == 0:
+            first_trade_reward = reward
+    assert reward < first_trade_reward
 
 
 def test_drawdown_reward():
@@ -172,21 +170,16 @@ def test_drawdown_reward():
 
     # Tester la récompense à chaque étape
     reward_calculator.reset()
-    print("Évolution de la récompense avec drawdown:")
+    rewards = []
 
     for i in range(1, len(portfolio_values)):
         pnl = (portfolio_values[i] - portfolio_values[i - 1]) / portfolio_values[i - 1]
         reward = reward_calculator.calculate(pnl, portfolio_values[i])
 
-        # Calculer le drawdown actuel pour l'affichage
-        peak = max(portfolio_values[: i + 1])
-        current_drawdown = (peak - portfolio_values[i]) / peak if peak > 0 else 0
+        rewards.append(reward)
 
-        print(
-            f"  Étape {i}: Valeur: {portfolio_values[i]:.2f}, "
-            f"PnL: {pnl:.4f}, Drawdown: {current_drawdown:.4f}, "
-            f"Récompense: {reward:.4f}"
-        )
+    assert rewards[5] < 0  # Première étape du drawdown.
+    assert rewards[5] < portfolio_values[6] / portfolio_values[5] - 1
 
 
 def test_diversification_reward():
@@ -217,15 +210,14 @@ def test_diversification_reward():
     ]
 
     # Tester chaque scénario
-    print("Test des différents niveaux de diversification:")
+    rewards = {}
     for scenario in scenarios:
         reward = reward_calculator.calculate(scenario["allocations"])
-        print(f"\n{scenario['description']}:")
-        print(f"  Allocations: {scenario['allocations']}")
-        print(f"  Récompense: {reward:.4f}")
+        rewards[scenario["description"]] = reward
+
+    assert rewards["Portfolio bien diversifié"] > rewards["Portfolio concentré sur un seul actif"]
 
     # Test de l'évolution de la diversification
-    print("\nTest de l'évolution de la diversification:")
     reward_calculator.reset()
 
     # Simulation d'une évolution d'allocations
@@ -238,9 +230,7 @@ def test_diversification_reward():
 
     for i, allocation in enumerate(evolution):
         reward = reward_calculator.calculate(allocation)
-        print(f"\nÉtape {i+1}:")
-        print(f"  Allocations: {allocation}")
-        print(f"  Récompense: {reward:.4f}")
+        assert np.isfinite(reward)
 
 
 def plot_rewards_comparison():

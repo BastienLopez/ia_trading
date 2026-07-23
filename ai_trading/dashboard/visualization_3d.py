@@ -8,6 +8,7 @@ Ce module permet de créer des visualisations en 3D interactives pour analyser:
 """
 
 import numpy as np
+import pandas as pd
 import plotly.graph_objects as go
 from scipy import interpolate
 from sklearn.decomposition import PCA
@@ -163,7 +164,9 @@ class Visualizer3D:
                 y=components[:, 1],
                 z=components[:, 2],
                 mode="lines",
-                line=dict(color=df.index, colorscale="Viridis", width=4),
+                # Plotly attend une échelle numérique pour la couleur d'une ligne,
+                # pas un DatetimeIndex : l'index est conservé dans les tooltips.
+                line=dict(color=np.arange(len(df)), colorscale="Viridis", width=4),
                 name="Trajectoire",
             )
         )
@@ -221,12 +224,23 @@ class Visualizer3D:
         """
         from sklearn.cluster import KMeans
 
+        # Travailler sur une copie et compléter la durée si les données brutes
+        # ne l'ont pas encore calculée.
+        trades = trades_df.copy()
+        if (
+            "holding_period" not in trades.columns
+            and {"entry_time", "exit_time"}.issubset(trades.columns)
+        ):
+            trades["holding_period"] = (
+                pd.to_datetime(trades["exit_time"]) - pd.to_datetime(trades["entry_time"])
+            ).dt.total_seconds() / 3600
+
         # Définir les caractéristiques par défaut si non spécifiées
         if features is None:
             features = ["profit_pct", "holding_period", "entry_volatility"]
 
             # Assurer que toutes les colonnes existent, sinon utiliser des alternatives
-            available_cols = trades_df.columns
+            available_cols = trades.columns
             if "profit_pct" not in available_cols and "profit" in available_cols:
                 features[0] = "profit"
             if "holding_period" not in available_cols and "duration" in available_cols:
@@ -235,7 +249,12 @@ class Visualizer3D:
                 features[2] = "volume"
 
         # Extraire les données pour le clustering
-        X = trades_df[features].copy()
+        missing_features = [feature for feature in features if feature not in trades.columns]
+        if missing_features:
+            raise ValueError(
+                f"Colonnes manquantes pour le clustering 3D: {missing_features}"
+            )
+        X = trades[features].copy()
 
         # Gérer les valeurs manquantes
         X = X.dropna()

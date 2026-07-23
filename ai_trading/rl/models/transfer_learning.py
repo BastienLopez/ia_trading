@@ -8,6 +8,7 @@ Ce module implémente:
 """
 
 import logging
+import copy
 from typing import Dict, List, Optional
 
 import torch
@@ -158,8 +159,11 @@ class MarketTransferLearning:
             Historique d'entraînement avec les pertes train et val
         """
         if self.optimizer is None:
-            logger.error("Aucun paramètre à optimiser, impossible de fine-tuner")
-            return {"train_loss": [], "val_loss": []}
+            raise RuntimeError("Aucun paramètre entraînable pour le fine-tuning")
+        if len(train_loader) == 0:
+            raise ValueError("Le DataLoader d'entraînement est vide")
+        if val_loader is not None and len(val_loader) == 0:
+            raise ValueError("Le DataLoader de validation est vide")
 
         history = {"train_loss": [], "val_loss": []}
         best_val_loss = float("inf")
@@ -171,7 +175,6 @@ class MarketTransferLearning:
             mode="min",
             factor=scheduler_factor,
             patience=scheduler_patience,
-            verbose=True,
         )
 
         for epoch in range(epochs):
@@ -268,6 +271,8 @@ class MarketTransferLearning:
 
                 total_loss += loss.item()
 
+        if len(data_loader) == 0:
+            raise ValueError("Le DataLoader d'évaluation est vide")
         return total_loss / len(data_loader)
 
     def predict(self, data: torch.Tensor) -> torch.Tensor:
@@ -301,9 +306,11 @@ class MarketTransferLearning:
         Sauvegarde l'état actuel comme le meilleur modèle.
         """
         self.best_model_state = {
-            "base_model": self.base_model.state_dict(),
+            "base_model": copy.deepcopy(self.base_model.state_dict()),
             "feature_mapper": (
-                self.feature_mapper.state_dict() if self.feature_mapper else None
+                copy.deepcopy(self.feature_mapper.state_dict())
+                if self.feature_mapper
+                else None
             ),
         }
 
@@ -326,6 +333,7 @@ class MarketTransferLearning:
             path: Chemin où sauvegarder le modèle
         """
         save_path = MODELS_DIR / path if not path.startswith("/") else path
+        save_path.parent.mkdir(parents=True, exist_ok=True)
         torch.save(
             {
                 "base_model_state_dict": self.base_model.state_dict(),
@@ -454,6 +462,8 @@ class DomainAdaptation:
         Returns:
             Perte CORAL
         """
+        if source.size(0) < 2 or target.size(0) < 2:
+            raise ValueError("CORAL requiert au moins deux observations par domaine")
         d = source.size(1)
 
         # Centrer les données

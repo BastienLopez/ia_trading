@@ -17,7 +17,7 @@ import torch.optim as optim
 from ai_trading.rl.agents.dqn_agent import DQNAgent
 from ai_trading.rl.agents.sac_agent import SACAgent
 from ai_trading.rl.agents.layers.noisy_linear import NoisyLinear
-from ai_trading.rl.environments.trading_environment import TradingEnvironment
+from ai_trading.rl.trading_environment import TradingEnvironment
 from ai_trading.rl.replay_buffer import PrioritizedReplayBuffer
 
 def load_market_data():
@@ -311,4 +311,4 @@ def rl_agent_example():
     return agent, rewards, portfolio_values
 
 if __name__ == "__main__":
-    agent, rewards, portfolio_values = rl_agent_example() 
+    agent, rewards, portfolio_values = rl_agent_example()

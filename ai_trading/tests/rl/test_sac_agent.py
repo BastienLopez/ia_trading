@@ -17,7 +17,6 @@ from pathlib import Path
 import gymnasium as gym
 import numpy as np
 import pandas as pd
-import tensorflow as tf
 import torch
 from gymnasium import spaces
 import pytest
@@ -27,15 +26,11 @@ warnings.filterwarnings(
     "ignore", message=".*distutils Version classes are deprecated.*"
 )
 warnings.filterwarnings("ignore", message=".*'imghdr' is deprecated.*")
-warnings.filterwarnings("ignore", message=".*tensorflow.*deprecated.*")
 
 # Configurer le logger pour les tests
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Configurer le niveau de log pour réduire les sorties de TensorFlow
-os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
-tf.get_logger().setLevel("ERROR")
 
 # Ajouter le répertoire parent au chemin pour l'importation
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -247,28 +242,40 @@ class TestSACAgent(unittest.TestCase):
                 self.assertTrue(torch.allclose(p1, p2))
 
     def test_trading_integration(self):
-        """Teste l'intégration avec l'environnement de trading."""
+        """Teste un agent dimensionné pour l'environnement réel."""
+        trading_agent = TransformerSACAgent(
+            state_dim=self.trading_env.observation_space.shape[0],
+            action_dim=self.trading_env.action_space.shape[0],
+            d_model=8,
+            n_heads=2,
+            num_layers=1,
+            dim_feedforward=16,
+            sequence_length=3,
+            batch_size=4,
+            buffer_size=32,
+            device="cuda" if torch.cuda.is_available() else "cpu",
+        )
         # Réinitialiser l'environnement
         state, _ = self.trading_env.reset()
 
         # Exécuter quelques étapes
         for _ in range(10):
             # Sélectionner une action
-            action = self.agent.select_action(state)
+            action = trading_agent.select_action(state)
 
             # Exécuter l'action
             next_state, reward, terminated, truncated, _ = self.trading_env.step(action)
 
             # Mémoriser l'expérience
-            self.agent.replay_buffer.add(state, action, reward, next_state, terminated)
+            trading_agent.remember(state, action, reward, next_state, terminated or truncated)
 
             # Mettre à jour l'état
             state = next_state
 
             # Entraîner l'agent si suffisamment d'expériences
-            if len(self.agent.replay_buffer) >= self.agent.batch_size:
-                metrics = self.agent.train()
-                self.assertIsInstance(metrics, dict)
+            if len(trading_agent.replay_buffer) >= trading_agent.batch_size:
+                metrics = trading_agent.train()
+                self.assertIn("actor_loss", metrics)
 
     def test_transformer_architecture(self):
         """Teste spécifiquement l'architecture Transformer."""
@@ -339,8 +346,10 @@ def test_training_with_sequences(sac_agent):
     next_state_seq = np.random.randn(5, 10)
     done = False
 
-    # Ajouter l'expérience au buffer
-    sac_agent.replay_buffer.add(state_seq, action, reward, next_state_seq, done)
+    # Un update exige un batch complet : une seule transition ne doit pas être
+    # artificiellement sur-échantillonnée.
+    for _ in range(sac_agent.batch_size):
+        sac_agent.remember(state_seq, action, reward, next_state_seq, done)
 
     # Entraîner l'agent
     metrics = sac_agent.train()

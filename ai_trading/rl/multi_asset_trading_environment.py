@@ -10,6 +10,8 @@ import pandas as pd
 from gymnasium import spaces
 
 from ai_trading.config import VISUALIZATION_DIR
+from ai_trading.rl.indicator_fusion import add_causal_indicator_fusion
+from ai_trading.rl.market_regime import add_causal_regime_features
 from ai_trading.rl.portfolio_allocator import PortfolioAllocator
 
 from .market_constraints import MarketConstraints
@@ -51,6 +53,13 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
         reward_function="sharpe",
         allocation_method="equal",  # Options: "equal", "volatility", "momentum", "smart"
         rebalance_frequency=5,  # Fréquence de rééquilibrage (en pas de temps)
+        min_trade_fraction=0.01,  # Notionnel minimal, fraction de la valeur du portefeuille
+        min_action_magnitude=0.05,  # Signal minimal avant de créer un ordre
+        atr_stop_multiplier=3.0,
+        atr_trailing_multiplier=4.0,
+        max_stop_loss_pct=0.10,
+        max_trailing_drawdown_pct=0.12,
+        max_asset_exposure=0.45,
         max_active_positions=3,  # Nombre maximum de positions actives simultanées
         action_type="continuous",  # Pour le multi-actifs, on utilise des actions continues
         slippage_model="dynamic",
@@ -103,9 +112,11 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
         assert reward_function in [
             "simple",
             "sharpe",
+            "sortino",
             "transaction_penalty",
             "drawdown",
             "diversification",
+            "risk_adjusted_excess",
         ], "Fonction de récompense invalide"
         assert allocation_method in [
             "equal",
@@ -113,12 +124,21 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
             "momentum",
             "smart",
         ], "Méthode d'allocation invalide"
+        assert rebalance_frequency >= 1, "La fréquence de rééquilibrage doit être positive"
+        assert 0 <= min_trade_fraction < 1, "La fraction minimale de trade doit être entre 0 et 1"
+        assert 0 <= min_action_magnitude <= 1, "Le seuil de signal doit être entre 0 et 1"
+        assert atr_stop_multiplier > 0 and atr_trailing_multiplier > 0, "Les multiplicateurs ATR doivent être positifs"
+        assert 0 < max_stop_loss_pct < 1 and 0 < max_trailing_drawdown_pct < 1, "Les plafonds de perte doivent être entre 0 et 1"
+        assert 0 < max_asset_exposure <= 1, "L'exposition maximale par actif doit être entre 0 et 1"
         assert (
             action_type == "continuous"
         ), "Pour le trading multi-actifs, seul le type d'action 'continuous' est supporté"
 
         # Stockage des paramètres
-        self.data_dict = data_dict
+        self.data_dict = {
+            symbol: self._normalize_market_frame(frame, symbol)
+            for symbol, frame in data_dict.items()
+        }
         self.symbols = list(data_dict.keys())
         self.num_assets = len(self.symbols)
         self.initial_balance = initial_balance
@@ -132,6 +152,13 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
         self.reward_function = reward_function
         self.allocation_method = allocation_method
         self.rebalance_frequency = rebalance_frequency
+        self.min_trade_fraction = min_trade_fraction
+        self.min_action_magnitude = min_action_magnitude
+        self.atr_stop_multiplier = atr_stop_multiplier
+        self.atr_trailing_multiplier = atr_trailing_multiplier
+        self.max_stop_loss_pct = max_stop_loss_pct
+        self.max_trailing_drawdown_pct = max_trailing_drawdown_pct
+        self.max_asset_exposure = max_asset_exposure
         self.max_active_positions = min(max_active_positions, self.num_assets)
         self.action_type = action_type
         self.slippage_model = slippage_model
@@ -145,6 +172,26 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
         # Aligner toutes les données sur les mêmes dates
         self._align_data()
 
+        # Pré-calculer les indicateurs causaux une fois par actif. L'observation
+        # multi-actifs utilisait auparavant seulement RSI/MACD, ce qui créait un
+        # contrat différent de l'environnement mono-actif.
+        self.technical_feature_data = {}
+        if self.include_technical_indicators:
+            from ai_trading.rl.technical_indicators import TechnicalIndicators
+
+            for symbol in self.symbols:
+                # ``get_all_indicators`` renvoie les indicateurs, pas OHLCV.
+                # La fusion/régime causal a besoin du close réellement observé.
+                features = self.data_dict[symbol][["close", "volume"]].join(
+                    TechnicalIndicators(self.data_dict[symbol]).get_all_indicators()
+                )
+                features = add_causal_regime_features(features)
+                features = add_causal_indicator_fusion(features)
+                self.technical_feature_data[symbol] = (
+                    features.select_dtypes(include=[np.number])
+                    .replace([np.inf, -np.inf], np.nan).ffill().fillna(0.0)
+                )
+
         # Calculer les corrélations et volatilités avant l'initialisation du portfolio allocator
         self.asset_correlations = self._calculate_asset_correlations()
         self.asset_volatilities = self._calculate_asset_volatilities()
@@ -157,14 +204,20 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
         # Initialiser les variables de l'environnement
         self.balance = initial_balance
         self.crypto_holdings = {symbol: 0.0 for symbol in self.symbols}
+        self.position_entry_prices = {symbol: 0.0 for symbol in self.symbols}
+        self.position_peak_prices = {symbol: 0.0 for symbol in self.symbols}
         self.last_prices = {symbol: 0.0 for symbol in self.symbols}
         self.portfolio_value_history = []
         self.returns_history = []
         self.allocation_history = []
         self.current_step = self.window_size
-        self.steps_since_rebalance = 0
+        # Le premier rééquilibrage reste autorisé immédiatement après reset.
+        self.steps_since_rebalance = self.rebalance_frequency - 1
         self.active_assets = self.symbols[: self.max_active_positions]
         self.pending_orders = []
+        self.reserved_cash = 0.0
+        self.transaction_count = 0
+        self.trade_events = []
 
         # Initialiser l'espace d'action: allocation pour chaque actif (-1 à 1 pour chaque actif)
         # -1: vendre 100%, 0: ne rien faire, 1: acheter 100%
@@ -201,6 +254,31 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
         logger.info(
             f"Environnement de trading multi-actifs initialisé avec {self.num_assets} actifs: {', '.join(self.symbols)}"
         )
+
+    @staticmethod
+    def _normalize_market_frame(frame: pd.DataFrame, symbol: str) -> pd.DataFrame:
+        """Normalise une source partielle vers le contrat OHLCV minimal.
+
+        Les collecteurs alternatifs peuvent fournir seulement ``close`` et
+        ``volume``. Dans ce cas, réutiliser ``close`` pour open/high/low est un
+        repli neutre et explicite : aucun range intrabougie n'est inventé, et
+        les indicateurs qui en dépendent restent à zéro plutôt que d'échouer.
+        """
+        if "close" not in frame.columns:
+            raise ValueError(f"Les données de {symbol} doivent contenir une colonne 'close'")
+
+        normalized = frame.copy()
+        close = pd.to_numeric(normalized["close"], errors="coerce")
+        if close.isna().all():
+            raise ValueError(f"La colonne 'close' de {symbol} ne contient aucune valeur numérique")
+        normalized["close"] = close.ffill().bfill()
+
+        for column in ("open", "high", "low"):
+            if column not in normalized.columns:
+                normalized[column] = normalized["close"]
+        if "volume" not in normalized.columns:
+            normalized["volume"] = 0.0
+        return normalized
 
     def _align_data(self):
         """
@@ -248,6 +326,8 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
         self.current_step = self.window_size
         self.balance = self.initial_balance
         self.crypto_holdings = {symbol: 0.0 for symbol in self.symbols}
+        self.position_entry_prices = {symbol: 0.0 for symbol in self.symbols}
+        self.position_peak_prices = {symbol: 0.0 for symbol in self.symbols}
         self.last_prices = {
             symbol: self.data_dict[symbol].iloc[self.current_step]["close"]
             for symbol in self.symbols
@@ -255,9 +335,11 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
         self.portfolio_value_history = [self.initial_balance]
         self.returns_history = []
         self.allocation_history = []
-        self.steps_since_rebalance = 0
+        self.steps_since_rebalance = self.rebalance_frequency - 1
         self.active_assets = self.symbols[: self.max_active_positions]
         self.pending_orders = []
+        self.reserved_cash = 0.0
+        self.transaction_count = 0
 
         # Obtenir l'observation initiale
         observation = self._get_observation()
@@ -277,24 +359,37 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
         """
         # Sauvegarder la valeur précédente du portefeuille
         previous_value = self.get_portfolio_value()
+        transaction_count_before = self.transaction_count
 
         # Traitement des ordres en attente
         self._process_pending_orders()
+        if self.risk_management:
+            self._apply_atr_risk_exits()
 
-        # Normaliser les actions pour qu'elles représentent des pourcentages du portefeuille
-        normalized_actions = self._normalize_allocation(action)
+        # Les positifs partagent le cash disponible et les négatifs vendent une
+        # fraction de l'inventaire correspondant. Une vente n'est donc jamais
+        # calculée à partir du cash (ancien comportement erroné).
+        normalized_actions = self.project_action(action)
+        buy_budget = max(0.0, self.balance - self.reserved_cash)
 
         # Création des nouveaux ordres
         for i, symbol in enumerate(self.symbols):
             if (
                 abs(normalized_actions[i]) > 1e-6
             ):  # Seulement si l'action n'est pas nulle
-                # Calculer la valeur cible pour cet actif
-                target_value = normalized_actions[i] * self.balance
                 current_price = self.data_dict[symbol].iloc[self.current_step]["close"]
-
-                # Calculer la quantité à trader
-                quantity = target_value / current_price
+                if normalized_actions[i] > 0:
+                    quantity = buy_budget * normalized_actions[i] / current_price
+                else:
+                    quantity = self.crypto_holdings[symbol] * abs(normalized_actions[i])
+                trade_notional = quantity * current_price
+                # Empêche les micro-achats récurrents qui gonflent le turnover
+                # sans modifier matériellement le portefeuille.
+                if (
+                    quantity <= 1e-12
+                    or trade_notional < self.min_trade_fraction * max(previous_value, 1e-12)
+                ):
+                    continue
 
                 # Calculer l'impact marché
                 impact, recovery_time = self.market_constraints.calculate_market_impact(
@@ -321,14 +416,35 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
                     symbol, normalized_actions[i], quantity
                 )
 
-                # Exécuter la transaction
-                self._execute_trade(
-                    symbol=symbol,
-                    action_value=normalized_actions[i],
-                    volume=quantity,
-                    price=current_price,
-                    slippage=slippage,
-                )
+                if self.execution_delay > 0:
+                    reserved_cost = 0.0
+                    if normalized_actions[i] > 0:
+                        estimated_cost = quantity * current_price * (1 + slippage) * (1 + self.transaction_fee)
+                        available_cash = max(0.0, self.balance - self.reserved_cash)
+                        reserved_cost = min(estimated_cost, available_cash)
+                        if reserved_cost <= 0:
+                            continue
+                        quantity = reserved_cost / (
+                            current_price * (1 + slippage) * (1 + self.transaction_fee)
+                        )
+                        self.reserved_cash += reserved_cost
+                    self.pending_orders.append(
+                        {
+                            "symbol": symbol,
+                            "action_value": normalized_actions[i],
+                            "volume": quantity,
+                            "delay": self.execution_delay,
+                            "reserved_cost": reserved_cost,
+                        }
+                    )
+                else:
+                    self._execute_trade(
+                        symbol=symbol,
+                        action_value=normalized_actions[i],
+                        volume=quantity,
+                        price=current_price,
+                        slippage=slippage,
+                    )
 
         # Mettre à jour l'étape courante et les données
         self.current_step += 1
@@ -336,7 +452,16 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
 
         # Calculer la nouvelle valeur du portefeuille et la récompense
         current_value = self.get_portfolio_value()
-        reward = self._calculate_reward(previous_value, current_value)
+        reward = self._calculate_reward(
+            previous_value, current_value, self.transaction_count - transaction_count_before
+        )
+
+        if self.transaction_count > transaction_count_before:
+            self.steps_since_rebalance = 0
+        else:
+            self.steps_since_rebalance = min(
+                self.rebalance_frequency - 1, self.steps_since_rebalance + 1
+            )
 
         # Mettre à jour l'historique des allocations
         current_weights = {
@@ -368,7 +493,10 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
         terminated = self.current_step >= len(self.data_dict[self.symbols[0]]) - 1
         truncated = False
 
-        return self._get_observation(), reward, terminated, truncated, self._get_info()
+        info = self._get_info()
+        info["trade_executed"] = self.transaction_count > transaction_count_before
+        info["trade_events"] = list(self.trade_events)
+        return self._get_observation(), reward, terminated, truncated, info
 
     def _process_pending_orders(self):
         """
@@ -386,8 +514,11 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
                     order["symbol"],
                     order["action_value"],
                     order["volume"],
-                    self.last_prices[order["symbol"]],
+                    self.data_dict[order["symbol"]].iloc[self.current_step]["close"],
                     slippage,
+                )
+                self.reserved_cash = max(
+                    0.0, self.reserved_cash - order.get("reserved_cost", 0.0)
                 )
             else:
                 remaining_orders.append(order)
@@ -400,6 +531,7 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
         volume: float,
         price: float,
         slippage: float,
+        reason: str = "agent_order",
     ):
         """
         Exécute une transaction.
@@ -422,13 +554,89 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
                 volume = self.balance / (execution_price * (1 + self.transaction_fee))
 
             cost = volume * execution_price * (1 + self.transaction_fee)
+            previous_quantity = self.crypto_holdings[symbol]
             self.balance -= cost
             self.crypto_holdings[symbol] += volume
+            total_quantity = self.crypto_holdings[symbol]
+            if total_quantity > 0:
+                self.position_entry_prices[symbol] = (
+                    previous_quantity * self.position_entry_prices[symbol] + volume * execution_price
+                ) / total_quantity
+                self.position_peak_prices[symbol] = max(
+                    self.position_peak_prices[symbol], execution_price
+                )
+            self.transaction_count += 1
+            self.trade_events.append(
+                {
+                    "timestamp": self.data_dict[symbol].index[self.current_step],
+                    "symbol": symbol,
+                    "side": "buy",
+                    "quantity": float(volume),
+                    "price": float(execution_price),
+                    "fee": float(volume * execution_price * self.transaction_fee),
+                    "reason": reason,
+                }
+            )
         else:  # Vente
             max_volume = min(volume, self.crypto_holdings[symbol])
             revenue = max_volume * execution_price * (1 - self.transaction_fee)
             self.balance += revenue
             self.crypto_holdings[symbol] -= max_volume
+            if self.crypto_holdings[symbol] <= 1e-12:
+                self.crypto_holdings[symbol] = 0.0
+                self.position_entry_prices[symbol] = 0.0
+                self.position_peak_prices[symbol] = 0.0
+            if max_volume > 0:
+                self.transaction_count += 1
+                self.trade_events.append(
+                    {
+                        "timestamp": self.data_dict[symbol].index[self.current_step],
+                        "symbol": symbol,
+                        "side": "sell",
+                        "quantity": float(max_volume),
+                        "price": float(execution_price),
+                        "fee": float(max_volume * execution_price * self.transaction_fee),
+                        "reason": reason,
+                    }
+                )
+
+    def _apply_atr_risk_exits(self):
+        """Ferme une position quand le stop ATR ou le trailing-stop est touché."""
+        for symbol in self.symbols:
+            quantity = self.crypto_holdings[symbol]
+            if quantity <= 1e-12:
+                continue
+            price = float(self.data_dict[symbol].iloc[self.current_step]["close"])
+            features = self.technical_feature_data.get(symbol)
+            atr = float(features.iloc[self.current_step].get("atr", 0.0)) if features is not None else 0.0
+            atr = max(atr, price * 0.02)
+            self.position_peak_prices[symbol] = max(self.position_peak_prices[symbol], price)
+            entry_price = self.position_entry_prices[symbol]
+            stop_price = (
+                max(
+                    entry_price - self.atr_stop_multiplier * atr,
+                    entry_price * (1.0 - self.max_stop_loss_pct),
+                )
+                if entry_price > 0 else -np.inf
+            )
+            trailing_price = max(
+                self.position_peak_prices[symbol] - self.atr_trailing_multiplier * atr,
+                self.position_peak_prices[symbol] * (1.0 - self.max_trailing_drawdown_pct),
+            )
+            reason = None
+            if price <= stop_price:
+                reason = "atr_stop_loss"
+            elif price <= trailing_price:
+                reason = "atr_trailing_stop"
+            if reason:
+                self._execute_trade(
+                    symbol=symbol,
+                    action_value=-1.0,
+                    volume=quantity,
+                    price=price,
+                    slippage=self._calculate_slippage(symbol, -1.0, quantity),
+                    reason=reason,
+                )
 
     def _calculate_volatility(self, symbol: str) -> float:
         """Calcule la volatilité sur la fenêtre d'observation."""
@@ -584,30 +792,17 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
                 )  # Normaliser
                 obs_components.append(volume_window)
 
-            # Indicateurs techniques (si activés)
+            # Tous les indicateurs techniques, normalisés sur la fenêtre passée
+            # de l'actif. Aucun prix futur ni backfill n'est utilisé.
             if self.include_technical_indicators:
-                # Ajouter les principaux indicateurs techniques pour cet actif
-                from ai_trading.rl.technical_indicators import TechnicalIndicators
-
-                indicators = TechnicalIndicators(
-                    self.data_dict[symbol].iloc[: self.current_step]
-                )
-                rsi = indicators.calculate_rsi()
-                if rsi is not None and len(rsi) > 0:
-                    rsi_value = rsi.iloc[-1] / 100.0  # Normaliser entre 0 et 1
-                    obs_components.append(np.array([rsi_value]))
-
-                macd, signal, hist = indicators.calculate_macd()
-                if macd is not None and len(macd) > 0:
-                    # Normaliser MACD et signal par la plage typique
-                    macd_range = 20.0  # Valeur typique pour la plage du MACD
-                    macd_value = (macd.iloc[-1] + macd_range) / (
-                        2 * macd_range
-                    )  # Normaliser entre 0 et 1
-                    signal_value = (signal.iloc[-1] + macd_range) / (
-                        2 * macd_range
-                    )  # Normaliser entre 0 et 1
-                    obs_components.append(np.array([macd_value, signal_value]))
+                features = self.technical_feature_data[symbol]
+                history = features.iloc[
+                    self.current_step - self.window_size : self.current_step
+                ]
+                current = history.iloc[-1]
+                std = history.std(ddof=0).replace(0.0, 1.0)
+                normalized = ((current - history.mean()) / std).clip(-10.0, 10.0)
+                obs_components.append(normalized.to_numpy(dtype=np.float32))
 
             # Position actuelle pour cet actif
             if self.include_position:
@@ -666,7 +861,42 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
                 for symbol in self.symbols
             },
             "steps_since_rebalance": self.steps_since_rebalance,
+            "trade_events": list(self.trade_events),
         }
+
+    def get_action_mask(self):
+        """Retourne les bornes exécutables par actif pour PPO/SAC.
+
+        L'environnement est long-only : sans inventaire une vente est masquée,
+        et sans cash les achats sont masqués. Les agents continus reçoivent ces
+        bornes directement dans leur projection d'action.
+        """
+        if self.steps_since_rebalance < self.rebalance_frequency - 1:
+            zeros = np.zeros(self.num_assets, dtype=np.float32)
+            return {"low": zeros, "high": zeros}
+
+        prices = np.asarray(
+            [self.data_dict[symbol].iloc[self.current_step]["close"] for symbol in self.symbols],
+            dtype=np.float32,
+        )
+        holdings = np.asarray([self.crypto_holdings[symbol] for symbol in self.symbols])
+        low = np.where(holdings * prices > 1e-8, -1.0, 0.0).astype(np.float32)
+        high = np.full(self.num_assets, 1.0 if self.balance - self.reserved_cash > 1e-8 else 0.0, dtype=np.float32)
+        return {"low": low, "high": high}
+
+    def project_action(self, action):
+        """Projette une action continue dans les contraintes cash/inventaire."""
+        values = np.asarray(action, dtype=np.float32).reshape(self.num_assets)
+        mask = self.get_action_mask()
+        values = np.clip(values, mask["low"], mask["high"])
+        values[np.abs(values) < self.min_action_magnitude] = 0.0
+        positive = np.clip(values, 0.0, None)
+        positive = np.minimum(positive, self.max_asset_exposure)
+        positive_sum = float(positive.sum())
+        if positive_sum > 1.0:
+            positive /= positive_sum
+        negative = np.clip(values, None, 0.0)
+        return (positive + negative).astype(np.float32)
 
     def get_portfolio_value(self):
         """
@@ -682,7 +912,7 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
         )
         return self.balance + assets_value
 
-    def _calculate_reward(self, previous_value, current_value):
+    def _calculate_reward(self, previous_value, current_value, executed_trades: int = 0):
         """
         Calcule la récompense basée sur la fonction de récompense choisie.
 
@@ -699,19 +929,39 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
             if previous_value > 0
             else 0
         )
+        self.returns_history.append(pct_change)
+        self.portfolio_value_history.append(current_value)
 
         # Choisir la fonction de récompense appropriée
         reward_functions = {
             "simple": lambda: pct_change,
             "sharpe": self._sharpe_reward,
+            "sortino": self._sortino_reward,
             "diversification": lambda: self._diversification_reward(pct_change),
-            "transaction_penalty": lambda: pct_change,  # TODO: Implement
-            "drawdown": lambda: pct_change,  # TODO: Implement
+            "transaction_penalty": lambda: pct_change - 0.0001 * self.transaction_count,
+            "drawdown": lambda: self._drawdown_reward(pct_change),
+            "risk_adjusted_excess": lambda: self._risk_adjusted_excess_reward(pct_change, executed_trades),
         }
 
         # Obtenir et exécuter la fonction de récompense
         reward_func = reward_functions.get(self.reward_function, lambda: pct_change)
         return reward_func()
+
+    def _risk_adjusted_excess_reward(self, portfolio_return: float, executed_trades: int) -> float:
+        """Excès de rendement causal, pénalisé par drawdown et turnover réel."""
+        if self.current_step <= 0:
+            return 0.0
+        benchmark_returns = []
+        for symbol in self.symbols:
+            close = self.data_dict[symbol]["close"]
+            previous, current = float(close.iloc[self.current_step - 1]), float(close.iloc[self.current_step])
+            if previous > 0:
+                benchmark_returns.append(current / previous - 1.0)
+        benchmark_return = float(np.mean(benchmark_returns)) if benchmark_returns else 0.0
+        peak = max(self.portfolio_value_history, default=self.initial_balance)
+        drawdown = max(0.0, (peak - self.portfolio_value_history[-1]) / max(peak, 1e-12))
+        reward = portfolio_return - benchmark_return - 0.25 * drawdown - 0.002 * max(0, executed_trades)
+        return float(np.clip(reward, -1.0, 1.0))
 
     def _normalize_allocation(self, allocation):
         """
@@ -723,34 +973,14 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
         Returns:
             np.ndarray: Tableau des allocations normalisées
         """
-        # Gérer le cas où toutes les allocations sont nulles
-        if np.sum(np.abs(allocation)) == 0:
-            return np.zeros_like(allocation)
-
-        # Normaliser les allocations positives et négatives séparément
-        positive_mask = allocation > 0
-        negative_mask = allocation < 0
-
-        positive_sum = np.sum(allocation[positive_mask])
-        negative_sum = np.abs(np.sum(allocation[negative_mask]))
-
-        normalized_allocation = np.zeros_like(allocation)
-
-        if positive_sum > 0:
-            normalized_allocation[positive_mask] = (
-                allocation[positive_mask] / positive_sum
-            )
-        if negative_sum > 0:
-            normalized_allocation[negative_mask] = (
-                allocation[negative_mask] / negative_sum
-            )
-
-        # Assurer que la somme totale des allocations (positives et négatives) ne dépasse pas 1
-        total_allocation = np.sum(np.abs(normalized_allocation))
-        if total_allocation > 1.0:
-            normalized_allocation = normalized_allocation / total_allocation
-
-        return normalized_allocation
+        # Compatibilité publique : même contrat que ``project_action`` sans
+        # modifier l'état de portefeuille.
+        values = np.asarray(allocation, dtype=np.float32).reshape(self.num_assets)
+        positive = np.clip(values, 0.0, 1.0)
+        positive_sum = float(positive.sum())
+        if positive_sum > 1.0:
+            positive /= positive_sum
+        return positive + np.clip(values, -1.0, 0.0)
 
     def _sharpe_reward(self):
         """
@@ -786,6 +1016,26 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
         reward = np.clip(sharpe_ratio, -10, 10)
 
         return reward
+
+    def _sortino_reward(self):
+        """Ratio de Sortino annualisé, calculé uniquement sur le risque baissier."""
+        if len(self.returns_history) < 20:
+            return 0.0
+        returns = np.asarray(self.returns_history[-20:], dtype=float)
+        downside = returns[returns < 0]
+        if len(downside) == 0:
+            return float(np.clip(np.mean(returns) * np.sqrt(252), -10, 10))
+        downside_deviation = np.sqrt(np.mean(np.square(downside)))
+        if downside_deviation == 0:
+            return 0.0
+        return float(np.clip(np.mean(returns) / downside_deviation * np.sqrt(252), -10, 10))
+
+    def _drawdown_reward(self, base_reward: float) -> float:
+        """Pénalise la baisse depuis le plus haut historique du portefeuille."""
+        peak = max(self.portfolio_value_history, default=self.initial_balance)
+        current = self.portfolio_value_history[-1] if self.portfolio_value_history else self.initial_balance
+        drawdown = max(0.0, (peak - current) / max(peak, 1e-12))
+        return float(base_reward - drawdown)
 
     def _diversification_reward(self, base_reward: float) -> float:
         """

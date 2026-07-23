@@ -240,8 +240,7 @@ class TestCompleteAllocationSystem:
             elif isinstance(result.weights, pd.Series):
                 assert abs(result.weights.sum() - 1.0) < 1e-6
         except (NotImplementedError, ValueError) as e:
-            # Si la méthode risk_parity n'est pas implémentée, le test est ignoré
-            pytest.skip(f"Méthode risk_parity non implémentée: {str(e)}")
+            pytest.fail(f"Méthode risk_parity indisponible: {e}")
 
     def test_optimize_different_regimes(self, allocation_system):
         """Teste l'optimisation dans différents régimes de marché."""
@@ -263,8 +262,7 @@ class TestCompleteAllocationSystem:
                 elif isinstance(result.weights, pd.Series):
                     assert abs(result.weights.sum() - 1.0) < 1e-6
             except (NotImplementedError, ValueError) as e:
-                # Si un régime particulier n'est pas implémenté, on passe au suivant
-                continue
+                pytest.fail(f"Optimisation indisponible pour le régime {regime}: {e}")
 
     def test_rebalance_need(self, allocation_system, prices_data):
         """Teste la détection du besoin de rééquilibrage."""
@@ -336,8 +334,7 @@ class TestCompleteAllocationSystem:
             assert adjustments is not None
             
         except (TypeError, ValueError) as e:
-            # Si la méthode a une signature différente, ignorer le test
-            pytest.skip(f"Interface de la méthode get_rebalance_plan incompatible: {str(e)}")
+            pytest.fail(f"Interface get_rebalance_plan incompatible: {e}")
 
     def test_integrate_signals(self, allocation_system):
         """Teste l'intégration des signaux de trading."""
@@ -372,8 +369,7 @@ class TestCompleteAllocationSystem:
             assert all(0 <= w <= 1 for w in weight_values)
             
         except (NotImplementedError, ValueError, TypeError) as e:
-            # Si la méthode a une signature différente ou n'est pas implémentée, ignorer le test
-            pytest.skip(f"Méthode integrate_signals incompatible: {str(e)}")
+            pytest.fail(f"Méthode integrate_signals indisponible: {e}")
 
     def test_stress_test(self, allocation_system):
         """Teste la fonctionnalité de stress test."""
@@ -406,5 +402,4 @@ class TestCompleteAllocationSystem:
             assert stress_result is not None
             
         except (NotImplementedError, ValueError, TypeError) as e:
-            # Si la méthode a une signature différente ou n'est pas implémentée, ignorer le test
-            pytest.skip(f"Méthode stress_test incompatible: {str(e)}")
+            pytest.fail(f"Méthode stress_test indisponible: {e}")

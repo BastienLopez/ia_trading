@@ -9,6 +9,7 @@ import pandas as pd
 from ai_trading.llm.sentiment_analysis.news_analyzer import NewsAnalyzer
 from ai_trading.llm.sentiment_analysis.social_analyzer import SocialAnalyzer
 from ai_trading.rl.data_processor import prepare_data_for_rl
+from ai_trading.rl.technical_indicators import TechnicalIndicators
 from ai_trading.utils.enhanced_data_collector import EnhancedDataCollector
 from ai_trading.utils.enhanced_preprocessor import EnhancedMarketDataPreprocessor
 
@@ -37,6 +38,11 @@ class RLDataIntegrator:
             config (dict, optional): Configuration pour la collecte et le prétraitement des données
         """
         self.config = config or {}
+        # Les données synthétiques restent utiles aux démonstrations et tests,
+        # mais ne doivent jamais remplacer silencieusement une collecte réelle.
+        self.allow_synthetic_fallback = bool(
+            self.config.get("allow_synthetic_fallback", False)
+        )
         self.data_collector = EnhancedDataCollector()
         self.data_preprocessor = EnhancedMarketDataPreprocessor()
         self.news_analyzer = NewsAnalyzer()
@@ -74,8 +80,12 @@ class RLDataIntegrator:
 
         except Exception as e:
             logger.error(f"Erreur lors de la collecte des données de marché: {str(e)}")
-            # Créer des données synthétiques en cas d'erreur
-            return self._generate_synthetic_market_data(start_date, end_date, interval)
+            if self.allow_synthetic_fallback:
+                return self._generate_synthetic_market_data(start_date, end_date, interval)
+            raise RuntimeError(
+                f"Collecte marché RL impossible pour {symbol}; aucune donnée synthétique "
+                "n'est autorisée pour cet entraînement."
+            ) from e
 
     def collect_sentiment_data(self, symbol, start_date, end_date):
         """
@@ -117,12 +127,14 @@ class RLDataIntegrator:
             )
 
             if sentiment_data.empty:
-                logger.warning(
-                    "Aucune donnée de sentiment disponible, génération de données synthétiques"
-                )
-                sentiment_data = self._generate_synthetic_sentiment_data(
-                    start_date, end_date
-                )
+                if self.allow_synthetic_fallback:
+                    sentiment_data = self._generate_synthetic_sentiment_data(
+                        start_date, end_date
+                    )
+                else:
+                    raise RuntimeError(
+                        f"Aucune donnée de sentiment réelle disponible pour {symbol}."
+                    )
 
             return sentiment_data
 
@@ -130,8 +142,12 @@ class RLDataIntegrator:
             logger.error(
                 f"Erreur lors de la collecte des données de sentiment: {str(e)}"
             )
-            # Créer des données synthétiques en cas d'erreur
-            return self._generate_synthetic_sentiment_data(start_date, end_date)
+            if self.allow_synthetic_fallback:
+                return self._generate_synthetic_sentiment_data(start_date, end_date)
+            raise RuntimeError(
+                f"Collecte sentiment RL impossible pour {symbol}; aucune donnée synthétique "
+                "n'est autorisée pour cet entraînement."
+            ) from e
 
     def preprocess_market_data(self, market_data):
         """
@@ -151,9 +167,11 @@ class RLDataIntegrator:
                 market_data
             )
 
-            # Ajouter des indicateurs techniques supplémentaires si nécessaire
-            if "rsi" not in preprocessed_data.columns:
-                preprocessed_data = self.data_preprocessor.add_technical_indicators(
+            required_ohlcv = {"open", "high", "low", "close", "volume"}
+            if required_ohlcv.issubset(preprocessed_data.columns):
+                # Contrat unique avec TradingEnvironment : toute entrée RL
+                # reçoit exactement le même jeu causal d'indicateurs.
+                preprocessed_data = TechnicalIndicators(preprocessed_data).add_all_indicators(
                     preprocessed_data
                 )
 
@@ -233,8 +251,9 @@ class RLDataIntegrator:
         merged = (
             merged.copy()
         )  # Pour éviter les avertissements de SettingWithCopyWarning
-        merged = merged.fillna(merged.shift())  # Forward fill
-        merged = merged.fillna(merged.shift(-1))  # Backward fill
+        # Aucun backfill : une actualité future ne doit jamais compléter une
+        # observation historique utilisée pour entraîner ou évaluer le RL.
+        merged = merged.ffill().fillna(0.0)
 
         # Calculer un score de sentiment combiné
         if (
@@ -540,9 +559,8 @@ class RLDataIntegrator:
             if col in combined_data.columns:
                 # Forward fill
                 combined_data[col] = combined_data[col].ffill()
-                # Backward fill
-                combined_data[col] = combined_data[col].bfill()
-                # Si des valeurs manquantes persistent, remplir avec 0
+                # Une valeur avant la première observation n'est pas connue :
+                # 0 est un neutre explicite, jamais une valeur future recopiée.
                 combined_data[col] = combined_data[col].fillna(0)
 
         # Pour les colonnes de marché
@@ -551,12 +569,11 @@ class RLDataIntegrator:
             if col in combined_data.columns:
                 # Forward fill
                 combined_data[col] = combined_data[col].ffill()
-                # Backward fill
-                combined_data[col] = combined_data[col].bfill()
-                # Si des valeurs manquantes persistent, remplir avec la moyenne
-                combined_data[col] = combined_data[col].fillna(
-                    combined_data[col].mean()
-                )
+                if combined_data[col].isna().any():
+                    raise ValueError(
+                        f"La colonne marché '{col}' contient des valeurs manquantes "
+                        "avant sa première observation; impossible de les imputer sans look-ahead."
+                    )
 
         logger.info(
             f"Données intégrées avec succès. Colonnes: {combined_data.columns.tolist()}"

@@ -1,19 +1,14 @@
 import os
 import random
-import sys
 import tempfile
 import unittest
-from pathlib import Path
 
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
 
-# Ajouter le répertoire parent au chemin pour pouvoir importer les modules
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-from rl.hogwild import (
+from ai_trading.rl.hogwild import (
     AsyncAdvantageActorCritic,
     HogwildTrainer,
     HogwildWorker,

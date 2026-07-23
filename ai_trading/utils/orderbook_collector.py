@@ -82,8 +82,10 @@ class OrderBookCollector:
         if not orderbook:
             return {}
 
-        bids = np.array(orderbook["bids"])
-        asks = np.array(orderbook["asks"])
+        bids = np.asarray(orderbook.get("bids", []), dtype=float)
+        asks = np.asarray(orderbook.get("asks", []), dtype=float)
+        if bids.ndim != 2 or asks.ndim != 2 or len(bids) == 0 or len(asks) == 0:
+            return {}
 
         bid_prices, bid_volumes = bids[:, 0], bids[:, 1]
         ask_prices, ask_volumes = asks[:, 0], asks[:, 1]
@@ -99,8 +101,10 @@ class OrderBookCollector:
         # Calcul de l'imbalance
         total_bid_volume = cum_bid_volume[-1]
         total_ask_volume = cum_ask_volume[-1]
-        volume_imbalance = (total_bid_volume - total_ask_volume) / (
-            total_bid_volume + total_ask_volume
+        total_volume = total_bid_volume + total_ask_volume
+        volume_imbalance = (
+            (total_bid_volume - total_ask_volume) / total_volume
+            if total_volume > 0 else 0.0
         )
 
         # Calcul de la profondeur à différents niveaux
@@ -233,7 +237,11 @@ class OrderBookCollector:
         if not orderbook:
             return 0.0
 
-        orders = np.array(orderbook["asks"] if side == "buy" else orderbook["bids"])
+        if side not in {"buy", "sell"} or volume <= 0:
+            return 0.0
+        orders = np.asarray(orderbook.get("asks" if side == "buy" else "bids", []), dtype=float)
+        if orders.ndim != 2 or len(orders) == 0:
+            return 0.0
         best_price = orders[0][0]
 
         cumulative_volume = 0
@@ -271,14 +279,16 @@ class OrderBookCollector:
         if not orderbook:
             return {}
 
-        orders = np.array(orderbook["asks"] if side == "buy" else orderbook["bids"])
+        orders = np.asarray(orderbook.get("asks" if side == "buy" else "bids", []), dtype=float)
+        if orders.ndim != 2 or len(orders) == 0:
+            return {}
         total_volume = np.sum(orders[:, 1])
 
         # Calcul de l'impact immédiat
         immediate_impact = self.calculate_slippage(orderbook, side, volume)
 
         # Estimation de la résilience du marché
-        volume_ratio = volume / total_volume
+        volume_ratio = volume / total_volume if total_volume > 0 else 0.0
 
         # Estimation du temps de récupération (en secondes)
         recovery_time = 60 * (volume_ratio**2)  # Formule simplifiée
@@ -338,9 +348,9 @@ class OrderBookCollector:
 
         # Simulation du délai d'exécution
         # On utilise le ratio volume comme proxy de la charge du marché
-        execution_delay = self.simulate_execution_delay(
-            volume, market_impact["volume_ratio"]
-        )
+        if not market_impact:
+            return {"slippage_pct": slippage, "execution_delay_seconds": 0.0}
+        execution_delay = self.simulate_execution_delay(volume, market_impact["volume_ratio"])
 
         metrics = {
             "slippage_pct": slippage,

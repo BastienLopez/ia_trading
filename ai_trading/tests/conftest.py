@@ -1,7 +1,6 @@
 """
 Configuration des tests pour le projet AI Trading.
 """
-
 import logging
 import sys
 from unittest.mock import patch
@@ -72,21 +71,4 @@ def pytest_collection_modifyitems(config, items):
         for item in items:
             if "slow" in item.keywords:
                 item.add_marker(skip_slow)
-
-
-# Collecter tous les tests mais ignorer les tests cassés
-collect_ignore = [
-    "test_model_distillation.py",  # Module supprimé
-    "../examples/run_distillation_test.py",  # Module supprimé
-    "test_model_compression.py",  # Module potentiellement supprimé
-    "test_complete_allocation_system.py",  # Problème d'importation de llm.sentiment_analysis
-    "test_lazy_loading.py",  # Problème d'importation de BatchInferenceOptimizer
-    "test_sentiment_integration.py",  # Problème d'importation de EnhancedNewsAnalyzer
-    "test_visualization_paths.py",  # Problème d'importation de EnhancedNewsAnalyzer
-    "test_data_integration.py",  # Problème d'importation de sentiment_analysis
-    "test_evaluation.py",  # Problème d'importation de sentiment_analysis
-    "test_multi_asset_trading.py",  # Problème d'importation de sentiment_analysis
-    "test_rl_trading_system.py",  # Problème d'importation de sentiment_analysis
-    "test_social_analyzer.py",  # Problème d'importation de sentiment_analysis
-    "test_train.py",  # Problème d'importation de sentiment_analysis
-]
+    return None

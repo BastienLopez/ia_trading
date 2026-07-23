@@ -1,18 +1,13 @@
 import os
 import shutil
-import sys
 import tempfile
 import time
 import unittest
-from pathlib import Path
 
 import numpy as np
 import torch
 
-# Ajouter le répertoire parent au chemin pour pouvoir importer les modules
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-from rl.state_cache import MultiLevelCache, StateCache
+from ai_trading.rl.state_cache import MultiLevelCache, StateCache
 
 
 class TestStateCache(unittest.TestCase):

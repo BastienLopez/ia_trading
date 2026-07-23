@@ -39,7 +39,8 @@ jax>=0.4.14
 
 # Optimisations CPU/GPU
 psutil>=7.0.0
-pyarrow>=15.0.0
+# Ray 2.10 utilise encore PyExtensionType, supprimé par PyArrow 21.
+pyarrow>=15.0.0,<21.0.0
 h5py>=3.10.0
 threadpoolctl>=3.1.0
 pympler>=1.0.1
@@ -54,7 +55,7 @@ accelerate>=0.24.0
 
 # Compression et traitement d'image
 zstandard>=0.23.0
-opencv-python>=4.8.0
+# Image Docker sans interface graphique : évite les dépendances GTK/OpenGL inutiles.
 opencv-python-headless>=4.8.0
 
 # Packages optionnels (installation séparée si besoin)

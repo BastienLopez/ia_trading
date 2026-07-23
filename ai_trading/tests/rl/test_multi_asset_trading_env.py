@@ -109,18 +109,65 @@ class TestMultiAssetTradingEnv(unittest.TestCase):
         self.assertFalse(done)
         self.assertIsInstance(info, dict)
 
-        # Exécuter une action de vente pour tous les actifs
-        action = np.array([-0.5, -0.5, -0.5])
-        obs, reward, done, _, info = env.step(action)
+    def test_multi_asset_masks_prevent_short_sales_and_keep_audit_fills(self):
+        env = MultiAssetTradingEnvironment(data_dict=self.test_data, rebalance_frequency=1)
+        env.reset()
+        mask = env.get_action_mask()
+        self.assertTrue((mask["low"] == 0.0).all())
+        self.assertTrue((env.project_action(np.array([-1.0, -0.5, -0.2])) == 0.0).all())
 
-        # Vérifier que les ventes ont été effectuées
-        self.assertLess(
-            env.crypto_holdings["BTC"],
-            env.crypto_holdings["BTC"]
-            + env.crypto_holdings["ETH"]
-            + env.crypto_holdings["LTC"],
+        _, _, _, _, buy_info = env.step(np.array([0.5, 0.5, 0.5]))
+        holdings_before_sell = env.crypto_holdings.copy()
+        _, _, _, _, sell_info = env.step(np.array([-0.5, -0.5, -0.5]))
+
+        self.assertTrue(all(env.crypto_holdings[symbol] >= 0.0 for symbol in env.symbols))
+        self.assertTrue(all(env.crypto_holdings[symbol] < holdings_before_sell[symbol] for symbol in env.symbols))
+        self.assertTrue(buy_info["trade_executed"] and sell_info["trade_executed"])
+        self.assertTrue(any(fill["side"] == "buy" for fill in sell_info["trade_events"]))
+        self.assertTrue(any(fill["side"] == "sell" for fill in sell_info["trade_events"]))
+
+    def test_rebalance_cooldown_and_minimum_signal_block_churn(self):
+        env = MultiAssetTradingEnvironment(
+            data_dict=self.test_data,
+            rebalance_frequency=3,
+            min_trade_fraction=0.01,
+            min_action_magnitude=0.1,
+            risk_management=False,
         )
-        self.assertGreaterEqual(env.balance, 0.0)  # La balance doit être au moins 0
+        env.reset()
+        self.assertTrue((env.project_action(np.array([0.05, 0.04, 0.01])) == 0.0).all())
+
+        env.step(np.array([0.5, 0.5, 0.5]))
+        trade_count = env.transaction_count
+        self.assertEqual(env.get_action_mask()["high"].sum(), 0.0)
+        env.step(np.array([0.5, 0.5, 0.5]))
+        self.assertEqual(env.transaction_count, trade_count)
+        env.step(np.array([0.5, 0.5, 0.5]))
+        self.assertEqual(env.transaction_count, trade_count)
+        env.step(np.array([-0.5, -0.5, -0.5]))
+        self.assertGreater(env.transaction_count, trade_count)
+
+    def test_atr_stop_loss_closes_a_deteriorating_position(self):
+        env = MultiAssetTradingEnvironment(
+            data_dict=self.test_data,
+            rebalance_frequency=1,
+            atr_stop_multiplier=99.0,
+            atr_trailing_multiplier=99.0,
+            max_stop_loss_pct=0.1,
+        )
+        env.reset()
+        env.step(np.array([1.0, 0.0, 0.0]))
+        entry_price = env.position_entry_prices["BTC"]
+        env.data_dict["BTC"].iloc[env.current_step, env.data_dict["BTC"].columns.get_loc("close")] = entry_price * 0.85
+        env.step(np.zeros(3))
+        self.assertEqual(env.crypto_holdings["BTC"], 0.0)
+        self.assertIn("atr_stop_loss", [event["reason"] for event in env.trade_events])
+
+    def test_max_asset_exposure_caps_a_single_all_in_action(self):
+        env = MultiAssetTradingEnvironment(data_dict=self.test_data, max_asset_exposure=0.35)
+        env.reset()
+        projected = env.project_action(np.array([1.0, 0.0, 0.0]))
+        self.assertAlmostEqual(projected[0], 0.35)
 
     def test_portfolio_value_calculation(self):
         """Teste le calcul de la valeur du portefeuille."""
@@ -214,6 +261,21 @@ class TestMultiAssetTradingEnv(unittest.TestCase):
         # Vérifier que l'actif avec la volatilité la plus faible a plus de poids quand l'action_weight est similaire
         self.assertGreater(allocation["LTC"], allocation["ETH"])
         self.assertGreater(allocation["ETH"], allocation["BTC"])
+
+    def test_execution_delay_and_advanced_rewards_use_real_history(self):
+        env = MultiAssetTradingEnvironment(
+            data_dict=self.test_data, execution_delay=1, reward_function="sortino"
+        )
+        env.reset(seed=3)
+        env.step(np.array([1.0, 0.0, 0.0]))
+        self.assertEqual(env.crypto_holdings["BTC"], 0.0)
+        self.assertEqual(len(env.pending_orders), 1)
+        self.assertGreater(env.reserved_cash, 0.0)
+        env.step(np.zeros(3))
+        self.assertGreater(env.crypto_holdings["BTC"], 0.0)
+        self.assertEqual(env.reserved_cash, 0.0)
+        self.assertEqual(len(env.returns_history), 2)
+        self.assertTrue(np.isfinite(env._drawdown_reward(0.0)))
 
 
 if __name__ == "__main__":

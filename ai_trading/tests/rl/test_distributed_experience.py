@@ -1,15 +1,10 @@
-import sys
 import time
 import unittest
-from pathlib import Path
 
 import numpy as np
 import torch.nn as nn
 
-# Ajouter le répertoire parent au chemin pour pouvoir importer les modules
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-from rl.distributed_experience import (
+from ai_trading.rl.distributed_experience import (
     DistributedExperienceManager,
     ExperienceMaster,
     ExperienceWorker,
@@ -68,6 +63,14 @@ def create_test_env():
 
 
 class TestDistributedExperience(unittest.TestCase):
+
+    def _wait_for_buffer(self, minimum_size, timeout=2.0):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if len(self.replay_buffer) >= minimum_size:
+                return
+            time.sleep(0.02)
+        self.fail(f"Le maître n'a reçu que {len(self.replay_buffer)} expériences")
 
     def setUp(self):
         """Prépare l'environnement de test"""
@@ -141,14 +144,8 @@ class TestDistributedExperience(unittest.TestCase):
         # Collecter des expériences avec le travailleur
         worker.collect_experience(steps=20)
 
-        # Attendre que les expériences soient traitées
-        time.sleep(0.5)
-
-        # Manuellement transférer les expériences du worker au replay buffer pour le test
-        while not worker.queue.empty():
-            batch = worker.queue.get()
-            for exp in batch:
-                self.replay_buffer.add(*exp)
+        # Le test valide le vrai chemin worker -> queue partagée -> maître -> replay buffer.
+        self._wait_for_buffer(20)
 
         # Arrêter le maître
         master.stop()
@@ -170,14 +167,11 @@ class TestDistributedExperience(unittest.TestCase):
         # Initialiser le gestionnaire
         manager.initialize()
 
-        # Au lieu de démarrer la collecte en utilisant des processus, simulons-la
+        # Collecte synchrone, mais via le chemin réel de la queue du maître.
         for worker in manager.master.local_workers:
             worker.collect_experience(steps=15)
-            # Transférer manuellement les expériences
-            while not worker.queue.empty():
-                batch = worker.queue.get()
-                for exp in batch:
-                    self.replay_buffer.add(*exp)
+
+        self._wait_for_buffer(30)
 
         # Arrêter le gestionnaire
         manager.stop()

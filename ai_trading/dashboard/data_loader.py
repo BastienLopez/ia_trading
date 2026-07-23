@@ -78,6 +78,7 @@ class DataLoader:
         filepath = os.path.join(self.data_path, f"{portfolio_id}_history.csv")
         if os.path.exists(filepath):
             df = pd.read_csv(filepath, parse_dates=["date"])
+            self._validate_portfolio_history(df, filepath)
         else:
             # Générer des données factices pour démonstration
             df = self._generate_portfolio_history()
@@ -86,6 +87,36 @@ class DataLoader:
         # Mettre en cache
         self._cache[cache_key] = df
         return df
+
+    @staticmethod
+    def _validate_portfolio_history(df: pd.DataFrame, source: str) -> None:
+        """Refuse un historique inutilisable plutôt que d'afficher des KPI erronés."""
+        required_columns = {"date", "valeur", "rendement_quotidien"}
+        missing_columns = required_columns.difference(df.columns)
+        if missing_columns:
+            raise ValueError(
+                f"Historique portefeuille incomplet ({source}) : "
+                f"colonnes manquantes {sorted(missing_columns)}"
+            )
+
+        values = pd.to_numeric(df["valeur"], errors="coerce")
+        returns = pd.to_numeric(df["rendement_quotidien"], errors="coerce")
+        if (
+            df.empty
+            or not np.isfinite(values).all()
+            or not np.isfinite(returns).all()
+            or (values <= 0).any()
+        ):
+            raise ValueError(f"Historique portefeuille invalide ({source})")
+
+        # Au-delà de 50 % sur une journée, le dashboard doit signaler la donnée
+        # plutôt que présenter une performance manifestement erronée comme réelle.
+        observed_returns = values.pct_change(fill_method=None).iloc[1:]
+        if not observed_returns.empty and observed_returns.abs().max() > 0.50:
+            raise ValueError(
+                f"Historique portefeuille incohérent ({source}) : "
+                "variation quotidienne supérieure à 50 %"
+            )
 
     def _generate_portfolio_history(self, days: int = 180) -> pd.DataFrame:
         """
@@ -97,7 +128,7 @@ class DataLoader:
         Returns:
             DataFrame avec l'historique simulé
         """
-        np.random.seed(42)
+        rng = np.random.default_rng(42)
 
         # Générer les dates
         end_date = datetime.now().date()
@@ -106,20 +137,19 @@ class DataLoader:
 
         # Générer la valeur du portefeuille avec une tendance haussière et des fluctuations
         initial_value = 10000
-        daily_returns = np.random.normal(
-            0.001, 0.015, len(dates)
-        )  # moyenne +0.1%, écart-type 1.5%
+        daily_returns = rng.normal(0.0004, 0.012, len(dates))
         daily_returns[0] = 0  # Premier jour sans rendement
 
         # Ajouter une tendance et quelques événements marquants
-        trend = np.linspace(0, 0.002 * len(dates), len(dates))  # Tendance haussière
+        trend = np.linspace(0, 0.0001, len(dates))
         daily_returns += trend
 
         # Simuler quelques crashs/rallyes
         crash_idx = int(len(dates) * 0.3)
         rally_idx = int(len(dates) * 0.7)
-        daily_returns[crash_idx : crash_idx + 5] = np.random.normal(-0.03, 0.01, 5)
-        daily_returns[rally_idx : rally_idx + 5] = np.random.normal(0.025, 0.01, 5)
+        daily_returns[crash_idx : crash_idx + 5] = rng.normal(-0.03, 0.01, 5)
+        daily_returns[rally_idx : rally_idx + 5] = rng.normal(0.025, 0.01, 5)
+        daily_returns = np.clip(daily_returns, -0.15, 0.15)
 
         # Calculer les valeurs cumulées
         cumulative_returns = (1 + daily_returns).cumprod()

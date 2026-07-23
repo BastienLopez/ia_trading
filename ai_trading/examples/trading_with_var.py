@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../.
 
 from ai_trading.config import VISUALIZATION_DIR
 from ai_trading.risk.advanced_risk_manager import AdvancedRiskManager
-from ai_trading.rl.environments.trading_environment import TradingEnvironment
+from ai_trading.rl.trading_environment import TradingEnvironment
 
 # Configuration du logging
 logging.basicConfig(

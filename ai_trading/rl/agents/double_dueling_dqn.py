@@ -5,6 +5,7 @@ from collections import deque
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 
 from ai_trading.rl.replay_buffer import PrioritizedReplayBuffer
@@ -81,7 +82,7 @@ class DoubleDQNAgent:
         buffer_size=10000,
         use_prioritized_replay=True,
         use_dueling=False,
-        device="cpu",
+        device="cuda" if torch.cuda.is_available() else "cpu",
     ):
         """
         Initialise l'agent Double DQN.
@@ -129,8 +130,9 @@ class DoubleDQNAgent:
         self.update_target_model()
 
         # Optimiseur et fonction de perte
-        self.optimizer = optim.Adam(self.model.parameters(), lr=learning_rate)
-        self.criterion = nn.MSELoss()
+        self.optimizer = optim.Adam(
+            self.model.parameters(), lr=learning_rate, foreach=False, fused=False
+        )
 
         logger.info(
             f"Agent initialisé avec state_size={state_size}, action_size={action_size}, "
@@ -182,6 +184,21 @@ class DoubleDQNAgent:
         # Retourner l'action avec la Q-value la plus élevée
         return q_values.argmax().item()
 
+    def select_action(self, state, training=True):
+        return self.act(np.asarray(state, dtype=np.float32).reshape(-1), training)
+
+    def predict(self, state):
+        return self.select_action(state, training=False)
+
+    def replay(self, batch_size=None):
+        original_batch_size = self.batch_size
+        if batch_size is not None:
+            self.batch_size = batch_size
+        try:
+            return self.train()
+        finally:
+            self.batch_size = original_batch_size
+
     def train(self):
         """
         Entraîne le modèle sur un batch d'expériences.
@@ -230,8 +247,10 @@ class DoubleDQNAgent:
             )
 
         # Calculer la perte
-        loss = self.criterion(current_q_values, target_q_values)
-        loss = (loss * weights).mean()
+        per_sample_loss = F.smooth_l1_loss(
+            current_q_values, target_q_values, reduction="none"
+        ).squeeze(1)
+        loss = (per_sample_loss * weights).mean()
 
         # Mettre à jour le modèle
         self.optimizer.zero_grad()
@@ -241,7 +260,7 @@ class DoubleDQNAgent:
         # Mettre à jour les priorités si on utilise le replay prioritaire
         if self.use_prioritized_replay:
             with torch.no_grad():
-                td_errors = torch.abs(current_q_values - target_q_values).cpu().numpy()
+                td_errors = torch.abs(current_q_values - target_q_values).cpu().numpy().reshape(-1)
             self.memory.update_priorities(indices, td_errors)
 
         # Mettre à jour le modèle cible périodiquement

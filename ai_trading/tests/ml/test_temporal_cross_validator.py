@@ -37,6 +37,10 @@ class TestTemporalCrossValidator(unittest.TestCase):
 
             # Vérifier qu'il n'y a pas de chevauchement entre train et test
             self.assertEqual(len(set(train_idx).intersection(test_idx)), 0)
+            # La purge temporelle doit empêcher toute observation future de
+            # rejoindre l'entraînement du fold courant.
+            self.assertLess(max(train_idx), min(test_idx))
+            self.assertGreaterEqual(min(test_idx) - max(train_idx) - 1, 20)
 
             # Vérifier les tailles relatives
             self.assertAlmostEqual(len(train_idx) / len(self.df), 0.6, delta=0.1)

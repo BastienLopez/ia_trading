@@ -6,8 +6,9 @@ Ce module contient l'implémentation d'un système de trading de cryptomonnaies 
 
 ### Phase 1: Collecte et Prétraitement des Données ✅
 
-> Validée dans Docker : 112 tests couvrent collecteurs, prétraitement, cache
-> LRU/compressé à deux niveaux, blockchain synchrone/asynchrone et résilience HTTP.
+> Validée dans Docker le 22/07/2026 : 75 tests ciblés verts. Ils couvrent les
+> collecteurs, le prétraitement, le cache LRU compressé à deux niveaux, la
+> blockchain synchrone/asynchrone et la résilience HTTP multi-source.
 - ✅ 1.1 Implémentation de `utils/enhanced_data_collector.py`
   - Connexion à plusieurs APIs de cryptomonnaies (CoinGecko, CoinCap, CryptoCompare)
   - Collecte des données de prix, volumes et capitalisation
@@ -43,12 +44,12 @@ Ce module contient l'implémentation d'un système de trading de cryptomonnaies 
 
 ### Phase 2: Analyse de Sentiment (LLM) ✅
 
-> Validée dans Docker : le pipeline unifié sentiment + crédibilité + propagation
-> + contexte est testé. BERTweet a été adapté sur 23 301 articles crypto DLT,
-> en CUDA/FP16 avec validation temporelle isolée complète (4 661 articles :
-> accuracy 54,82 %, macro-F1 54,19 %). Le meilleur checkpoint est sélectionné
-> sur le macro-F1 avec pondération des classes ; l'ancienne mesure sur 512
-> articles (57,03 % / 56,82 %) n'était pas directement comparable.
+> Validée dans Docker le 22/07/2026 : 47 tests ciblés verts pour le pipeline
+> unifié sentiment + crédibilité + propagation + contexte. BERTweet a été adapté sur 23 301 articles crypto DLT,
+> en CUDA/FP16 (18 640 entraînement, 4 661 validation temporelle). Le manifeste
+> versionné rapporte une évaluation isolée sur 512 articles : accuracy 57,03 %
+> et macro-F1 56,82 %. Cette métrique est une preuve d'exécution, pas une
+> garantie de performance de trading.
 > L'artefact et son manifeste sont dans `ai_trading/info_retour/models/` (ignorés
 > de Git) ; le corpus CC-BY-NC-4.0 est réservé à l'usage personnel non commercial.
 - ✅ 2.1 Implémentation de `llm/sentiment_analysis/news_analyzer.py`
@@ -75,173 +76,64 @@ Ce module contient l'implémentation d'un système de trading de cryptomonnaies 
 
 -----------------------------------------------------------------------------------------------------------------------
 
-### Phase 3: Développement de l'Agent d'Apprentissage par Renforcement ✅
-- ✅ 3.1 Implémentation de `rl_agent.py`
-  - ✅ Définition de l'environnement de trading
-  - ✅ Implémentation de l'agent DQN (Deep Q-Network)
-  - ✅ Intégration des données de marché et de sentiment
-  ## ✅ **Améliorations prioritaires à court terme (Phase 3.1+)**
-  ### 1. ✅ **Actions plus nuancées**
-  - ✅ Implémenter des actions d'achat/vente partielles (x% du portefeuille)
-  - ✅ Modifier l'espace d'action dans `TradingEnvironment` pour inclure ces actions
-  - ✅ Adapter la fonction de récompense en conséquence
+### Phase 3: Développement de l'Agent d'Apprentissage par Renforcement 🔄
 
-  ### 2. ✅ **État plus riche avec indicateurs techniques**
-  - ✅ Ajouter des indicateurs dans `data_integration.py` :
-    - ✅ MACD
-    - ✅ Stochastique
-    - ✅ Momentum
-    - ✅ OBV
-    - ✅ RSI
-    - ✅ Bollinger Bands
-    - ✅ EMA
-    - ✅ ATR (Average True Range)
-    - ✅ Volume Profile
-    - ✅ ADX (Directional Movement Index)
-    - ✅ Pivots
-    - ✅ Ichimoku Cloud
-  - ✅ Intégrer les données de sentiment (polarité, subjectivité, etc.)
-  - ✅ Ajouter une normalisation adaptative des features
+> Le cœur P3 est opérationnel dans Docker avec CUDA et n'accepte plus de
+> données de marché synthétiques implicitement. Le protocole réel impose à
+> présent un ledger FIFO, des masques d'actions, une validation anti-politique
+> mono-action et un walk-forward train/validation/test strictement temporel.
+> La porte P4 reste fermée tant que les critères calculés sur plusieurs fenêtres
+> BTC, ETH et or ne sont pas tous verts ; aucun résultat court ne vaut preuve de
+> surperformance.
 
-  ### 3. ✅ **Gestion des risques avancée**
-  - ✅ Implémenter des stop-loss dynamiques basés sur l'ATR
-  - ✅ Ajouter des trailing stops
-  - ✅ Intégrer la gestion de position basée sur la volatilité
-  - ✅ Ajouter des limites d'exposition par actif
+#### 3.1 Fondations RL ✅
 
-  ### 4. ✅ **Récompenses plus sophistiquées**
-  - ✅ Utiliser le ratio de Sharpe
-  - ✅ Pénaliser les transactions trop fréquentes (frais fixes)
-  - ✅ Récompense basée sur le drawdown
+- ✅ Environnement Gymnasium mono-actif, actions discrètes partielles et continues.
+- ✅ État enrichi : OHLCV, MACD, stochastique, momentum, OBV, RSI, Bollinger,
+  EMA, ATR, Volume Profile, ADX, pivots, Ichimoku et sentiment sans look-ahead.
+- ✅ Risque : stop-loss/take-profit ATR, trailing stop, exposition et taille de
+  position ajustées à la volatilité.
+- ✅ Récompenses : rendement, Sharpe, pénalités de turnover/frais et drawdown.
+- ✅ Agents : DQN priorisé avec Double/Dueling/UCB/Noisy Linear/n-step ; SAC et
+  PPO continus avec clipping de gradient et régularisation d'entropie.
+- ✅ Curriculum, GRU/LSTM/Transformers et recherche par grille.
 
-  ### 5. ✅ **Gestion du risque basique**
-  - ✅ Implémenter stop-loss et take-profit
-  - ✅ Ajouter une limite de perte par trade
-  - ✅ Créer une classe `RiskManager`
+#### 3.2 Robustesse et multi-actifs ✅
 
-  ### 6. ✅ **Amélioration de l'agent**
-  - ✅ Mémoire de replay priorisée pour DQN
-  - ✅ Exploration avancée : UCB, exploration par nouveauté
-  - ✅ Double DQN, Dueling DQN
-  - ✅ Ajouter SAC pour les actions continues
-  - ✅ Intégrer Noisy Networks pour l'exploration
-  - ✅ Intégrer Noisy Linear Pytorch (ai_trading\rl\agents\layers\noisy_linear.py)
-  - ✅ Utiliser des retours multi-étapes (n-step returns)
-  - ✅ Appliquer le gradient clipping et l'entropy regularization
-  - ✅ Implémenter un curriculum learning progressif
-  - ✅ Ajouter des couches récurrentes GRU pour le contexte temporel
+- ✅ Slippage, impact, délais d'exécution, carnet d'ordres et flux d'ordres.
+- ✅ Sortino, diversification, contraintes de corrélation et allocation.
+- ✅ Environnement vectoriel multi-actifs ; BTC, ETH, or (proxy `GC=F` pour
+  XAU/USD), AAPL et NVDA sont collectés auprès de sources publiques réelles.
+- ✅ Validation temporelle, sélection de caractéristiques, architectures CNN,
+  attention, distillation et tests de robustesse.
 
-  ### 7. ✅ **Optimisation des hyperparamètres**
-  - ✅ Recherche par grille (grid search)
-  - ✅ Créer la classe `HyperparameterOptimizer`
-  - ✅ Ajouter des métriques de qualité
+#### 3.3 Composants avancés ✅
 
-- ✅ 3.2 Améliorations à moyen terme (Phase 3.2)
-  - ✅ Entraînement sur données multi-périodes
-  - ✅ Intégration de flux d'ordres et données alternatives
-  - ✅ Contraintes de marché réalistes (slippage, délais)
-  - ✅ Trading multi-actifs avec allocation
-  - ✅ Architectures hybrides (Transformers)
-  - ✅ Validation croisée temporelle 
-  ## ✅ **Améliorations à moyen terme (Phase 3.2)**
-  ### 1. ✅ **Espace d'action continu**
-  - ✅ Supporter des pourcentages arbitraires d'achat/vente
-  - ✅ Utiliser PPO ou SAC
-  - ✅ Adapter l'environnement pour `gym` / `gymnasium`
+- ✅ VaR, allocation adaptative, gestion de risque multi-niveaux et ordres
+  limite/SL/TP/taille de position.
+- ✅ PPO/SAC, apprentissage inverse, transfert inter-marchés et expérience
+  distribuée.
+- ✅ Allocation multi-facteurs, arbitrage/pairs trading, multitâche,
+  visualisations Dash/3D/post-mortem et optimisation bayésienne.
 
-  ### 2. ✅ **Intégration de données avancées**
-  - ✅ Sélection automatique de caractéristiques
-  - ✅ Ajouter données de flux d'ordres, profondeur du carnet
-  - ✅ Intégrer des données alternatives (on-chain, réseaux sociaux)
+#### Validation réelle obligatoire avant la Phase 4
 
-  ### 3. ✅ **Récompenses avancées**
-  - ✅ Ratio de Sortino
-  - ✅ Récompense pour diversification
-  - ✅ Récompense adaptative selon conditions de marché
-
-  ### 4. ✅ **Contraintes de marché réalistes**
-  - ✅ Délais d'exécution
-  - ✅ Slippage
-  - ✅ Impact du carnet d'ordres
-
-  ### 5. ✅ **Multi-actifs**
-  - ✅ Étendre à 2–3 crypto-actifs + actifs (exemple : XAU/USD) + stocks (exemple : AAPL, NVDA)
-  - ✅ Allocation de portefeuille simple
-  - ✅ Allocation de portefeuille avancé
-  - ✅ Contraintes de corrélation/diversification
-
-  ### 6. ✅ **Architectures de modèle avancées**
-  - ✅ LSTM/GRU pour dépendances temporelles
-  - ✅ Attention pour séries temporelles
-  - ✅ CNN pour analyse graphique
-  - ✅ Architectures hybrides (CNN + Attention)
-  - ✅ Modèles à base de transformers temporels
-  - ✅ Utilisation de network distillation
-
-  ### 7. ✅ **Validation et robustesse**
-  - ✅ Optimisation des hyperparamètres
-  - ✅ Robustesse à conditions de marché changeantes
-  - ✅ Tests statistiques de performance
-
-- ✅ 3.3 Améliorations à long terme (Phase 3.3+)
-  - ✅ Gestion des risques avancée (VaR, allocation dynamique)
-  - ✅ Système d'ordres professionnels (limites dynamiques)
-  - ✅ Meta-learning et transfer learning inter-marchés
-  - ✅ Optimisation de portefeuille multi-facteurs
-  - ✅ Dashboard interactif avec analyse post-trade
-  - ✅ Implémentation de stratégies d'arbitrage
-  
-## ✅ **Améliorations à long terme (Phase 3.3+)**
-  ### 1. ✅ **Gestion avancée des risques**
-  - ✅ VaR (Value-at-Risk)
-  - ✅ Allocation de capital adaptative
-  - ✅ Gestion multi-niveaux des risques
-
-### 2. ✅ **Ordres avancés**
-  - ✅ Ordres limites, stop-loss dynamiques (SL), Take Profit (TP),Taille du lot (Lot size), Pips
-  - ✅ Gestion dynamique de taille des positions
-  - ✅ Simulation complète d'un carnet d'ordres
-  - ✅ **Implémentation de PPO/SAC pour actions continues**
-    - Actions de trading plus précises
-    - Gestion fine des positions
-    - Optimisation des paramètres
-    - Entraînement distribué
-
- ### 3. ✅ **Apprentissage avancé**
-  - ✅ Apprentissage inverse par renforcement
-  - ✅ Transfert entre différents actifs
-  - ✅ Apprentissage distribué
-
-  ### 4. ✅ **Optimisation de portefeuille**
-  - ✅ Système d'allocation complet
-  - ✅ Arbitrage, pairs trading
-  - ✅ Modèles multi-facteurs
-  - ✅ **Intégration de Transformers pour la modélisation temporelle**
-      - Attention sur séries temporelles
-      - Prédiction multi-horizons
-      - Capture des dépendances longues
-      - Analyse de motifs complexes
-
-### 5. ✅ **Visualisations interactives**
-  - ✅ Dashboard avec Streamlit/Dash
-  - ✅ Visualisations 3D
-  - ✅ Analyse post-mortem des trades
-  - ✅ **Apprentissage multi-tâches**
-      - Prédiction de prix et volumes
-      - Classification de tendances
-      - Optimisation de portefeuille
-      - Gestion des risques
-
-### 6. ✅ **Optimisation bayésienne**
-  - ✅ **Optimisation bayésienne des hyperparamètres**
-    - Recherche efficace d'hyperparamètres
-    - Adaptation dynamique
-    - Prise en compte des incertitudes
-    - Optimisation multi-objectifs
+- ✅ Ledger FIFO `trades.csv` : entrées/sorties, quantité, frais, PnL net,
+  durée, raison et win/loss ; win-rate uniquement sur trades clôturés.
+- ✅ DQN, PPO et SAC reçoivent les masques des actions impossibles ; une suite
+  de tests refuse une politique mono-action.
+- ✅ Runner `run_real_market_walk_forward` : BTC, ETH et or (`GC=F`, proxy
+  Yahoo Finance de XAU/USD), plusieurs fenêtres disjointes, frais/slippage,
+  sélection sur validation et un seul test figé par modèle retenu.
+- ✅ Porte P4 calculée : rendement net vs Buy & Hold, drawdown, profit factor,
+  nombre minimal de trades, Sharpe/Sortino et diversité/stabilité.
+- 🔄 La validation économique reste à obtenir avec cette porte : l'implémentation
+  est contrôlée, mais P4 n'est pas autorisée tant que `overall_phase4_gate.passed`
+  n'est pas `true` sur les trois actifs.
 
 -----------------------------------------------------------------------------------------------------------------------
 
-### Phase 4: Prédictions de Marché (LLM) ✅
+### Phase 4: Prédictions de Marché (LLM) ⏳
 - ✅ 4.1 Implémentation de `llm/predictions/market_predictor.py`
   - Génération de prédictions basées sur les données de marché et le sentiment
 - ✅ 4.2 Implémentation de `llm/predictions/prediction_model.py`

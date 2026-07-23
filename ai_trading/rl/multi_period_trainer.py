@@ -1,91 +1,35 @@
-#!/usr/bin/env python
-"""
-Module pour l'entraînement d'agents de trading RL sur plusieurs périodes temporelles
-"""
+"""Entraînement SAC chronologique sur plusieurs unités de temps."""
 
-import logging
-from datetime import datetime
 from pathlib import Path
-from typing import List, Union
+from typing import Dict, Iterable, Optional, Tuple, Union
 
+import numpy as np
 import pandas as pd
-import tensorflow as tf
+import torch
 
-from ai_trading.data.market_data import MarketDataFetcher as EnhancedMarketDataCollector
-
-
-# Nous utiliserons une classe mock pour EnhancedSentimentCollector puisqu'elle n'existe pas
-class EnhancedSentimentCollector:
-    def collect_data(self, coins=None, days=None):
-        return pd.DataFrame()  # Retourne un DataFrame vide
-
-
+from ai_trading.config import INFO_RETOUR_DIR
+from ai_trading.rl.agents.sac_agent import SACAgent
 from ai_trading.rl.trading_environment import TradingEnvironment
 
 
-# Mock pour MultiEnvTrading
-class MultiEnvTrading(TradingEnvironment):
-    def __init__(
-        self,
-        market_data=None,
-        sentiment_data=None,
-        initial_balance=10000,
-        transaction_fee=0.001,
-        window_size=20,
-        is_training=True,
-    ):
-        pass
-
-
-from ai_trading.rl.agents.sac_agent import SACAgent
-
-
-# Mock for missing classes
-class GRUSACAgent(SACAgent):
-    pass
-
-
-# Mock for reward functions
-def calculate_sharpe_ratio(returns):
-    return 0.0
-
-
-def calculate_sortino_ratio(returns):
-    return 0.0
-
-
-# Mock for TensorboardCallback
-class TensorboardCallback:
-    pass
-
-
-# Configuration du logger
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
-logger = logging.getLogger(__name__)
-
-INFO_RETOUR_DIR = Path(__file__).parent.parent / "info_retour"
-INFO_RETOUR_DIR.mkdir(exist_ok=True)
-
-
 class MultiPeriodTrainer:
-    """
-    Classe pour l'entraînement d'agents de trading RL sur plusieurs périodes temporelles
-    avec un curriculum d'apprentissage (entraînement progressif des périodes courtes aux longues).
+    """Entraîne le même contrat SAC du timeframe lent vers le plus rapide.
+
+    Les données sont fournies explicitement par timeframe. Cela rend la validation
+    reproductible et évite qu'un entraînement change silencieusement selon une API.
     """
 
     def __init__(
         self,
         symbol: str,
         days: int,
-        periods: List[int],
+        periods: Iterable[int],
         agent_type: str = "sac",
         use_gru: bool = False,
-        initial_balance: float = 10000.0,
+        initial_balance: float = 10_000.0,
         use_curriculum: bool = True,
-        epochs_per_period: int = 5,
-        episodes_per_epoch: int = 10,
+        epochs_per_period: int = 1,
+        episodes_per_epoch: int = 1,
         validation_ratio: float = 0.2,
         include_sentiment: bool = True,
         sequence_length: int = 10,
@@ -94,222 +38,104 @@ class MultiPeriodTrainer:
         critic_lr: float = 3e-4,
         tau: float = 0.005,
         batch_size: int = 64,
-        buffer_size: int = 100000,
+        buffer_size: int = 100_000,
         reward_scaling: float = 1.0,
         action_type: str = "continuous",
-        save_dir: Union[str, Path] = None,
+        save_dir: Union[str, Path, None] = None,
+        max_steps: Optional[int] = None,
+        device: Optional[str] = None,
     ):
-        """
-        Initialise le MultiPeriodTrainer.
+        if agent_type != "sac" or action_type != "continuous":
+            raise ValueError("MultiPeriodTrainer ne supporte actuellement que SAC continu.")
+        if not 0 < validation_ratio < 0.5:
+            raise ValueError("validation_ratio doit être dans ]0, 0.5[.")
+        self.symbol, self.days = symbol, days
+        self.periods = sorted(set(periods), reverse=True)  # lent vers rapide
+        self.agent_type, self.use_gru = agent_type, use_gru
+        self.initial_balance, self.use_curriculum = initial_balance, use_curriculum
+        self.epochs_per_period, self.episodes_per_epoch = epochs_per_period, episodes_per_epoch
+        self.validation_ratio, self.include_sentiment = validation_ratio, include_sentiment
+        self.sequence_length, self.gru_units = sequence_length, gru_units
+        self.actor_lr, self.critic_lr, self.tau = actor_lr, critic_lr, tau
+        self.batch_size, self.buffer_size = batch_size, buffer_size
+        self.reward_scaling, self.max_steps = reward_scaling, max_steps
+        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+        self.save_dir = Path(save_dir) if save_dir else INFO_RETOUR_DIR / "models" / "multi_period"
+        self.save_dir.mkdir(parents=True, exist_ok=True)
+        self.agents: Dict[int, SACAgent] = {}
+        self.metrics: Dict[int, Dict[str, float]] = {}
 
-        Args:
-            symbol: Symbole de la crypto-monnaie (ex: "BTC")
-            days: Nombre de jours de données à collecter
-            periods: Liste des périodes en minutes (ex: [5, 15, 60, 240, 1440])
-            agent_type: Type d'agent à utiliser ("sac" ou "n_step_sac")
-            use_gru: Utiliser une architecture GRU pour l'agent
-            initial_balance: Solde initial pour l'environnement de trading
-            use_curriculum: Utiliser un curriculum d'apprentissage
-            epochs_per_period: Nombre d'époques d'entraînement par période
-            episodes_per_epoch: Nombre d'épisodes par époque
-            validation_ratio: Ratio de données pour la validation
-            include_sentiment: Inclure les données de sentiment
-            sequence_length: Longueur de séquence pour les modèles GRU
-            gru_units: Nombre d'unités GRU pour les modèles GRU
-            actor_lr: Taux d'apprentissage pour le réseau actor
-            critic_lr: Taux d'apprentissage pour le réseau critic
-            tau: Facteur de mise à jour pour les réseaux cibles
-            batch_size: Taille du batch pour l'entraînement
-            buffer_size: Taille du buffer de replay
-            reward_scaling: Facteur d'échelle pour les récompenses
-            action_type: Type d'espace d'action ("continuous" ou "discrete")
-            save_dir: Répertoire de sauvegarde pour les modèles et les métriques
-        """
-        self.symbol = symbol
-        self.days = days
-        self.periods = sorted(periods, reverse=True)  # Du plus grand au plus petit
-        self.agent_type = agent_type
-        self.use_gru = use_gru
-        self.initial_balance = initial_balance
-        self.use_curriculum = use_curriculum
-        self.epochs_per_period = epochs_per_period
-        self.episodes_per_epoch = episodes_per_epoch
-        self.validation_ratio = validation_ratio
-        self.include_sentiment = include_sentiment
-        self.sequence_length = sequence_length
-        self.gru_units = gru_units
-        self.actor_lr = actor_lr
-        self.critic_lr = critic_lr
-        self.tau = tau
-        self.batch_size = batch_size
-        self.buffer_size = buffer_size
-        self.reward_scaling = reward_scaling
-        self.action_type = action_type
+    def prepare_datasets(
+        self, market_data: pd.DataFrame, sentiment_data: Optional[pd.DataFrame] = None,
+        validation_ratio: Optional[float] = None,
+    ) -> Tuple[pd.DataFrame, Optional[pd.DataFrame], pd.DataFrame, Optional[pd.DataFrame]]:
+        ratio = self.validation_ratio if validation_ratio is None else validation_ratio
+        if len(market_data) < 12:
+            raise ValueError("Au moins 12 lignes sont requises pour une séparation temporelle.")
+        data = market_data.sort_index().copy()
+        split = int(len(data) * (1 - ratio))
+        train, validation = data.iloc[:split], data.iloc[split:]
+        if sentiment_data is None:
+            return train, None, validation, None
+        sentiment = sentiment_data.sort_index()
+        return train, sentiment.loc[sentiment.index < validation.index[0]], validation, sentiment.loc[sentiment.index >= validation.index[0]]
 
-        # Créer le répertoire de sauvegarde s'il n'existe pas
-        self.save_dir = (
-            Path(save_dir) if save_dir else INFO_RETOUR_DIR / "models" / "multi_period"
+    def create_env(
+        self, market_data: pd.DataFrame, is_training: bool = True,
+        window_size: Optional[int] = None,
+    ) -> TradingEnvironment:
+        del is_training
+        resolved_window_size = window_size or min(20, max(3, len(market_data) // 5))
+        return TradingEnvironment(
+            market_data.copy(), initial_balance=self.initial_balance,
+            window_size=resolved_window_size,
+            action_type="continuous", reward_function="sharpe", risk_management=True,
+            # Les indicateurs sont calculés sur chaque split : les désactiver
+            # ici préserve exactement le même espace entre train/validation.
+            include_technical_indicators=False,
         )
-        self.save_dir.mkdir(exist_ok=True, parents=True)
 
-        # Créer des sous-répertoires pour chaque période
+    def create_agent(self, env: TradingEnvironment) -> SACAgent:
+        return SACAgent(
+            state_dim=env.observation_space.shape[0], action_dim=env.action_space.shape[0],
+            actor_learning_rate=self.actor_lr, critic_learning_rate=self.critic_lr,
+            tau=self.tau, batch_size=self.batch_size, buffer_size=self.buffer_size,
+            sequence_length=self.sequence_length, use_gru=self.use_gru,
+            gru_units=self.gru_units, device=self.device,
+        )
+
+    def _run_episode(self, env: TradingEnvironment, agent: SACAgent, training: bool) -> float:
+        state, _ = env.reset()
+        reward_sum, steps, done = 0.0, 0, False
+        while not done and (self.max_steps is None or steps < self.max_steps):
+            action = agent.select_action(state, deterministic=not training)
+            next_state, reward, terminated, truncated, _ = env.step(action)
+            done = terminated or truncated
+            if training:
+                agent.remember(state, action, reward * self.reward_scaling, next_state, done)
+                if len(agent.replay_buffer) >= agent.batch_size:
+                    agent.train()
+            state, reward_sum, steps = next_state, reward_sum + reward, steps + 1
+        if training:
+            agent.end_episode()
+        return float(reward_sum)
+
+    def train_multi_period(self, data_by_period: Dict[int, pd.DataFrame]) -> Dict[int, Dict[str, float]]:
+        missing = set(self.periods).difference(data_by_period)
+        if missing:
+            raise ValueError(f"Données absentes pour les périodes: {sorted(missing)}")
         for period in self.periods:
-            period_dir = self.save_dir / f"{self.symbol}_{period}min"
-            period_dir.mkdir(exist_ok=True)
-
-        # Initialiser les collecteurs de données
-        self.market_collector = EnhancedMarketDataCollector()
-        self.sentiment_collector = (
-            EnhancedSentimentCollector() if include_sentiment else None
-        )
-
-        # Créer un writer TensorBoard pour le suivi
-        current_time = datetime.now().strftime("%Y%m%d-%H%M%S")
-        log_dir = self.save_dir / f"{self.symbol}_multi_period_{current_time}"
-        self.summary_writer = tf.summary.create_file_writer(str(log_dir))
-
-        # Dictionnaire pour stocker les données par période
-        self.data = {}
-
-        # Dictionnaire pour stocker les datasets d'entraînement et de validation
-        self.datasets = {}
-
-        # Dictionnaire pour stocker les agents par période
-        self.agents = {}
-
-        # Dictionnaire pour stocker les environnements par période
-        self.environments = {}
-
-        # Dictionnaire pour stocker les métriques d'entraînement
-        self.metrics = {}
-
-    def collect_data(self):
-        """Collecte les données de marché et de sentiment."""
-        market_data = self.market_collector.collect_data(
-            symbol=self.symbol, days=self.days, periods=self.periods
-        )
-
-        sentiment_data = None
-        if self.include_sentiment and self.sentiment_collector:
-            sentiment_data = self.sentiment_collector.collect_data(
-                coins=[self.symbol], days=self.days
-            )
-
-        return market_data, sentiment_data
-
-    def create_env(self, market_data, sentiment_data=None):
-        """Crée un environnement de trading."""
-        return MultiEnvTrading(
-            market_data=market_data,
-            sentiment_data=sentiment_data,
-            initial_balance=self.initial_balance,
-            transaction_fee=0.001,  # Valeur par défaut
-            window_size=20,  # Valeur par défaut
-            is_training=True,
-        )
-
-    def create_agent(self, env):
-        """Crée un agent RL adapté à l'environnement et aux paramètres choisis.
-
-        Args:
-            env: L'environnement de trading
-
-        Returns:
-            Agent de trading (SACAgent ou GRUSACAgent)
-        """
-        # Récupérer les informations de l'environnement
-        state_size = env.observation_space.shape[0]
-        action_size = env.action_space.shape[0]
-        action_bounds = (
-            float(env.action_space.low[0]),
-            float(env.action_space.high[0]),
-        )
-
-        # Stocker la référence à l'agent pour pouvoir le sauvegarder/charger
-        if self.use_gru:
-            # Utiliser GRUSACAgent si use_gru est True
-            self.current_agent = GRUSACAgent(
-                state_size=state_size,
-                action_size=action_size,
-                action_bounds=action_bounds,
-                actor_lr=self.actor_lr,
-                critic_lr=self.critic_lr,
-                tau=self.tau,
-                sequence_length=self.sequence_length,
-                gru_units=self.gru_units,
-                batch_size=self.batch_size,
-                buffer_size=self.buffer_size,
-            )
-        else:
-            # Utiliser SACAgent standard
-            self.current_agent = SACAgent(
-                state_size=state_size,
-                action_size=action_size,
-                action_bounds=action_bounds,
-                actor_lr=self.actor_lr,
-                critic_lr=self.critic_lr,
-                tau=self.tau,
-                batch_size=self.batch_size,
-                buffer_size=self.buffer_size,
-            )
-
-        return self.current_agent
-
-    def prepare_datasets(self, market_data, sentiment_data, validation_ratio):
-        """Prépare les datasets d'entraînement et de validation.
-
-        Args:
-            market_data: Données de marché
-            sentiment_data: Données de sentiment
-            validation_ratio: Ratio pour la validation
-
-        Returns:
-            tuple: (train_market, train_sentiment, val_market, val_sentiment)
-        """
-        # Calculer l'index de séparation
-        split_idx = int(len(market_data) * (1 - validation_ratio))
-
-        # Séparer les données de marché
-        train_market = market_data.iloc[:split_idx]
-        val_market = market_data.iloc[split_idx:]
-
-        # Séparer les données de sentiment si disponibles
-        train_sentiment = None
-        val_sentiment = None
-        if sentiment_data is not None:
-            train_sentiment = sentiment_data.iloc[:split_idx]
-            val_sentiment = sentiment_data.iloc[split_idx:]
-
-        return train_market, train_sentiment, val_market, val_sentiment
-
-    def save_current_agent(self, custom_name=None):
-        """Sauvegarde l'agent courant.
-
-        Args:
-            custom_name: Nom personnalisé pour la sauvegarde
-
-        Returns:
-            str: Chemin du fichier de sauvegarde
-        """
-        if not hasattr(self, "current_agent") or self.current_agent is None:
-            raise ValueError("Aucun agent courant à sauvegarder")
-
-        # Créer le nom du fichier
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        name = custom_name if custom_name else f"agent_{timestamp}"
-        save_path = self.save_dir / f"{name}.h5"
-
-        # Sauvegarder l'agent
-        self.current_agent.save_weights(str(save_path))
-        return str(save_path)
-
-    def load_agent(self, path):
-        """Charge un agent sauvegardé.
-
-        Args:
-            path: Chemin vers le fichier de sauvegarde
-        """
-        if not hasattr(self, "current_agent") or self.current_agent is None:
-            raise ValueError("Aucun agent courant pour charger les poids")
-
-        self.current_agent.load_weights(path)
+            train_data, _, validation_data, _ = self.prepare_datasets(data_by_period[period])
+            window_size = min(20, max(3, len(train_data) // 5))
+            if len(validation_data) <= window_size:
+                raise ValueError("Le split de validation est trop court pour la fenêtre d'observation.")
+            train_env = self.create_env(train_data, window_size=window_size)
+            validation_env = self.create_env(validation_data, window_size=window_size)
+            agent = self.create_agent(train_env)
+            rewards = [self._run_episode(train_env, agent, True) for _ in range(self.epochs_per_period * self.episodes_per_epoch)]
+            validation_reward = self._run_episode(validation_env, agent, False)
+            path = self.save_dir / f"{self.symbol}_{period}min.pt"
+            agent.save(path)
+            self.agents[period] = agent
+            self.metrics[period] = {"train_reward": float(np.mean(rewards)), "validation_reward": validation_reward, "checkpoint": str(path)}
+        return self.metrics

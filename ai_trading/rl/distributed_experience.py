@@ -441,7 +441,9 @@ class ExperienceMaster:
         """
         if not worker.local_mode:
             worker.local_mode = True
-            worker.queue = self.queue
+        # Tous les workers locaux doivent publier dans la queue du maître.
+        # Garder leur queue privée rendait le mode local silencieusement inopérant.
+        worker.queue = self.queue
 
         self.local_workers.append(worker)
         self.logger.info(f"Travailleur local ajouté: {worker.worker_id}")

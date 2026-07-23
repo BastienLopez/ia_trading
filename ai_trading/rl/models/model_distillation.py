@@ -1,5 +1,6 @@
 import json
 import os
+import copy
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
@@ -153,7 +154,7 @@ class DistilledFinancialTransformer(nn.Module):
             dim_feedforward=student_dim_feedforward,
             dropout=0.1,  # Généralement plus faible pour l'étudiant
             output_dim=1,
-        )
+        ).to(next(teacher_model.parameters()).device)
 
         # Sauvegarder les références pour la distillation
         self.teacher = teacher_model
@@ -400,7 +401,7 @@ def train_distilled_model(
                 best_val_loss = val_loss
                 patience_counter = 0
                 # Sauvegarder l'état du meilleur modèle
-                best_model_state = distilled_model.student.state_dict().copy()
+                best_model_state = copy.deepcopy(distilled_model.student.state_dict())
             else:
                 patience_counter += 1
 
@@ -449,6 +450,7 @@ def evaluate_distilled_model(
     teacher_model: FinancialTemporalTransformer,
     test_data: torch.Tensor,
     test_targets: torch.Tensor,
+    timing_runs: int = 5,
 ) -> Dict[str, float]:
     """
     Évalue et compare les performances du modèle étudiant et du modèle enseignant.
@@ -471,7 +473,9 @@ def evaluate_distilled_model(
 
         # Inférence avec le modèle étudiant - répéter plusieurs fois pour plus de précision
         student_times = []
-        for _ in range(5):  # Faire plusieurs passes pour une mesure plus fiable
+        if timing_runs < 1:
+            raise ValueError("timing_runs doit être supérieur ou égal à 1")
+        for _ in range(timing_runs):
             start_time = time.time()
             student_preds, _ = distilled_model.student(test_data)
             end_time = time.time()
@@ -482,7 +486,7 @@ def evaluate_distilled_model(
 
         # Inférence avec le modèle enseignant - répéter plusieurs fois pour plus de précision
         teacher_times = []
-        for _ in range(5):  # Faire plusieurs passes pour une mesure plus fiable
+        for _ in range(timing_runs):
             start_time = time.time()
             teacher_preds, _ = teacher_model(test_data)
             end_time = time.time()
@@ -555,7 +559,9 @@ def save_model_and_metrics(
     print(f"Historique sauvegardé dans {history_path}")
 
 
-def save_distillation_results(results: Dict, filename: str) -> str:
+def save_distillation_results(
+    results: Dict, filename: str, save_dir: Optional[str] = None
+) -> str:
     """
     Sauvegarde les résultats de distillation dans le dossier info_retour.
 
@@ -567,7 +573,7 @@ def save_distillation_results(results: Dict, filename: str) -> str:
         Chemin complet du fichier sauvegardé
     """
     # Créer le répertoire pour les résultats de distillation
-    distillation_dir = MODELS_DIR / "distilled" / "results"
+    distillation_dir = save_dir or MODELS_DIR / "distilled" / "results"
     os.makedirs(distillation_dir, exist_ok=True)
 
     # Convertir les résultats pour compatibilité JSON

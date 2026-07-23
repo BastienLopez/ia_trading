@@ -68,7 +68,8 @@ class TestDataIntegration(unittest.TestCase):
 
         # Vérifier que les données sont prétraitées
         self.assertIsInstance(processed_data, pd.DataFrame)
-        self.assertEqual(len(processed_data), 100)
+        self.assertGreater(len(processed_data), 0)
+        self.assertLessEqual(len(processed_data), len(data))
 
         # Vérifier que les colonnes nécessaires sont présentes
         required_columns = ["open", "high", "low", "close", "volume"]
@@ -78,12 +79,22 @@ class TestDataIntegration(unittest.TestCase):
         # Vérifier qu'il n'y a pas de valeurs manquantes
         self.assertTrue(processed_data[required_columns].notna().all().all())
 
-    @unittest.mock.patch("ai_trading.rl.data_processor.prepare_data_for_rl")
+        required_indicators = {
+            "macd", "stoch_k", "momentum", "obv", "rsi", "upper_bb",
+            "ema_9", "atr", "vp_poc", "adx", "pivot_P", "ichimoku_tenkan",
+        }
+        self.assertTrue(required_indicators.issubset(processed_data.columns))
+
+    @unittest.mock.patch("ai_trading.rl.data_integration.prepare_data_for_rl")
     def test_integrate_data(self, mock_prepare_data):
         """Teste l'intégration des données de marché et de sentiment."""
-        # Mock pour la fonction prepare_data_for_rl
-        expected_train_size = int(len(self.market_data) * 0.8)
-        expected_test_size = len(self.market_data) - expected_train_size
+        # Prétraiter les données avant de fixer les dimensions attendues : le
+        # warm-up causal des indicateurs et des lags peut retirer des lignes.
+        preprocessed_market_data = self.integrator.preprocess_market_data(
+            self.market_data
+        )
+        expected_train_size = int(len(preprocessed_market_data) * 0.8)
+        expected_test_size = len(preprocessed_market_data) - expected_train_size
 
         mock_train_data = pd.DataFrame(
             np.random.random((expected_train_size, 5)),
@@ -95,11 +106,6 @@ class TestDataIntegration(unittest.TestCase):
         )
 
         mock_prepare_data.return_value = (mock_train_data, mock_test_data)
-
-        # Prétraiter les données de marché
-        preprocessed_market_data = self.integrator.preprocess_market_data(
-            self.market_data
-        )
 
         # Intégrer les données
         train_data, test_data = self.integrator.integrate_data(
@@ -182,6 +188,36 @@ class TestDataIntegration(unittest.TestCase):
             if col in normalized_data.columns:
                 self.assertTrue((normalized_data[col] >= 0).all())
                 self.assertTrue((normalized_data[col] <= 1).all())
+
+    def test_sentiment_alignment_does_not_backfill_future_observations(self):
+        sentiment = pd.DataFrame(
+            {"compound_score": [0.8]}, index=[self.market_data.index[2]]
+        )
+        integrated = self.integrator.integrate_sentiment_data(self.market_data, sentiment)
+        self.assertEqual(integrated.loc[self.market_data.index[0], "compound_score"], 0.0)
+        self.assertEqual(integrated.loc[self.market_data.index[1], "compound_score"], 0.0)
+        self.assertEqual(integrated.loc[self.market_data.index[2], "compound_score"], 0.8)
+
+    def test_market_collection_never_hides_a_failure_with_synthetic_data(self):
+        """Le chemin production doit échouer explicitement si P1 est indisponible."""
+        with unittest.mock.patch.object(
+            self.integrator.data_collector,
+            "get_merged_price_data",
+            side_effect=ConnectionError("offline"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "donnée synthétique"):
+                self.integrator.collect_market_data("btc", "2024-01-01", "2024-01-05")
+
+    def test_synthetic_market_fallback_requires_explicit_opt_in(self):
+        integrator = RLDataIntegrator({"allow_synthetic_fallback": True})
+        with unittest.mock.patch.object(
+            integrator.data_collector,
+            "get_merged_price_data",
+            side_effect=ConnectionError("offline"),
+        ):
+            result = integrator.collect_market_data("btc", "2024-01-01", "2024-01-05")
+        self.assertEqual(len(result), 5)
+        self.assertIn("close", result.columns)
 
 
 if __name__ == "__main__":

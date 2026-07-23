@@ -1,7 +1,7 @@
 import logging
 
 import numpy as np
-import tensorflow as tf
+import torch
 
 logger = logging.getLogger(__name__)
 
@@ -45,10 +45,12 @@ class AdaptiveEntropyRegularization:
         self.target_entropy = -self.action_size * self.target_entropy_ratio
 
         # Variable log_alpha pour la stabilité numérique (alpha = exp(log_alpha))
-        self.log_alpha = tf.Variable(np.log(initial_alpha), dtype=tf.float32)
+        self.log_alpha = torch.tensor(
+            np.log(initial_alpha), dtype=torch.float32, requires_grad=True
+        )
 
         # Optimiseur pour la mise à jour d'alpha
-        self.optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
+        self.optimizer = torch.optim.Adam([self.log_alpha], lr=learning_rate)
 
         # Compteur d'étapes pour la mise à jour périodique
         self.steps_counter = 0
@@ -61,14 +63,14 @@ class AdaptiveEntropyRegularization:
 
     def get_alpha(self):
         """Retourne la valeur actuelle d'alpha."""
-        return tf.exp(self.log_alpha)
+        return torch.exp(self.log_alpha)
 
     def update(self, log_probs):
         """
         Met à jour la valeur d'alpha en fonction des probabilités logarithmiques des actions.
 
         Args:
-            log_probs (tf.Tensor): Logarithmes des probabilités des actions échantillonnées
+            log_probs (torch.Tensor): Logarithmes des probabilités des actions échantillonnées
 
         Returns:
             float: La perte d'alpha après la mise à jour
@@ -79,27 +81,25 @@ class AdaptiveEntropyRegularization:
         if self.steps_counter % self.update_interval != 0:
             return 0.0
 
-        with tf.GradientTape() as tape:
-            # Calculer la perte pour alpha
-            # L'objectif est de minimiser: -alpha * (log_prob + target_entropy)
-            alpha_loss = -tf.reduce_mean(
-                self.log_alpha * tf.stop_gradient(log_probs + self.target_entropy)
-            )
-
-        # Calculer et appliquer les gradients
-        gradients = tape.gradient(alpha_loss, [self.log_alpha])
-        self.optimizer.apply_gradients(zip(gradients, [self.log_alpha]))
+        values = torch.as_tensor(log_probs, dtype=torch.float32, device=self.log_alpha.device)
+        alpha_loss = -torch.mean(
+            self.log_alpha * (values + self.target_entropy).detach()
+        )
+        self.optimizer.zero_grad()
+        alpha_loss.backward()
+        self.optimizer.step()
 
         # Journaliser la valeur actuelle d'alpha et sa perte
         alpha = self.get_alpha()
         logger.debug(
-            f"Alpha mis à jour: {alpha.numpy():.4f}, loss: {alpha_loss.numpy():.4f}"
+            f"Alpha mis à jour: {alpha.item():.4f}, loss: {alpha_loss.item():.4f}"
         )
 
-        return alpha_loss.numpy()
+        return float(alpha_loss.item())
 
     def reset(self):
         """Réinitialise alpha à sa valeur initiale."""
-        self.log_alpha.assign(np.log(self.initial_alpha))
+        with torch.no_grad():
+            self.log_alpha.fill_(np.log(self.initial_alpha))
         self.steps_counter = 0
         logger.info(f"Alpha réinitialisé à {self.initial_alpha}")

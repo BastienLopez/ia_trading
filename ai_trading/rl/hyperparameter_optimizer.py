@@ -78,6 +78,15 @@ def calculate_win_rate(trades):
 
 # Configuration du logger
 logger = logging.getLogger(__name__)
+
+
+def _json_default(value):
+    """Convertit explicitement les scalaires NumPy issus des recherches en JSON."""
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    raise TypeError(f"Type non sérialisable dans les résultats Hyperopt: {type(value)!r}")
 logger.setLevel(logging.INFO)
 if not logger.handlers:
     handler = logging.StreamHandler()
@@ -138,6 +147,16 @@ class HyperparameterOptimizer:
             self.save_dir = save_dir
 
         self.n_jobs = n_jobs
+        uses_cuda = any(
+            str(value).lower().startswith("cuda")
+            for values in param_grid.values()
+            for value in values
+        )
+        if uses_cuda and n_jobs > 1:
+            raise ValueError(
+                "La recherche GPU doit rester séquentielle (n_jobs=1) pour éviter "
+                "la concurrence mémoire CUDA."
+            )
         self.verbose = verbose
 
         # Créer le répertoire de sauvegarde s'il n'existe pas
@@ -234,24 +253,7 @@ class HyperparameterOptimizer:
         # Créer l'environnement et l'agent
         env = self.env_creator()
 
-        # Extraire les paramètres spécifiques à l'agent
-        # (filtrer ceux qui ne sont pas des arguments du constructeur de l'agent)
-        agent_params = {}
-
-        for param, value in params.items():
-            # Ajouter les paramètres spécifiques à l'agent (nous pourrions ajouter une validation plus stricte)
-            agent_params[param] = value
-
-        # Créer l'agent avec les paramètres
-        agent = self.agent_class(
-            state_size=env.observation_space.shape[0],
-            action_size=env.action_space.shape[0],
-            action_bounds=[
-                float(env.action_space.low[0]),
-                float(env.action_space.high[0]),
-            ],
-            **agent_params,
-        )
+        agent = self._create_agent(env, params)
 
         # Entraîner l'agent
         train_metrics = self._train_agent(
@@ -259,7 +261,9 @@ class HyperparameterOptimizer:
         )
 
         # Évaluer l'agent
-        eval_metrics = self._evaluate_agent(env, agent, self.eval_episodes)
+        eval_metrics = self._evaluate_agent(
+            env, agent, self.eval_episodes, max_steps=self.max_steps
+        )
 
         # Combiner les métriques
         all_metrics = {**train_metrics, **eval_metrics}
@@ -274,6 +278,45 @@ class HyperparameterOptimizer:
                     logger.info(f"  {metric}: {value:.4f}")
 
         return score, params, all_metrics
+
+    def _create_agent(self, env, params):
+        """Construit l'agent avec le contrat réel de l'espace Gymnasium."""
+        state_dim = int(env.observation_space.shape[0])
+        if hasattr(env.action_space, "shape"):
+            action_dim = int(env.action_space.shape[0])
+            action_bounds = (
+                float(env.action_space.low[0]),
+                float(env.action_space.high[0]),
+            )
+            agent_params = dict(params)
+            if "hidden_size" in agent_params:
+                agent_params["hidden_dim"] = agent_params.pop("hidden_size")
+            agent_params.pop("train_frequency", None)
+            return self.agent_class(
+                state_dim=state_dim,
+                action_dim=action_dim,
+                action_bounds=action_bounds,
+                **agent_params,
+            )
+
+        agent_params = dict(params)
+        agent_params.pop("train_frequency", None)
+        return self.agent_class(
+            state_size=state_dim,
+            action_size=int(env.action_space.n),
+            **agent_params,
+        )
+
+    @staticmethod
+    def _select_action(agent, state, deterministic=False):
+        if hasattr(agent, "select_action"):
+            return agent.select_action(state, deterministic=deterministic)
+        return agent.act(state, evaluate=deterministic)
+
+    @staticmethod
+    def _memory_size(agent):
+        memory = getattr(agent, "replay_buffer", getattr(agent, "memory", None))
+        return len(memory) if memory is not None else 0
 
     def _train_agent(self, env, agent, params, n_episodes, max_steps):
         """
@@ -298,38 +341,18 @@ class HyperparameterOptimizer:
             step = 0
             done = False
 
-            # Gérer les séquences pour les agents GRU
-            if hasattr(agent, "use_gru") and agent.use_gru:
-                # Créer une séquence initiale
-                sequence = np.array([state] * agent.sequence_length)
-                # Assurer que la forme est (sequence_length, state_size) et non (sequence_length, 1, state_size)
-                if len(sequence.shape) > 2:
-                    sequence = sequence.reshape(agent.sequence_length, -1)
-                current_state = sequence
-            else:
-                current_state = state
+            current_state = state
 
             while not done and (max_steps is None or step < max_steps):
                 # Sélectionner une action
-                action = agent.act(current_state)
+                action = self._select_action(agent, current_state)
 
                 # Exécuter l'action
                 next_state, reward, terminated, truncated, _ = env.step(action)
                 done = terminated or truncated
 
-                # Enregistrer l'expérience
-                if hasattr(agent, "use_gru") and agent.use_gru:
-                    # Pour les agents GRU, on stocke la séquence complète
-                    agent.remember(current_state, action, reward, next_state, done)
-
-                    # Mettre à jour la séquence en supprimant le plus ancien état et ajoutant le nouveau
-                    # Assurer que next_state a la bonne forme avant de l'empiler
-                    next_state_reshaped = next_state.reshape(1, -1)
-                    sequence = np.vstack([sequence[1:], next_state_reshaped])
-                    current_state = sequence
-                else:
-                    agent.remember(current_state, action, reward, next_state, done)
-                    current_state = next_state
+                agent.remember(current_state, action, reward, next_state, done)
+                current_state = next_state
 
                 episode_reward += reward
                 step += 1
@@ -337,7 +360,7 @@ class HyperparameterOptimizer:
                 # Entraîner l'agent si assez d'expériences sont collectées
                 if (
                     step % params.get("train_frequency", 1) == 0
-                    and agent.memory.size() >= agent.batch_size
+                    and self._memory_size(agent) >= agent.batch_size
                 ):
                     agent.train()
 
@@ -358,7 +381,7 @@ class HyperparameterOptimizer:
 
         return training_metrics
 
-    def _evaluate_agent(self, env, agent, eval_episodes):
+    def _evaluate_agent(self, env, agent, eval_episodes, max_steps=None):
         """
         Évalue l'agent après entraînement.
 
@@ -378,22 +401,14 @@ class HyperparameterOptimizer:
             state, _ = env.reset()
             episode_reward = 0
             done = False
-            portfolio_history = [env.portfolio_value]
+            portfolio_history = [env.get_portfolio_value()]
 
-            # Gérer les séquences pour les agents GRU
-            if hasattr(agent, "use_gru") and agent.use_gru:
-                # Créer une séquence initiale
-                sequence = np.array([state] * agent.sequence_length)
-                # Assurer que la forme est (sequence_length, state_size) et non (sequence_length, 1, state_size)
-                if len(sequence.shape) > 2:
-                    sequence = sequence.reshape(agent.sequence_length, -1)
-                current_state = sequence
-            else:
-                current_state = state
+            current_state = state
 
-            while not done:
+            step = 0
+            while not done and (max_steps is None or step < max_steps):
                 # Sélectionner une action (en mode évaluation)
-                action = agent.act(current_state, evaluate=True)
+                action = self._select_action(agent, current_state, deterministic=True)
 
                 # Exécuter l'action
                 next_state, reward, terminated, truncated, info = env.step(action)
@@ -401,21 +416,14 @@ class HyperparameterOptimizer:
 
                 # Collecter les métriques
                 episode_reward += reward
-                portfolio_history.append(env.portfolio_value)
+                portfolio_history.append(env.get_portfolio_value())
 
                 # Enregistrer le trade si effectué
                 if "trade_executed" in info and info["trade_executed"]:
                     trades.append(info)
 
-                # Mettre à jour l'état courant ou la séquence
-                if hasattr(agent, "use_gru") and agent.use_gru:
-                    # Mettre à jour la séquence en supprimant le plus ancien état et ajoutant le nouveau
-                    # Assurer que next_state a la bonne forme avant de l'empiler
-                    next_state_reshaped = next_state.reshape(1, -1)
-                    sequence = np.vstack([sequence[1:], next_state_reshaped])
-                    current_state = sequence
-                else:
-                    current_state = next_state
+                current_state = next_state
+                step += 1
 
             episode_rewards.append(episode_reward)
             portfolio_values.append(portfolio_history)
@@ -435,9 +443,11 @@ class HyperparameterOptimizer:
             mdd = self._calculate_max_drawdown(portfolio_values)
             eval_metrics["max_drawdown"] = mdd
 
-        if "win_rate" in self.metrics and trades:
-            win_rate = self._calculate_win_rate(trades)
-            eval_metrics["win_rate"] = win_rate
+        if "win_rate" in self.metrics:
+            # Une évaluation courte peut ne fermer aucun trade. La métrique doit
+            # néanmoins être présente pour que les résultats restent comparables
+            # entre toutes les configurations d'hyperparamètres.
+            eval_metrics["win_rate"] = self._calculate_win_rate(trades) if trades else 0.0
 
         return eval_metrics
 
@@ -577,6 +587,7 @@ class HyperparameterOptimizer:
                 },
                 f,
                 indent=2,
+                default=_json_default,
             )
 
         # Créer un DataFrame pour analyse
@@ -663,6 +674,7 @@ def optimize_sac_agent(
     param_grid=None,
     n_episodes=50,
     eval_episodes=10,
+    max_steps=None,
     save_dir=None,
     n_jobs=1,
 ):
@@ -712,6 +724,7 @@ def optimize_sac_agent(
         agent_class=SACAgent,
         param_grid=param_grid,
         n_episodes=n_episodes,
+        max_steps=max_steps,
         eval_episodes=eval_episodes,
         save_dir=save_dir,
         n_jobs=n_jobs,

@@ -522,15 +522,20 @@ class MultiSourceRequester:
             func, _ = self.sources[source_name]
             requester = self.requesters[source_name]
 
-            # Calculer le timeout restant
-            remaining_timeout = max(0.1, timeout_value - elapsed)
+            # Ne jamais donner à une source davantage que son propre timeout ni
+            # que le budget global restant : cela laisse une chance réelle aux
+            # sources de repli prioritaires.
+            remaining_timeout = timeout_value - elapsed
+            if remaining_timeout <= 0:
+                break
+            source_timeout = min(requester.timeout, remaining_timeout)
 
             try:
                 logger.debug(
-                    f"Essai de la source: {source_name} (timeout: {remaining_timeout:.2f}s)"
+                    f"Essai de la source: {source_name} (timeout: {source_timeout:.2f}s)"
                 )
                 result = requester.request(
-                    func, *args, timeout=remaining_timeout, **kwargs
+                    func, *args, timeout=source_timeout, **kwargs
                 )
                 logger.info(f"Requête réussie avec la source: {source_name}")
                 return result, source_name

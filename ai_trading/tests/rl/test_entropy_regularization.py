@@ -5,7 +5,6 @@ import unittest
 
 import numpy as np
 import pandas as pd
-import tensorflow as tf
 import pytest
 import torch
 
@@ -123,7 +122,7 @@ class TestEntropyRegularization(unittest.TestCase):
             entropy_reg.target_entropy, -self.action_size * self.target_entropy_ratio
         )
         self.assertAlmostEqual(
-            entropy_reg.log_alpha.numpy(), np.log(self.initial_alpha), places=5
+            entropy_reg.log_alpha.detach().numpy(), np.log(self.initial_alpha), places=5
         )
         self.assertEqual(entropy_reg.steps_counter, 0)
 
@@ -135,14 +134,14 @@ class TestEntropyRegularization(unittest.TestCase):
 
         # Vérifier que la méthode get_alpha retourne la bonne valeur
         alpha = entropy_reg.get_alpha()
-        self.assertAlmostEqual(alpha.numpy(), self.initial_alpha, places=5)
+        self.assertAlmostEqual(alpha.item(), self.initial_alpha, places=5)
 
         # Modifier log_alpha et vérifier que get_alpha retourne la nouvelle valeur
-        new_log_alpha = tf.Variable(np.log(0.5), dtype=tf.float32)
+        new_log_alpha = torch.tensor(np.log(0.5), dtype=torch.float32, requires_grad=True)
         entropy_reg.log_alpha = new_log_alpha
 
         alpha = entropy_reg.get_alpha()
-        self.assertAlmostEqual(alpha.numpy(), 0.5, places=5)
+        self.assertAlmostEqual(alpha.item(), 0.5, places=5)
 
     def test_entropy_regularization(self):
         """Vérifie que l'agent avec régularisation d'entropie a une entropie d'action plus élevée."""
@@ -234,7 +233,8 @@ def sac_agent():
     return OptimizedSACAgent(
         state_dim=state_dim,
         action_dim=action_dim,
-        entropy_regularization=0.2
+        entropy_regularization=0.2,
+        batch_size=2,
     )
 
 def test_entropy_regularization_initialization(sac_agent):
@@ -250,8 +250,9 @@ def test_entropy_regularization_training(sac_agent):
     next_state = np.random.randn(10)
     done = False
 
-    # Ajouter l'expérience au buffer
-    sac_agent.remember(state, action, reward, next_state, done)
+    # Remplir au moins un batch : aucun entraînement n'est valide avant cela.
+    for _ in range(sac_agent.batch_size):
+        sac_agent.remember(state, action, reward, next_state, done)
 
     # Entraîner l'agent
     metrics = sac_agent.train()
@@ -278,7 +279,12 @@ def test_entropy_regularization_action_selection(sac_agent):
 
 def test_entropy_regularization_alpha_update():
     # On force l'alpha automatique
-    sac_agent = OptimizedSACAgent(state_dim=10, action_dim=2, entropy_regularization=0)
+    sac_agent = OptimizedSACAgent(
+        state_dim=10,
+        action_dim=2,
+        entropy_regularization=0,
+        batch_size=2,
+    )
     initial_alpha = sac_agent.alpha
 
     # Simuler plusieurs étapes d'entraînement avec séquences

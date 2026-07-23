@@ -4,6 +4,7 @@ Module pour le système de trading basé sur l'apprentissage par renforcement.
 
 import logging
 import os
+import inspect
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
@@ -47,7 +48,10 @@ class RLTradingSystem:
         self._agent = None
         self._transformer = None
         self.logger = logging.getLogger(__name__)
-        self.data_integrator = RLDataIntegrator()
+        # L'intégrateur initialise les analyseurs de sentiment (modèles LLM).
+        # Le charger uniquement lorsqu'une intégration P1/P2 est demandée évite
+        # de pénaliser les backtests OHLCV purs.
+        self.data_integrator = None
 
         # Ajout du répertoire de modèles
         from ai_trading.config import MODELS_DIR
@@ -72,14 +76,40 @@ class RLTradingSystem:
             # Déterminer la taille de l'état à partir de l'environnement
             state_size = self._env.observation_space.shape[0]
 
-        if agent_type.lower() == "dqn":
+        if state_size is None or state_size <= 0:
+            raise ValueError("state_size doit être défini avant de créer un agent")
+
+        agent_type = agent_type.lower()
+        if agent_type == "dqn":
+            if self._env is not None and self._env.action_type != "discrete":
+                raise ValueError("DQN requiert un environnement à actions discrètes")
             from ai_trading.rl.dqn_agent import DQNAgent
 
             agent = DQNAgent(state_size=state_size, action_size=action_size, **kwargs)
-        elif agent_type.lower() == "ppo":
-            # Implémentation future pour PPO
-            raise NotImplementedError("Agent PPO non implémenté")
-        elif agent_type.lower() == "sac":
+        elif agent_type in {"double_dqn", "dueling_dqn", "double_dueling_dqn"}:
+            if self._env is not None and self._env.action_type != "discrete":
+                raise ValueError("Les variantes DQN requièrent un environnement à actions discrètes")
+            from ai_trading.rl.agents.double_dueling_dqn import (
+                DoubleDQNAgent,
+                DoubleDuelingDQNAgent,
+                DuelingDQNAgent,
+            )
+
+            agent_class = {
+                "double_dqn": DoubleDQNAgent,
+                "dueling_dqn": DuelingDQNAgent,
+                "double_dueling_dqn": DoubleDuelingDQNAgent,
+            }[agent_type]
+            agent = agent_class(state_size=state_size, action_size=action_size, **kwargs)
+        elif agent_type == "ppo":
+            if self._env is not None and self._env.action_type != "continuous":
+                raise ValueError("PPO requiert un environnement à actions continues")
+            from ai_trading.rl.agents.ppo_agent import PPOAgent
+
+            if self._env is not None:
+                action_size = int(self._env.action_space.shape[0])
+            agent = PPOAgent(state_dim=state_size, action_dim=action_size, **kwargs)
+        elif agent_type == "sac":
             from ai_trading.rl.agents.sac_agent import SACAgent
 
             # Configurer les bornes d'action correctes si l'environnement existe
@@ -91,8 +121,9 @@ class RLTradingSystem:
                     hasattr(self._env, "action_type")
                     and self._env.action_type == "continuous"
                 ):
-                    # Pour un espace Box, l'action_size devrait être 1 pour notre environnement
-                    action_size = 1
+                    # Un environnement mono-actif a une dimension, un portefeuille
+                    # multi-actifs une dimension par actif.
+                    action_size = int(self._env.action_space.shape[0])
                     logger.info(
                         f"Agent SAC créé pour un espace d'action continu de taille {action_size}"
                     )
@@ -102,15 +133,21 @@ class RLTradingSystem:
                     )
 
             agent = SACAgent(
-                state_size=state_size,
-                action_size=action_size,
+                state_dim=state_size,
+                action_dim=action_size,
                 action_bounds=action_bounds,
                 **kwargs,
             )
         else:
             raise ValueError(f"Type d'agent inconnu: {agent_type}")
 
+        self._agent = agent
         return agent
+
+    def _get_data_integrator(self):
+        if self.data_integrator is None:
+            self.data_integrator = RLDataIntegrator()
+        return self.data_integrator
 
     def create_environment(self, data=None, **kwargs):
         """
@@ -124,9 +161,9 @@ class RLTradingSystem:
             TradingEnvironment: Environnement de trading
         """
         if data is None:
-            # Générer des données synthétiques
-            data = self.data_integrator.generate_synthetic_data(
-                n_samples=100, trend="bullish", volatility=0.02, with_sentiment=True
+            raise ValueError(
+                "Des données OHLCV réelles explicites sont requises pour créer "
+                "un environnement RL. Utiliser DataProcessor ou fournir un DataFrame."
             )
 
         # Créer l'environnement
@@ -135,7 +172,18 @@ class RLTradingSystem:
         logger.info(f"Environnement de trading créé avec {len(data)} points de données")
         return self._env
 
-    def train(self, agent=None, episodes=50, batch_size=32, save_path=None, data=None):
+    def train(
+        self,
+        agent=None,
+        episodes=50,
+        batch_size=32,
+        save_path=None,
+        data=None,
+        max_steps=None,
+        max_total_steps=None,
+        train_every=1,
+        max_optimization_steps=None,
+    ):
         """
         Entraîne l'agent sur l'environnement spécifié.
 
@@ -146,6 +194,13 @@ class RLTradingSystem:
             save_path (str): Chemin pour sauvegarder l'agent (optionnel)
             data (pd.DataFrame): Données d'entraînement (optionnel)
         """
+        if not isinstance(train_every, int) or train_every < 1:
+            raise ValueError("train_every doit être un entier >= 1")
+        if max_optimization_steps is not None and (
+            not isinstance(max_optimization_steps, int) or max_optimization_steps < 1
+        ):
+            raise ValueError("max_optimization_steps doit être un entier >= 1 ou None")
+
         # Créer l'environnement si nécessaire
         if self._env is None and data is not None:
             self.create_environment(data=data)
@@ -162,21 +217,67 @@ class RLTradingSystem:
 
         logger.info(f"Début de l'entraînement pour {episodes} épisodes...")
 
+        episode_rewards = []
+        optimization_steps = 0
+        total_steps = 0
         for episode in range(episodes):
-            state = self._env.reset()
-            if isinstance(state, tuple):
-                state = state[0]  # Prendre seulement l'état, pas les infos
+            state, _ = self._env.reset()
             done = False
             total_reward = 0
+            steps = 0
+            ppo_trajectory = {"states": [], "actions": [], "rewards": [], "next_states": [], "dones": []}
+            uses_ppo_contract = hasattr(self._agent, "get_action") and not hasattr(self._agent, "remember")
 
-            while not done:
-                action = self._agent.act(state)
+            while (
+                not done
+                and (max_steps is None or steps < max_steps)
+                and (max_total_steps is None or total_steps < max_total_steps)
+            ):
+                action = self._select_agent_action(
+                    self._agent, state, training=True, action_mask=self._env.get_action_mask()
+                )
+                action = self._env.project_action(action)
                 next_state, reward, terminated, truncated, info = self._env.step(action)
                 done = terminated or truncated
-                self._agent.remember(state, action, reward, next_state, done)
-                self._agent.replay(batch_size)
+                if uses_ppo_contract:
+                    ppo_trajectory["states"].append(state)
+                    ppo_trajectory["actions"].append(action)
+                    ppo_trajectory["rewards"].append(reward)
+                    ppo_trajectory["next_states"].append(next_state)
+                    ppo_trajectory["dones"].append(done)
+                else:
+                    remember_kwargs = {}
+                    if "next_action_mask" in inspect.signature(self._agent.remember).parameters:
+                        remember_kwargs["next_action_mask"] = self._env.get_action_mask()
+                    self._agent.remember(state, action, reward, next_state, done, **remember_kwargs)
+                    can_optimize = (
+                        max_optimization_steps is None
+                        or optimization_steps < max_optimization_steps
+                    )
+                    if (
+                        can_optimize
+                        and (total_steps + 1) % train_every == 0
+                        and self._train_agent_step(self._agent, batch_size)
+                    ):
+                        optimization_steps += 1
                 state = next_state
                 total_reward += reward
+                steps += 1
+                total_steps += 1
+
+            if uses_ppo_contract and ppo_trajectory["states"]:
+                can_optimize = (
+                    max_optimization_steps is None
+                    or optimization_steps < max_optimization_steps
+                )
+                if can_optimize:
+                    self._agent.update(**ppo_trajectory)
+                    optimization_steps += 1
+            episode_rewards.append(float(total_reward))
+            if hasattr(self._agent, "end_episode"):
+                self._agent.end_episode()
+            if max_total_steps is not None and total_steps >= max_total_steps:
+                break
 
             if episode % 10 == 0:
                 self.logger.info(
@@ -186,6 +287,14 @@ class RLTradingSystem:
         if save_path:
             self._agent.save(save_path)
             self.logger.info(f"Agent sauvegardé dans {save_path}")
+
+        return {
+            "episode_rewards": episode_rewards,
+            "optimization_steps": optimization_steps,
+            "episodes": episodes,
+            "total_steps": total_steps,
+            "max_optimization_steps": max_optimization_steps,
+        }
 
     def evaluate(
         self,
@@ -240,34 +349,12 @@ class RLTradingSystem:
             # Réinitialiser l'environnement et obtenir le premier état
             state, _ = env.reset()
 
-            # Vérifier que la taille de l'état correspond à celle de l'agent
-            if agent.state_size != state.shape[0]:
-                logger.warning(
-                    f"Incompatibilité de dimensions: agent.state_size={agent.state_size}, état={state.shape[0]}. "
-                    f"Reconstruction de l'agent..."
+            expected_state_size = getattr(agent, "state_size", getattr(agent, "state_dim", None))
+            if expected_state_size != state.shape[0]:
+                raise ValueError(
+                    "Dimensions incompatibles entre l'agent et l'environnement: "
+                    f"agent={expected_state_size}, environnement={state.shape[0]}"
                 )
-
-                # Sauvegarder les paramètres importants
-                state_size = state.shape[0]
-                action_size = env.action_space.n
-
-                # Recréer l'agent avec la bonne taille d'état
-                learning_rate = getattr(agent, "learning_rate", 0.001)
-                gamma = getattr(agent, "gamma", 0.95)
-                epsilon = 0.0  # Mode évaluation, pas d'exploration
-                batch_size = getattr(agent, "batch_size", 32)
-
-                from ai_trading.rl.dqn_agent import DQNAgent
-
-                agent = DQNAgent(
-                    state_size=state_size,
-                    action_size=action_size,
-                    learning_rate=learning_rate,
-                    gamma=gamma,
-                    epsilon=epsilon,
-                    batch_size=batch_size,
-                )
-                # Note: L'agent n'est pas entraîné, mais il est utilisé en mode déterministe
 
             done = False
             episode_reward = 0
@@ -275,26 +362,10 @@ class RLTradingSystem:
             episode_portfolio = []
 
             while not done:
-                # Adapter l'état à la taille attendue par l'agent si nécessaire
-                actual_state_size = len(state)
-                if actual_state_size != agent.state_size:
-                    # Adapter l'état à la taille attendue par l'agent
-                    if actual_state_size < agent.state_size:
-                        # Padding avec des zéros si l'état est plus petit
-                        padded_state = np.zeros((1, agent.state_size))
-                        padded_state[0, :actual_state_size] = state
-                        state_for_agent = padded_state
-                    else:
-                        # Tronquer si l'état est plus grand
-                        state_for_agent = np.reshape(
-                            state[: agent.state_size], (1, agent.state_size)
-                        )
-                else:
-                    # Bonne taille, juste redimensionner
-                    state_for_agent = np.reshape(state, (1, agent.state_size))
-
-                # Obtenir l'action de l'agent
-                action = agent.act(state_for_agent)
+                action = self._select_agent_action(
+                    agent, state, training=False, action_mask=env.get_action_mask()
+                )
+                action = env.project_action(action)
                 episode_actions.append(action)
 
                 # Exécuter l'action
@@ -355,11 +426,10 @@ class RLTradingSystem:
             action: L'action prédite
         """
         if not self._agent:
-            # Créer un agent par défaut si nécessaire
-            self.create_agent()
-            logger.warning("Agent créé automatiquement avec les paramètres par défaut")
-
-        return self._agent.predict(state)
+            raise ValueError("Aucun agent chargé. Appelez create_agent() ou load() d'abord.")
+        action_mask = self._env.get_action_mask() if self._env is not None else None
+        action = self._select_agent_action(self._agent, state, training=False, action_mask=action_mask)
+        return self._env.project_action(action) if self._env is not None else action
 
     def save(self, path):
         """
@@ -372,7 +442,7 @@ class RLTradingSystem:
             raise ValueError("Aucun agent à sauvegarder")
 
         # Créer le répertoire si nécessaire
-        os.makedirs(os.path.dirname(path), exist_ok=True)
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
 
         # Sauvegarder l'agent
         self._agent.save(path)
@@ -389,15 +459,54 @@ class RLTradingSystem:
         if not os.path.exists(path):
             raise FileNotFoundError(f"Le fichier {path} n'existe pas")
 
-        # Créer un agent temporaire pour charger le modèle
-        from ai_trading.rl.dqn_agent import DQNAgent
-
-        self._agent = DQNAgent(state_size=1, action_size=3)  # Tailles temporaires
+        checkpoint = torch.load(path, map_location="cpu", weights_only=False)
+        if checkpoint.get("agent_type") != "dqn":
+            raise ValueError("Le chargement automatique ne prend en charge que les checkpoints DQN versionnés")
+        self._agent = self.create_agent(
+            agent_type="dqn",
+            state_size=checkpoint["state_size"],
+            action_size=checkpoint["action_size"],
+            hidden_size=checkpoint.get("hidden_size", 128),
+            use_noisy_network=checkpoint.get("use_noisy_network", False),
+            n_step=checkpoint.get("n_step", 1),
+            device=checkpoint.get("device", "cpu"),
+        )
         self._agent.load(path)
 
         logger.info(f"Système de trading chargé depuis {path}")
 
         return self._agent
+
+    @staticmethod
+    def _select_agent_action(agent, state: np.ndarray, training: bool, action_mask=None):
+        """Sélection d'action unique pour les contrats DQN et SAC."""
+        if hasattr(agent, "select_action"):
+            if hasattr(agent, "state_dim"):
+                kwargs = {"deterministic": not training}
+            else:
+                kwargs = {"training": training}
+            if "action_mask" in inspect.signature(agent.select_action).parameters:
+                kwargs["action_mask"] = action_mask
+            return agent.select_action(state, **kwargs)
+        if hasattr(agent, "get_action"):
+            kwargs = {"deterministic": not training}
+            if "action_mask" in inspect.signature(agent.get_action).parameters:
+                kwargs["action_mask"] = action_mask
+            action, _ = agent.get_action(state, **kwargs)
+            return np.asarray(action, dtype=np.float32).reshape(-1)
+        raise TypeError("L'agent ne fournit pas select_action")
+
+    @staticmethod
+    def _train_agent_step(agent, batch_size: int) -> bool:
+        """Une optimisation, seulement si le replay contient assez de données."""
+        buffer = getattr(agent, "replay_buffer", getattr(agent, "memory", None))
+        if buffer is None or len(buffer) < batch_size:
+            return False
+        if hasattr(agent, "replay"):
+            agent.replay(batch_size)
+        else:
+            agent.train(batch_size)
+        return True
 
     def test_random_strategy(self, num_episodes=10):
         """
@@ -473,19 +582,20 @@ class RLTradingSystem:
         Returns:
             tuple: (données d'entraînement, données de test)
         """
-        # Si aucune donnée n'est fournie, générer des données synthétiques
+        # Aucune donnée fictive ne doit entrer dans une préparation de trading.
         if market_data is None:
-            market_data = self.data_integrator.generate_synthetic_data(
-                n_samples=100, trend="random", volatility=0.02, with_sentiment=True
+            raise ValueError(
+                "Des données OHLCV réelles explicites sont requises pour intégrer "
+                "les données RL."
             )
-            logger.info(f"Données synthétiques générées: {len(market_data)} points")
 
         # Prétraiter les données de marché
-        processed_data = self.data_integrator.preprocess_market_data(market_data)
+        data_integrator = self._get_data_integrator()
+        processed_data = data_integrator.preprocess_market_data(market_data)
 
         # Intégrer les données de sentiment si disponibles
         if sentiment_data is not None:
-            processed_data = self.data_integrator.integrate_sentiment_data(
+            processed_data = data_integrator.integrate_sentiment_data(
                 processed_data, sentiment_data
             )
 

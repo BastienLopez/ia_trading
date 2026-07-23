@@ -130,4 +130,59 @@ def test_model_save_load(dqn_agent, tmp_path):
     assert new_agent.steps_done == dqn_agent.steps_done
     assert new_agent.epsilon == dqn_agent.epsilon
     assert np.array_equal(new_agent.action_counts, dqn_agent.action_counts)
-    assert np.array_equal(new_agent.action_values, dqn_agent.action_values) 
+    assert np.array_equal(new_agent.action_values, dqn_agent.action_values)
+
+
+def test_noisy_network_exploration_is_optimizable(dqn_agent):
+    noisy_agent = DQNAgent(
+        state_size=4,
+        action_size=2,
+        hidden_size=16,
+        batch_size=2,
+        buffer_size=16,
+        use_ucb=False,
+        use_noisy_network=True,
+        device=dqn_agent.device,
+    )
+    assert noisy_agent.policy_net.__class__.__name__ == "NoisyQNetwork"
+    for _ in range(2):
+        noisy_agent.remember(
+            np.zeros(4, dtype=np.float32), 0, 1.0,
+            np.ones(4, dtype=np.float32), False,
+        )
+    assert noisy_agent.optimize_model() is not None
+
+
+def test_terminal_only_batch_has_scalar_weighted_loss(dqn_agent):
+    for _ in range(dqn_agent.batch_size):
+        dqn_agent.memory.push(
+            torch.zeros(1, 4, device=dqn_agent.device),
+            torch.tensor([[0]], device=dqn_agent.device),
+            None,
+            torch.tensor([[1.0]], device=dqn_agent.device),
+            torch.tensor([[True]], device=dqn_agent.device),
+        )
+
+    loss = dqn_agent.optimize_model()
+
+    assert isinstance(loss, float)
+    assert np.isfinite(loss)
+
+
+def test_n_step_returns_are_accumulated_and_flushed(dqn_agent):
+    agent = DQNAgent(
+        state_size=4,
+        action_size=2,
+        batch_size=2,
+        buffer_size=16,
+        gamma=0.5,
+        n_step=3,
+        device=dqn_agent.device,
+    )
+    for index in range(3):
+        agent.remember(np.full(4, index), 0, 1.0, np.full(4, index + 1), False)
+
+    assert len(agent.memory) == 1
+    assert agent.memory.memory[0].reward.item() == pytest.approx(1.75)
+    agent.end_episode()
+    assert len(agent.memory) == 3

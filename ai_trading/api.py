@@ -152,9 +152,16 @@ async def predict(
         # Créer un environnement pour la dernière donnée
         from ai_trading.rl.trading_environment import TradingEnvironment
 
+        env_config = getattr(agent.agent, "environment_config", None) or {}
+        window_size = int(env_config.get("window_size", 20))
+        # Il faut plus qu'une fenêtre complète; l'ancien slice de 20 lignes
+        # échouait avec window_size=20 et pouvait produire un état incompatible.
+        inference_data = df.iloc[-max(2 * window_size + 1, 64) :]
         env = TradingEnvironment(
-            df.iloc[-20:]
-        )  # Utiliser les 20 dernières observations avec TradingEnvironment au lieu de CryptoTradingEnv
+            inference_data,
+            window_size=window_size,
+            action_type=env_config.get("action_type", "discrete"),
+        )
         observation, _ = env.reset()
 
         # Prédire l'action
@@ -162,9 +169,9 @@ async def predict(
 
         # Convertir l'action en recommandation
         recommendation = "ATTENDRE"
-        if action == 1:
+        if 1 <= action <= env.n_discrete_actions:
             recommendation = "ACHETER"
-        elif action == 2:
+        elif action > env.n_discrete_actions:
             recommendation = "VENDRE"
 
         # Récupérer les dernières informations du marché

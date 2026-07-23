@@ -576,19 +576,20 @@ class CurriculumTrainer:
         total_reward = 0
 
         while not (done or truncated):
-            action = self.agent.get_action(state)
+            action = self._select_action(state, training=True)
             next_state, reward, done, truncated, info = env.step(action)
 
-            # Entraîner l'agent - s'assurer que update est appelé dans tous les cas
-            self.agent.update(state, action, reward, next_state, done)
-
-            # Si l'agent a une méthode remember et replay, les utiliser aussi
+            # Contrat moderne DQN/SAC, avec compatibilité pour les anciens agents.
+            if hasattr(self.agent, "update"):
+                self.agent.update(state, action, reward, next_state, done)
             if hasattr(self.agent, "remember"):
-                # Pour les agents basés sur DQN
                 self.agent.remember(state, action, reward, next_state, done)
-                if hasattr(self.agent, "memory") and hasattr(self.agent, "batch_size"):
-                    if len(self.agent.memory) > self.agent.batch_size:
+                buffer = getattr(self.agent, "replay_buffer", getattr(self.agent, "memory", None))
+                if buffer is not None and len(buffer) >= getattr(self.agent, "batch_size", 1):
+                    if hasattr(self.agent, "replay"):
                         self.agent.replay()
+                    elif hasattr(self.agent, "train"):
+                        self.agent.train()
 
             state = next_state
             total_reward += reward
@@ -596,7 +597,18 @@ class CurriculumTrainer:
         # Récupérer la valeur finale du portefeuille
         portfolio_value = env.get_portfolio_value()
 
+        if hasattr(self.agent, "end_episode"):
+            self.agent.end_episode()
         return total_reward, portfolio_value
+
+    def _select_action(self, state, training: bool):
+        if hasattr(self.agent, "get_action"):
+            return self.agent.get_action(state, evaluate=not training)
+        if hasattr(self.agent, "select_action"):
+            if hasattr(self.agent, "state_dim"):
+                return self.agent.select_action(state, deterministic=not training)
+            return self.agent.select_action(state, training=training)
+        raise TypeError("L'agent ne fournit aucune méthode de sélection d'action")
 
     def _evaluate_agent(self, env: TradingEnvironment) -> float:
         """
@@ -624,8 +636,7 @@ class CurriculumTrainer:
             episode_return = 0
 
             while not (done or truncated):
-                # S'assurer que evaluate=True est toujours passé
-                action = self.agent.get_action(state, evaluate=True)
+                action = self._select_action(state, training=False)
                 next_state, reward, done, truncated, _ = env.step(action)
                 episode_return += reward
                 state = next_state
@@ -669,6 +680,7 @@ class GRUCurriculumLearning:
         sequence_length=10,
         gru_units=128,
         hidden_size=256,
+        batch_size=64,
     ):
         """
         Initialise le système de curriculum learning adapté pour GRU.
@@ -692,6 +704,7 @@ class GRUCurriculumLearning:
         self.sequence_length = sequence_length
         self.gru_units = gru_units
         self.hidden_size = hidden_size
+        self.batch_size = batch_size
 
         logger.info(
             f"GRU Curriculum Learning initialisé: difficulté={self.difficulty}, "
@@ -807,25 +820,27 @@ class GRUCurriculumLearning:
         Returns:
             SACAgent: Agent SAC avec GRU configuré
         """
-        state_size = env.observation_space.shape[0]
-        action_size = env.action_space.shape[0]
+        state_dim = env.observation_space.shape[0]
+        action_dim = env.action_space.shape[0]
         action_bounds = (env.action_space.low[0], env.action_space.high[0])
 
         # Créer l'agent avec GRU activé
         agent = SACAgent(
-            state_size=state_size,
-            action_size=action_size,
+            state_dim=state_dim,
+            action_dim=action_dim,
             action_bounds=action_bounds,
             use_gru=True,
             sequence_length=self.sequence_length,
             gru_units=self.gru_units,
-            hidden_size=self.hidden_size,
+            d_model=self.gru_units,
+            hidden_dim=self.hidden_size,
+            batch_size=self.batch_size,
             grad_clip_value=1.0,
             entropy_regularization=0.001,
         )
 
         logger.info(
-            f"Agent SAC avec GRU créé: state_size={state_size}, action_size={action_size}"
+            f"Agent SAC avec GRU créé: state_dim={state_dim}, action_dim={action_dim}"
         )
         return agent
 
@@ -983,7 +998,8 @@ class GRUCurriculumTrainer:
 
             while not (done or truncated):
                 # Sélectionner une action basée sur la séquence d'états
-                action = agent.act(np.array(state_sequence, dtype=np.float32))
+                sequence = np.asarray(state_sequence, dtype=np.float32)
+                action = agent.select_action(sequence)
 
                 # Exécuter l'action dans l'environnement
                 next_state, reward, done, truncated, info = env.step(action)
@@ -993,20 +1009,22 @@ class GRUCurriculumTrainer:
                 state_sequence.append(next_state)
 
                 # Stocker l'expérience dans le tampon de replay
-                agent.remember(state, action, reward, next_state, done)
+                agent.remember(sequence, action, reward, np.asarray(state_sequence, dtype=np.float32), done or truncated)
 
                 # Entraîner l'agent si assez d'expériences
-                if len(agent.sequence_buffer) > agent.batch_size * 3:
-                    train_metrics = agent.train()
+                if len(agent.replay_buffer) >= agent.batch_size:
+                    agent.train()
 
                 # Mettre à jour l'état et accumuler la récompense
                 state = next_state
                 episode_reward += reward
 
+            agent.end_episode()
+
             # Enregistrer les métriques de l'épisode
             history["rewards"].append(episode_reward)
             history["difficulties"].append(self.curriculum.difficulty)
-            portfolio_value = env.portfolio_value()
+            portfolio_value = env.get_portfolio_value()
             history["portfolio_values"].append(portfolio_value)
             history["profits"].append(portfolio_value - initial_balance)
             history["transactions"].append(env.transaction_count)
@@ -1084,8 +1102,8 @@ class GRUCurriculumTrainer:
 
             while not (done or truncated):
                 # Sélectionner une action déterministe (sans exploration)
-                action = agent.act(
-                    np.array(state_sequence, dtype=np.float32), deterministic=True
+                action = agent.select_action(
+                    np.asarray(state_sequence, dtype=np.float32), deterministic=True
                 )
 
                 # Exécuter l'action

@@ -6,7 +6,6 @@ from collections import deque
 from typing import Optional, Tuple, Dict, Any
 
 import numpy as np
-import tensorflow as tf
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -58,14 +57,34 @@ class SequenceReplayBuffer:
         done: bool,
     ):
         if self.n_step > 1:
-            exp = self._nstep_preprocess(
-                state, action, reward, next_state, done,
-                self.n_step, self.gamma, self.n_step_buffer
-            )
-            if exp[0] is not None:
-                self.buffer.append(exp)
+            self.n_step_buffer.append((state, action, reward, next_state, done))
+            if len(self.n_step_buffer) >= self.n_step:
+                self.buffer.append(self._build_n_step_transition())
+                self.n_step_buffer.popleft()
+            if done:
+                self.flush_n_step()
         else:
-            self.buffer.append((state, action, reward, next_state, done))
+            self.buffer.append((state, action, reward, next_state, done, self.gamma))
+
+    def _build_n_step_transition(self):
+        state, action, _, _, _ = self.n_step_buffer[0]
+        cumulative_reward = 0.0
+        next_state = self.n_step_buffer[-1][3]
+        done = self.n_step_buffer[-1][4]
+        horizon = 0
+        for step, (_, _, reward, candidate_next_state, terminal) in enumerate(self.n_step_buffer):
+            cumulative_reward += (self.gamma ** step) * reward
+            next_state = candidate_next_state
+            done = terminal
+            horizon = step + 1
+            if terminal:
+                break
+        return state, action, cumulative_reward, next_state, done, self.gamma ** horizon
+
+    def flush_n_step(self):
+        while self.n_step_buffer:
+            self.buffer.append(self._build_n_step_transition())
+            self.n_step_buffer.popleft()
 
     def _nstep_preprocess(
         self,
@@ -102,7 +121,15 @@ class SequenceReplayBuffer:
         batch_size = min(batch_size, len(self.buffer))
         indices = np.random.choice(len(self.buffer), batch_size, replace=False)
         
-        states, actions, rewards, next_states, dones = zip(*[self.buffer[idx] for idx in indices])
+        experiences = [self.buffer[idx] for idx in indices]
+        states, actions, rewards, next_states, dones = zip(
+            *[experience[:5] for experience in experiences]
+        )
+        discounts = [
+            experience[5] if len(experience) > 5 else self.gamma
+            for experience in experiences
+        ]
+        self.last_sample_discounts = torch.FloatTensor(discounts).reshape(-1, 1).to(self.device)
         
         return (
             torch.FloatTensor(np.array(states)).to(self.device),
@@ -301,6 +328,141 @@ class TransformerCritic(nn.Module):
         return self.output_layer(x)
 
 
+class GRUActor(nn.Module):
+    """Politique récurrente pour les observations séquentielles de trading."""
+
+    def __init__(
+        self,
+        state_dim: int,
+        action_dim: int,
+        hidden_size: int = 128,
+        num_layers: int = 1,
+        dropout: float = 0.0,
+    ):
+        super().__init__()
+        self.state_dim = state_dim
+        self.gru = nn.GRU(
+            input_size=state_dim,
+            hidden_size=hidden_size,
+            num_layers=num_layers,
+            dropout=dropout if num_layers > 1 else 0.0,
+            batch_first=True,
+        )
+        self.mean_layer = nn.Linear(hidden_size, action_dim)
+        self.log_std_layer = nn.Linear(hidden_size, action_dim)
+        nn.init.constant_(self.log_std_layer.bias, -0.5)
+
+    def forward(self, states: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        if states.dim() == 2:
+            states = states.unsqueeze(1)
+        if states.size(-1) != self.state_dim:
+            raise ValueError(
+                f"Dimension d'état invalide: {states.size(-1)} (attendue: {self.state_dim})"
+            )
+        _, hidden = self.gru(states)
+        features = hidden[-1]
+        return self.mean_layer(features), torch.clamp(self.log_std_layer(features), -20, 2)
+
+    def get_action_and_log_prob(
+        self, states: torch.Tensor, deterministic: bool = False
+    ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+        mean, log_std = self.forward(states)
+        if deterministic:
+            return torch.tanh(mean), None
+        normal = Normal(mean, log_std.exp())
+        raw_action = normal.rsample()
+        action = torch.tanh(raw_action)
+        log_prob = normal.log_prob(raw_action)
+        log_prob -= torch.log(1 - action.pow(2) + 1e-6)
+        return action, log_prob.sum(dim=1, keepdim=True)
+
+
+class GRUCritic(nn.Module):
+    """Critique Q récurrent, aligné sur :class:`GRUActor`."""
+
+    def __init__(
+        self,
+        state_dim: int,
+        action_dim: int,
+        hidden_size: int = 128,
+        num_layers: int = 1,
+        dropout: float = 0.0,
+    ):
+        super().__init__()
+        self.state_dim = state_dim
+        self.gru = nn.GRU(
+            input_size=state_dim,
+            hidden_size=hidden_size,
+            num_layers=num_layers,
+            dropout=dropout if num_layers > 1 else 0.0,
+            batch_first=True,
+        )
+        self.output_layer = nn.Sequential(
+            nn.Linear(hidden_size + action_dim, hidden_size),
+            nn.ReLU(),
+            nn.Linear(hidden_size, 1),
+        )
+
+    def forward(self, states: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
+        if states.dim() == 2:
+            states = states.unsqueeze(1)
+        if states.size(-1) != self.state_dim:
+            raise ValueError(
+                f"Dimension d'état invalide: {states.size(-1)} (attendue: {self.state_dim})"
+            )
+        _, hidden = self.gru(states)
+        if actions.dim() == 3:
+            actions = actions[:, -1, :]
+        return self.output_layer(torch.cat((hidden[-1], actions), dim=1))
+
+
+class LSTMActor(GRUActor):
+    """Politique LSTM, alternative explicite au GRU pour les séquences longues."""
+
+    def __init__(self, state_dim: int, action_dim: int, hidden_size: int = 128, num_layers: int = 1, dropout: float = 0.0):
+        super().__init__(state_dim, action_dim, hidden_size, num_layers, dropout)
+        self.gru = nn.LSTM(
+            input_size=state_dim,
+            hidden_size=hidden_size,
+            num_layers=num_layers,
+            dropout=dropout if num_layers > 1 else 0.0,
+            batch_first=True,
+        )
+
+    def forward(self, states: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        if states.dim() == 2:
+            states = states.unsqueeze(1)
+        if states.size(-1) != self.state_dim:
+            raise ValueError(f"Dimension d'état invalide: {states.size(-1)} (attendue: {self.state_dim})")
+        _, (hidden, _) = self.gru(states)
+        features = hidden[-1]
+        return self.mean_layer(features), torch.clamp(self.log_std_layer(features), -20, 2)
+
+
+class LSTMCritic(GRUCritic):
+    """Critique Q LSTM aligné sur :class:`LSTMActor`."""
+
+    def __init__(self, state_dim: int, action_dim: int, hidden_size: int = 128, num_layers: int = 1, dropout: float = 0.0):
+        super().__init__(state_dim, action_dim, hidden_size, num_layers, dropout)
+        self.gru = nn.LSTM(
+            input_size=state_dim,
+            hidden_size=hidden_size,
+            num_layers=num_layers,
+            dropout=dropout if num_layers > 1 else 0.0,
+            batch_first=True,
+        )
+
+    def forward(self, states: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
+        if states.dim() == 2:
+            states = states.unsqueeze(1)
+        if states.size(-1) != self.state_dim:
+            raise ValueError(f"Dimension d'état invalide: {states.size(-1)} (attendue: {self.state_dim})")
+        _, (hidden, _) = self.gru(states)
+        if actions.dim() == 3:
+            actions = actions[:, -1, :]
+        return self.output_layer(torch.cat((hidden[-1], actions), dim=1))
+
+
 class OptimizedSACAgent:
     """
     Agent SAC optimisé avec architecture Transformer pour le trading.
@@ -320,6 +482,8 @@ class OptimizedSACAgent:
         sequence_length: int = 50,
         hidden_dim: int = 256,
         learning_rate: float = 3e-4,
+        actor_learning_rate: Optional[float] = None,
+        critic_learning_rate: Optional[float] = None,
         gamma: float = 0.99,
         tau: float = 0.005,
         alpha: float = 0.2,
@@ -329,6 +493,10 @@ class OptimizedSACAgent:
         action_bounds: Tuple[float, float] = (-1.0, 1.0),
         grad_clip_value: float = 1.0,
         entropy_regularization: float = 0.2,
+        use_gru: bool = False,
+        gru_units: Optional[int] = None,
+        recurrent_type: Optional[str] = None,
+        n_step: int = 1,
     ):
         self.max_seq_len = max(max_seq_len, sequence_length)
         self.state_dim = state_dim
@@ -336,6 +504,8 @@ class OptimizedSACAgent:
         self.sequence_length = sequence_length
         self.hidden_dim = hidden_dim
         self.learning_rate = learning_rate
+        self.actor_learning_rate = actor_learning_rate or learning_rate
+        self.critic_learning_rate = critic_learning_rate or learning_rate
         self.gamma = gamma
         self.tau = tau
         self.alpha = alpha
@@ -344,92 +514,65 @@ class OptimizedSACAgent:
         self.action_low, self.action_high = action_bounds
         self.grad_clip_value = grad_clip_value
         self.entropy_regularization = entropy_regularization
+        if recurrent_type not in (None, "gru", "lstm"):
+            raise ValueError("recurrent_type doit être None, 'gru' ou 'lstm'")
+        self.recurrent_type = recurrent_type or ("gru" if use_gru else None)
+        self.use_gru = self.recurrent_type == "gru"
+        self.gru_units = gru_units or d_model
+        self.n_step = n_step
         # Ajuster l'échelle du bruit en fonction de la régularisation d'entropie
         self.noise_scale = 0.5 if entropy_regularization > 0 else 0.1
         # Augmenter l'impact de la régularisation d'entropie
         self.entropy_scale = 2.0 if entropy_regularization > 0 else 1.0
 
-        # Initialisation des réseaux
-        self.actor = TransformerActor(
-            state_dim=state_dim,
-            action_dim=action_dim,
-            d_model=d_model,
-            n_heads=n_heads,
-            num_layers=num_layers,
-            dim_feedforward=dim_feedforward,
-            dropout=dropout,
-            activation=activation,
-            max_seq_len=self.max_seq_len,
-            sequence_length=sequence_length,
-            action_bounds=action_bounds,
-        ).to(device)
-
-        self.critic1 = TransformerCritic(
-            state_dim=state_dim,
-            action_dim=action_dim,
-            d_model=d_model,
-            n_heads=n_heads,
-            num_layers=num_layers,
-            dim_feedforward=dim_feedforward,
-            dropout=dropout,
-            activation=activation,
-            max_seq_len=self.max_seq_len,
-            sequence_length=sequence_length,
-        ).to(device)
-
-        self.critic2 = TransformerCritic(
-            state_dim=state_dim,
-            action_dim=action_dim,
-            d_model=d_model,
-            n_heads=n_heads,
-            num_layers=num_layers,
-            dim_feedforward=dim_feedforward,
-            dropout=dropout,
-            activation=activation,
-            max_seq_len=self.max_seq_len,
-            sequence_length=sequence_length,
-        ).to(device)
-
-        # Réseaux cibles
-        self.target_critic1 = TransformerCritic(
-            state_dim=state_dim,
-            action_dim=action_dim,
-            d_model=d_model,
-            n_heads=n_heads,
-            num_layers=num_layers,
-            dim_feedforward=dim_feedforward,
-            dropout=dropout,
-            activation=activation,
-            max_seq_len=self.max_seq_len,
-            sequence_length=sequence_length,
-        ).to(device)
-
-        self.target_critic2 = TransformerCritic(
-            state_dim=state_dim,
-            action_dim=action_dim,
-            d_model=d_model,
-            n_heads=n_heads,
-            num_layers=num_layers,
-            dim_feedforward=dim_feedforward,
-            dropout=dropout,
-            activation=activation,
-            max_seq_len=self.max_seq_len,
-            sequence_length=sequence_length,
-        ).to(device)
+        # Les deux architectures partagent exactement la même boucle SAC.
+        if self.recurrent_type in {"gru", "lstm"}:
+            recurrent_actor = GRUActor if self.recurrent_type == "gru" else LSTMActor
+            recurrent_critic = GRUCritic if self.recurrent_type == "gru" else LSTMCritic
+            actor_factory = lambda: recurrent_actor(
+                state_dim, action_dim, self.gru_units, num_layers, dropout
+            )
+            critic_factory = lambda: recurrent_critic(
+                state_dim, action_dim, self.gru_units, num_layers, dropout
+            )
+        else:
+            actor_factory = lambda: TransformerActor(
+                state_dim, action_dim, d_model, n_heads, num_layers,
+                dim_feedforward, dropout, activation, self.max_seq_len,
+                sequence_length, action_bounds,
+            )
+            critic_factory = lambda: TransformerCritic(
+                state_dim, action_dim, d_model, n_heads, num_layers,
+                dim_feedforward, dropout, activation, self.max_seq_len,
+                sequence_length,
+            )
+        self.actor = actor_factory().to(device)
+        self.critic1 = critic_factory().to(device)
+        self.critic2 = critic_factory().to(device)
+        self.target_critic1 = critic_factory().to(device)
+        self.target_critic2 = critic_factory().to(device)
 
         # Copier les poids
         self.target_critic1.load_state_dict(self.critic1.state_dict())
         self.target_critic2.load_state_dict(self.critic2.state_dict())
 
         # Optimiseurs avec gradient clipping
-        self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=learning_rate)
-        self.critic1_optimizer = optim.Adam(self.critic1.parameters(), lr=learning_rate)
-        self.critic2_optimizer = optim.Adam(self.critic2.parameters(), lr=learning_rate)
+        optimizer_kwargs = {"foreach": False, "fused": False}
+        self.actor_optimizer = optim.Adam(
+            self.actor.parameters(), lr=self.actor_learning_rate, **optimizer_kwargs
+        )
+        self.critic1_optimizer = optim.Adam(
+            self.critic1.parameters(), lr=self.critic_learning_rate, **optimizer_kwargs
+        )
+        self.critic2_optimizer = optim.Adam(
+            self.critic2.parameters(), lr=self.critic_learning_rate, **optimizer_kwargs
+        )
 
         # Buffer de replay optimisé
         self.replay_buffer = SequenceReplayBuffer(
             buffer_size=buffer_size,
             sequence_length=sequence_length,
+            n_step=n_step,
             gamma=gamma,
             device=device
         )
@@ -437,19 +580,21 @@ class OptimizedSACAgent:
         # Entropie automatique
         self.target_entropy = -float(action_dim)
         self.log_alpha = torch.zeros(1, requires_grad=True, device=device)
-        self.alpha_optimizer = optim.Adam([self.log_alpha], lr=learning_rate)
+        self.alpha_optimizer = optim.Adam(
+            [self.log_alpha], lr=self.actor_learning_rate, **optimizer_kwargs
+        )
 
     def _pad_or_stack_state(self, state: np.ndarray) -> np.ndarray:
         if state.ndim == 1:
-            if state.shape[0] > self.state_dim:
-                import warnings
-                warnings.warn(f"L'état d'entrée ({state.shape[0]}) est plus grand que state_dim ({self.state_dim}), on tronque.")
-                state = state[:self.state_dim]
+            if state.shape[0] != self.state_dim:
+                raise ValueError(
+                    f"Dimension d'état invalide: {state.shape[0]} (attendue: {self.state_dim})"
+                )
             return np.tile(state, (self.sequence_length, 1))
-        elif state.shape[-1] > self.state_dim:
-            import warnings
-            warnings.warn(f"L'état d'entrée ({state.shape[-1]}) est plus grand que state_dim ({self.state_dim}), on tronque.")
-            state = state[..., :self.state_dim]
+        elif state.shape[-1] != self.state_dim:
+            raise ValueError(
+                f"Dimension d'état invalide: {state.shape[-1]} (attendue: {self.state_dim})"
+            )
         
         if state.shape[0] != self.sequence_length:
             if state.shape[0] > self.sequence_length:
@@ -459,7 +604,7 @@ class OptimizedSACAgent:
                 return np.vstack([pad, state])
         return state
 
-    def select_action(self, state, deterministic=False):
+    def select_action(self, state, deterministic=False, action_mask=None):
         self.actor.eval()  # Toujours en mode eval pour l'inférence
         with torch.no_grad():
             if isinstance(state, np.ndarray):
@@ -484,14 +629,38 @@ class OptimizedSACAgent:
                 action = torch.tanh(mean + std * noise)
 
             action = torch.clamp(action, -1.0, 1.0)
+            action = self._apply_action_mask(action, action_mask)
             action_np = action.cpu().numpy().squeeze()
             return np.atleast_1d(action_np)
+
+    @staticmethod
+    def _apply_action_mask(action, action_mask):
+        """Applique les bornes continues exécutables envoyées par l'environnement."""
+        if action_mask is None:
+            return action
+        if not isinstance(action_mask, dict) or {"low", "high"}.difference(action_mask):
+            raise ValueError("Le masque d'action SAC doit contenir low et high")
+        low = torch.as_tensor(action_mask["low"], dtype=action.dtype, device=action.device)
+        high = torch.as_tensor(action_mask["high"], dtype=action.dtype, device=action.device)
+        if low.numel() != action.shape[-1] or high.numel() != action.shape[-1] or torch.any(low > high):
+            raise ValueError("Bornes du masque SAC invalides")
+        return torch.maximum(torch.minimum(action, high), low)
+
+    def act(self, state, deterministic: bool = False):
+        """Alias historique, sans dupliquer la logique d'inférence."""
+        return self.select_action(state, deterministic=deterministic)
 
     def train(self, batch_size: Optional[int] = None) -> Dict[str, float]:
         if batch_size is None:
             batch_size = self.batch_size
 
+        if len(self.replay_buffer) < batch_size:
+            return {}
+        self.actor.train()
+        self.critic1.train()
+        self.critic2.train()
         states, actions, rewards, next_states, dones = self.replay_buffer.sample(batch_size)
+        discounts = self.replay_buffer.last_sample_discounts
 
         # Mise à jour des critiques
         with torch.no_grad():
@@ -504,10 +673,10 @@ class OptimizedSACAgent:
             if self.entropy_regularization > 0:
                 alpha = self.entropy_regularization * self.entropy_scale
                 # Augmenter l'impact de l'entropie sur la valeur cible
-                target_q = rewards + (1 - dones) * self.gamma * (target_q - alpha * next_log_probs)
+                target_q = rewards + (1 - dones) * discounts * (target_q - alpha * next_log_probs)
             else:
                 alpha = self.log_alpha.exp().item()
-                target_q = rewards + (1 - dones) * self.gamma * target_q
+                target_q = rewards + (1 - dones) * discounts * target_q
 
         current_q1 = self.critic1(states, actions)
         current_q2 = self.critic2(states, actions)
@@ -590,27 +759,36 @@ class OptimizedSACAgent:
             'critic2': self.critic2.state_dict(),
             'target_critic1': self.target_critic1.state_dict(),
             'target_critic2': self.target_critic2.state_dict(),
-            'log_alpha': self.log_alpha,
+            'log_alpha': self.log_alpha.detach().cpu(),
             'actor_optimizer': self.actor_optimizer.state_dict(),
             'critic1_optimizer': self.critic1_optimizer.state_dict(),
             'critic2_optimizer': self.critic2_optimizer.state_dict(),
-            'alpha_optimizer': self.alpha_optimizer.state_dict() if self.entropy_regularization > 0 else None
+            'alpha_optimizer': self.alpha_optimizer.state_dict() if self.entropy_regularization <= 0 else None,
+            'config': {
+                'state_dim': self.state_dim,
+                'action_dim': self.action_dim,
+                'sequence_length': self.sequence_length,
+                'use_gru': self.use_gru,
+                'recurrent_type': self.recurrent_type,
+                'gru_units': self.gru_units,
+                'n_step': self.n_step,
+            },
         }
         torch.save(state_dict, path)
 
     def load(self, path: str) -> None:
         """Charge les poids du modèle."""
-        state_dict = torch.load(path)
+        state_dict = torch.load(path, map_location=self.device)
         self.actor.load_state_dict(state_dict['actor'])
         self.critic1.load_state_dict(state_dict['critic1'])
         self.critic2.load_state_dict(state_dict['critic2'])
         self.target_critic1.load_state_dict(state_dict['target_critic1'])
         self.target_critic2.load_state_dict(state_dict['target_critic2'])
-        self.log_alpha = state_dict['log_alpha']
+        self.log_alpha.data.copy_(state_dict['log_alpha'].to(self.device))
         self.actor_optimizer.load_state_dict(state_dict['actor_optimizer'])
         self.critic1_optimizer.load_state_dict(state_dict['critic1_optimizer'])
         self.critic2_optimizer.load_state_dict(state_dict['critic2_optimizer'])
-        if self.entropy_regularization > 0 and state_dict['alpha_optimizer'] is not None:
+        if self.entropy_regularization <= 0 and state_dict['alpha_optimizer'] is not None:
             self.alpha_optimizer.load_state_dict(state_dict['alpha_optimizer'])
 
     def remember(
@@ -622,6 +800,16 @@ class OptimizedSACAgent:
         done: bool,
     ):
         self.replay_buffer.add(state, action, reward, next_state, done)
+
+    @property
+    def sequence_buffer(self):
+        """Compatibilité lecture seule avec les anciens entraînements GRU."""
+        return self.replay_buffer
+
+    def end_episode(self) -> None:
+        """Conserve les dernières transitions n-step à la fin d'un épisode."""
+        if self.n_step > 1:
+            self.replay_buffer.flush_n_step()
 
 # Alias pour maintenir la compatibilité
 SACAgent = OptimizedSACAgent

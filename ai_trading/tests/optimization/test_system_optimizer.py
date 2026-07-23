@@ -117,8 +117,6 @@ class TestSystemOptimizer(unittest.TestCase):
         else:
             # Sur Unix/Linux où resource est disponible
             try:
-                pass
-
                 with patch("resource.setrlimit") as mock_setrlimit, patch(
                     "resource.getrlimit"
                 ) as mock_getrlimit, patch(

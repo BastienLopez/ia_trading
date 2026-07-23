@@ -1,19 +1,9 @@
 import logging
-import os
-import sys
 import unittest
 
 import numpy as np
-import tensorflow as tf
 import torch
 import pytest
-
-# Configurer le niveau de log pour réduire les sorties de TensorFlow
-os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
-tf.get_logger().setLevel("ERROR")
-
-# Ajouter le répertoire parent au path pour les imports
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
 from ai_trading.data.synthetic_data_generator import generate_synthetic_market_data
 from ai_trading.rl.agents.sac_agent import OptimizedSACAgent
@@ -36,7 +26,8 @@ def sac_agent():
         sequence_length=sequence_length,
         d_model=64,  # Taille réduite pour les tests
         n_heads=2,   # Moins de têtes pour les tests
-        num_layers=2 # Moins de couches pour les tests
+        num_layers=2, # Moins de couches pour les tests
+        batch_size=2,
     )
 
 def test_sequence_handling(sac_agent):
@@ -58,8 +49,9 @@ def test_training_with_sequences(sac_agent):
     next_state_seq = np.random.randn(5, 10)
     done = False
 
-    # Ajouter l'expérience au buffer
-    sac_agent.remember(state_seq, action, reward, next_state_seq, done)
+    # Remplir un batch avant de vérifier une mise à jour effective.
+    for _ in range(sac_agent.batch_size):
+        sac_agent.remember(state_seq, action, reward, next_state_seq, done)
 
     # Entraîner l'agent
     metrics = sac_agent.train()

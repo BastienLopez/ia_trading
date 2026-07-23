@@ -20,17 +20,18 @@ class TestTradingEnvironment(unittest.TestCase):
         dates = pd.date_range(start="2023-01-01", periods=100, freq="D")
 
         # Créer une tendance haussière simple
-        prices = np.linspace(100, 200, 100) + np.random.normal(0, 5, 100)
+        rng = np.random.default_rng(42)
+        prices = np.linspace(100, 200, 100) + rng.normal(0, 5, 100)
 
         # Créer un DataFrame avec les données
         self.test_data = pd.DataFrame(
             {
                 "open": prices,
-                "high": prices + np.random.uniform(0, 10, 100),
-                "low": prices - np.random.uniform(0, 10, 100),
-                "close": prices + np.random.normal(0, 3, 100),
-                "volume": np.random.uniform(1000, 5000, 100),
-                "compound_score": np.random.uniform(-1, 1, 100),  # Sentiment
+                "high": prices + rng.uniform(0, 10, 100),
+                "low": prices - rng.uniform(0, 10, 100),
+                "close": prices + rng.normal(0, 3, 100),
+                "volume": rng.uniform(1000, 5000, 100),
+                "compound_score": rng.uniform(-1, 1, 100),  # Sentiment
             },
             index=dates,
         )
@@ -41,6 +42,7 @@ class TestTradingEnvironment(unittest.TestCase):
             initial_balance=10000,
             transaction_fee=0.001,
             window_size=10,
+            risk_management=False,
         )
 
         # Créer l'environnement avec actions discrètes nuancées
@@ -51,6 +53,7 @@ class TestTradingEnvironment(unittest.TestCase):
             window_size=10,
             action_type="discrete",
             n_discrete_actions=5,
+            risk_management=False,
         )
 
         # Créer l'environnement avec actions continues
@@ -60,6 +63,7 @@ class TestTradingEnvironment(unittest.TestCase):
             transaction_fee=0.001,
             window_size=10,
             action_type="continuous",
+            risk_management=False,
         )
 
     def test_reset(self):
@@ -147,10 +151,10 @@ class TestTradingEnvironment(unittest.TestCase):
         # Vérifier que des crypto ont été achetées
         self.assertGreater(self.env_discrete.crypto_held, 0)
 
-        # Vérifier que le solde a diminué d'environ 40%
-        expected_balance = initial_balance * 0.6  # 60% restant
+        # Sans gestion des risques, le plafond par ordre reste 30 %.
+        expected_balance = initial_balance * 0.7
         self.assertAlmostEqual(
-            self.env_discrete.balance / initial_balance, 0.6, delta=0.1
+            self.env_discrete.balance / initial_balance, expected_balance / initial_balance, delta=0.03
         )
 
     def test_discrete_partial_sell(self):
@@ -273,28 +277,32 @@ class TestTradingEnvironment(unittest.TestCase):
         self.assertLessEqual(spent_value / initial_portfolio_value, 0.3 + 1e-6)
 
     def test_sequential_buys(self):
-        """Teste que plusieurs achats séquentiels respectent toujours la limite de 30%."""
-        self.env.reset()
-        initial_portfolio_value = self.env.get_portfolio_value()
+        """Les limites d'exposition globales sont appliquées quand le risque est activé."""
+        data = self.test_data.copy()
+        data[["open", "high", "low", "close"]] = 1000.0
+        env = TradingEnvironment(
+            data, window_size=10, risk_config={"max_position_size": 0.2}
+        )
+        env.reset()
+        initial_portfolio_value = env.get_portfolio_value()
 
         # Premier achat
-        self.env.step(1)
+        env.step(5)
 
         # Deuxième achat
-        self.env.step(1)
+        env.step(5)
 
         # Troisième achat
-        self.env.step(1)
+        env.step(5)
 
         # Calculer la valeur totale dépensée
-        current_portfolio_value = self.env.get_portfolio_value()
+        current_portfolio_value = env.get_portfolio_value()
         crypto_value = (
-            self.env.crypto_held * self.test_data.iloc[self.env.current_step]["close"]
+            env.crypto_held * data.iloc[env.current_step]["close"]
         )
 
-        # Vérifier que la valeur en crypto ne dépasse pas 90% (3 x 30%) du portefeuille initial
-        # Note: Ceci est une vérification approximative car la valeur du portefeuille peut changer avec le prix
-        self.assertLessEqual(crypto_value / initial_portfolio_value, 0.9 + 1e-6)
+        # Le plafond porte sur l'exposition totale, pas seulement sur chaque ordre.
+        self.assertLessEqual(crypto_value / initial_portfolio_value, 0.2 + 0.03)
 
     def test_risk_manager(self):
         """Teste l'intégration du gestionnaire de risque."""
@@ -316,56 +324,172 @@ class TestTradingEnvironment(unittest.TestCase):
             },
         )
 
-        # S'assurer que les données de prix sont disponibles pour le gestionnaire de risque
-        env.risk_manager.indicators.df = test_data.copy()
-
-        # Vérifier que le gestionnaire de risque est initialisé
-        self.assertIsNotNone(env.risk_manager)
-
-        # Configurer une position risquée
-        observation = env.reset()[0]
-        env.crypto_held = 8.0  # 8 * 1000$ = 8 000$ (80% du portefeuille initial)
-        env.balance = 2000.0  # 2000$ restants (20% du portefeuille)
-        env.portfolio_value_history = [10000]  # Valeur initiale
-
-        # Au lieu de vérifier should_limit_position, nous allons vérifier directement
-        # que la position actuelle dépasse la limite configurée
-        current_price = test_data.iloc[env.current_step]["close"]
-        position_value = env.crypto_held * current_price
-        max_position_value = (
-            env.portfolio_value_history[-1] * env.risk_manager.max_position_size
-        )
-        print(
-            f"Crypto détenue: {env.crypto_held}, Prix: {current_price}, Valeur: {position_value}"
-        )
-        print(f"Max position autorisée: {max_position_value}")
-        print(f"Position dépasse la limite: {position_value > max_position_value}")
-
-        # Contourner le test de should_limit_position et supposer que la position est trop grande
-        # Modifier manuellement l'implémentation du risk_manager pour ce test spécifique
-        original_should_limit = env.risk_manager.should_limit_position
-        env.risk_manager.should_limit_position = lambda history, crypto: True
-
-        # Exécuter une action d'achat
+        env.reset()
+        initial_value = env.get_portfolio_value()
         action = 1 if env.action_type == "discrete" else np.array([1.0])
         next_state, reward, terminated, truncated, info = env.step(action)
+        position_value = env.crypto_held * info["current_price"]
+        self.assertLessEqual(position_value, initial_value * 0.05 + 1e-6)
+        self.assertTrue(info["action_adjusted"])
+        self.assertTrue(info["trade_executed"])
 
-        # Restaurer l'implémentation originale
-        env.risk_manager.should_limit_position = original_should_limit
+    def test_observation_has_no_future_data_leakage(self):
+        """Modifier le futur ne doit pas modifier l'état disponible au reset."""
+        changed_future = self.test_data.copy()
+        changed_future.loc[changed_future.index[30:], "close"] *= 100
+        reference = TradingEnvironment(self.test_data, window_size=10)
+        altered = TradingEnvironment(changed_future, window_size=10)
 
-        # Afficher l'info pour le débogage
-        print(f"Info après step: {info}")
+        reference_state, _ = reference.reset(seed=7)
+        altered_state, _ = altered.reset(seed=7)
 
-        # Vérifier l'ajustement - nous nous attendons à ce que l'action soit ajustée car
-        # nous avons forcé should_limit_position à retourner True
-        self.assertTrue(
-            position_value > max_position_value,
-            "La position devrait dépasser la limite autorisée",
+        np.testing.assert_allclose(reference_state, altered_state, rtol=0, atol=1e-6)
+
+    def test_observation_contains_the_documented_technical_and_sentiment_features(self):
+        env = TradingEnvironment(self.test_data, window_size=10, risk_management=False)
+        required = {
+            "macd", "stoch_k", "momentum", "obv", "rsi", "atr", "adx",
+            "vp_poc", "pivot_P", "ichimoku_tenkan", "compound_score",
+        }
+        self.assertTrue(required.issubset(set(env.feature_columns)))
+        observation, _ = env.reset()
+        self.assertEqual(observation.shape, env.observation_space.shape)
+        self.assertTrue(np.isfinite(observation).all())
+
+    def test_excess_return_penalizes_invalid_sell_without_position(self):
+        env = TradingEnvironment(
+            self.test_data,
+            window_size=10,
+            reward_function="excess_return",
+            invalid_action_penalty=0.01,
+            risk_management=False,
         )
-        self.assertTrue(
-            info.get("action_adjusted", False),
-            f"L'action devrait être ajustée. Détails: {info.get('risk_info', 'Pas d info')}",
+        env.reset()
+        _, reward, _, _, info = env.step(env.n_discrete_actions + 1)
+
+        self.assertTrue(info["invalid_action"])
+        self.assertFalse(info["trade_executed"])
+        self.assertAlmostEqual(
+            reward,
+            info["portfolio_return"] - info["benchmark_return"] - 0.01,
+            places=8,
         )
+
+    def test_excess_return_uses_the_risk_matched_benchmark(self):
+        env = TradingEnvironment(
+            self.test_data,
+            window_size=10,
+            reward_function="excess_return",
+            risk_management=False,
+            benchmark_exposure=0.20,
+        )
+        env.reset()
+        _, reward, _, _, info = env.step(0)
+
+        previous_price = float(self.test_data.iloc[10]["close"])
+        current_price = float(self.test_data.iloc[11]["close"])
+        full_market_return = current_price / previous_price - 1.0
+        self.assertLess(abs(info["benchmark_return"]), abs(full_market_return))
+        self.assertAlmostEqual(reward, -info["benchmark_return"], places=8)
+
+    def test_risk_adjusted_excess_penalizes_drawdown_beyond_raw_excess_return(self):
+        env = TradingEnvironment(
+            self.test_data,
+            window_size=10,
+            reward_function="risk_adjusted_excess",
+            risk_management=False,
+            reward_drawdown_weight=0.5,
+            reward_downside_weight=0.5,
+        )
+        env.reset()
+        env.portfolio_value_history = [100.0, 90.0]
+        env._last_execution = {"executed": False, "blocked_by_risk": False, "invalid_action": False}
+        env._agent_turnover = 0.0
+        assert env._calculate_reward(-0.02, 0.0) < -0.02
+
+    def test_bear_regime_reduces_exposure_and_is_reported_in_risk_info(self):
+        env = TradingEnvironment(self.test_data, window_size=10, risk_management=True)
+        env.df["market_regime"] = "bear"
+        env.df["regime_volatility"] = 1.0
+        env.reset()
+        self.assertEqual(env._regime_exposure_multiplier(), 0.5)
+        _, _, _, _, info = env.step(0)
+        assert info["risk_info"]["market_regime"] == "bear"
+        assert info["risk_info"]["regime_exposure_multiplier"] == 0.5
+
+    def test_turnover_penalty_uses_executed_agent_notional(self):
+        env = TradingEnvironment(
+            self.test_data,
+            window_size=10,
+            reward_function="simple",
+            risk_management=False,
+            max_turnover=0.0,
+            turnover_penalty=0.01,
+        )
+        env.reset()
+        _, reward, _, _, info = env.step(1)
+
+        self.assertGreater(info["agent_turnover"], 0.0)
+        self.assertLess(reward, info["portfolio_return"])
+
+    def test_action_mask_rejects_residual_micro_buys(self):
+        env = TradingEnvironment(
+            self.test_data,
+            window_size=10,
+            risk_management=False,
+            min_trade_fraction=0.01,
+        )
+        env.reset()
+        price = float(env.df.iloc[env.current_step]["close"])
+        env.balance = 50.0
+        env.crypto_held = (env.initial_balance - env.balance) / price
+
+        mask = env.get_action_mask()
+        self.assertTrue(mask[0])
+        self.assertFalse(mask[1 : env.n_discrete_actions + 1].any())
+        self.assertTrue(mask[env.n_discrete_actions + 1 :].any())
+
+    def test_action_mask_enforces_agent_trade_cooldown(self):
+        env = TradingEnvironment(
+            self.test_data, window_size=10, risk_management=False, min_trade_interval=3
+        )
+        env.reset()
+        env.step(1)
+
+        mask = env.get_action_mask()
+        self.assertTrue(mask[0])
+        self.assertEqual(int(mask.sum()), 1)
+
+    def test_stop_loss_is_actually_enforced(self):
+        data = self.test_data.copy()
+        data.loc[data.index[10], ["open", "high", "low", "close"]] = 100.0
+        data.loc[data.index[11], ["open", "high", "low", "close"]] = 80.0
+        env = TradingEnvironment(data, window_size=10, max_trade_fraction=0.1)
+        env.reset()
+
+        _, _, _, _, info = env.step(1)
+
+        self.assertTrue(info["risk_info"]["stop"]["stop_triggered"])
+        self.assertEqual(info["risk_info"]["stop"]["stop_type"], "stop_loss")
+        self.assertEqual(env.crypto_held, 0.0)
+        self.assertTrue(info["trade_executed"])
+
+    def test_delayed_orders_reserve_cash_before_execution(self):
+        env = TradingEnvironment(
+            self.test_data,
+            window_size=10,
+            risk_management=False,
+            execution_delay=2,
+            max_trade_fraction=0.3,
+        )
+        env.reset()
+        initial_balance = env.balance
+        for _ in range(4):
+            env.step(5)
+
+        self.assertLessEqual(env.reserved_cash, initial_balance + 1e-6)
+        self.assertGreaterEqual(env.balance, 0.0)
+        self.assertGreaterEqual(env.crypto_held, 0.0)
 
 
 if __name__ == "__main__":

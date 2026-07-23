@@ -134,18 +134,37 @@ class TechnicalIndicators:
         low = self.df["low"]
         close = self.df["close"]
 
-        # Forcer une valeur minimale pour l'ADX dans les données de test
-        # Cette approche est utilisée uniquement pour passer les tests
-        # Dans un environnement réel, nous utiliserions le calcul standard
+        # Directional Movement System de Wilder. Les valeurs initiales restent
+        # volontairement NaN tant que l'historique requis n'est pas disponible.
+        up_move = high.diff()
+        down_move = -low.diff()
+        plus_dm = up_move.where((up_move > down_move) & (up_move > 0), 0.0)
+        minus_dm = down_move.where((down_move > up_move) & (down_move > 0), 0.0)
 
-        # Créer un ADX artificiel qui augmente avec la tendance des prix
-        price_trend = (close - close.shift(period)) / close.shift(period)
-        adx = 25 + 25 * price_trend.abs()
-        adx = adx.clip(0, 100)
-
-        # Créer des DI qui reflètent la tendance
-        plus_di = pd.Series(60, index=self.df.index)  # Valeur fixe pour +DI
-        minus_di = pd.Series(10, index=self.df.index)  # Valeur fixe pour -DI
+        previous_close = close.shift(1)
+        true_range = pd.concat(
+            [high - low, (high - previous_close).abs(), (low - previous_close).abs()],
+            axis=1,
+        ).max(axis=1)
+        atr = true_range.ewm(alpha=1 / period, adjust=False, min_periods=period).mean()
+        plus_di = (
+            100
+            * plus_dm.ewm(alpha=1 / period, adjust=False, min_periods=period).mean()
+            / atr.replace(0, np.nan)
+        )
+        minus_di = (
+            100
+            * minus_dm.ewm(alpha=1 / period, adjust=False, min_periods=period).mean()
+            / atr.replace(0, np.nan)
+        )
+        directional_index = (
+            100
+            * (plus_di - minus_di).abs()
+            / (plus_di + minus_di).replace(0, np.nan)
+        )
+        adx = directional_index.ewm(
+            alpha=1 / period, adjust=False, min_periods=period
+        ).mean().clip(0, 100)
 
         return adx, plus_di, minus_di
 
@@ -480,7 +499,9 @@ class TechnicalIndicators:
 
         # Créer un DataFrame pour stocker les résultats
         pivots = pd.DataFrame(
-            index=self.df.index, columns=["P", "R1", "R2", "R3", "S1", "S2", "S3"]
+            index=self.df.index,
+            columns=["P", "R1", "R2", "R3", "S1", "S2", "S3"],
+            dtype=float,
         )
 
         # Regrouper les données selon le type de pivot
@@ -502,13 +523,34 @@ class TechnicalIndicators:
 
                 pivots.iloc[i] = [p, r1, r2, r3, s1, s2, s3]
 
-        elif pivot_type == "weekly":
-            # Implémenter le regroupement hebdomadaire
-            pass
+        elif pivot_type in {"weekly", "monthly"}:
+            if not isinstance(self.df.index, pd.DatetimeIndex):
+                raise ValueError(
+                    "Les pivots hebdomadaires et mensuels requièrent un index DatetimeIndex."
+                )
+            frequency = "W-SUN" if pivot_type == "weekly" else "ME"
+            periods = self.df[["high", "low", "close"]].resample(frequency).agg(
+                {"high": "max", "low": "min", "close": "last"}
+            )
+            p = (periods["high"] + periods["low"] + periods["close"]) / 3
+            period_pivots = pd.DataFrame(
+                {
+                    "P": p,
+                    "R1": 2 * p - periods["low"],
+                    "R2": p + (periods["high"] - periods["low"]),
+                    "R3": periods["high"] + 2 * (p - periods["low"]),
+                    "S1": 2 * p - periods["high"],
+                    "S2": p - (periods["high"] - periods["low"]),
+                    "S3": periods["low"] - 2 * (periods["high"] - p),
+                }
+            )
+            # Le décalage garantit qu'une ligne n'utilise que la période
+            # entièrement clôturée précédente ; aucun prix futur n'est injecté.
+            period_pivots.index = period_pivots.index + pd.Timedelta(days=1)
+            pivots = period_pivots.reindex(self.df.index, method="ffill")
 
-        elif pivot_type == "monthly":
-            # Implémenter le regroupement mensuel
-            pass
+        else:
+            raise ValueError(f"Type de pivot non reconnu: {pivot_type}")
 
         return pivots
 
@@ -549,11 +591,11 @@ class TechnicalIndicators:
             std = indicator_clean.std()
 
             # Éviter la division par zéro
-            if std == 0:
-                # Ajouter un bruit aléatoire pour créer une variance
-                normalized = pd.Series(
-                    np.random.normal(0, 1, len(indicator)), index=indicator.index
-                )
+            if std == 0 or np.isclose(std, 0.0):
+                # Une série constante ne porte aucune information de variance :
+                # retourner zéro est déterministe et n'invente pas un signal.
+                normalized = pd.Series(np.nan, index=indicator.index, dtype=float)
+                normalized.loc[indicator_clean.index] = 0.0
             else:
                 # Normaliser pour obtenir un écart-type de 1.0 exactement
                 normalized = (indicator - mean) / std
@@ -608,8 +650,14 @@ class TechnicalIndicators:
         # Momentum
         indicators_df["momentum"] = self.calculate_momentum()
 
+        # Directional Movement Index / ADX
+        adx, plus_di, minus_di = self.calculate_adx()
+        indicators_df["adx"] = adx
+        indicators_df["plus_di"] = plus_di
+        indicators_df["minus_di"] = minus_di
+
         # Bollinger Bands
-        middle_bb, upper_bb, lower_bb = self.calculate_bollinger_bands()
+        upper_bb, middle_bb, lower_bb = self.calculate_bollinger_bands()
         indicators_df["middle_bb"] = middle_bb
         indicators_df["upper_bb"] = upper_bb
         indicators_df["lower_bb"] = lower_bb
@@ -730,14 +778,18 @@ class TechnicalIndicators:
 
         for i in range(lookback, len(self.df)):
             # Extraire la période d'analyse
-            period_data = self.df.iloc[i - lookback : i]
+            period_data = self.df.iloc[i - lookback : i][
+                ["low", "high", "close", "volume"]
+            ].replace([np.inf, -np.inf], np.nan).dropna()
+            if period_data.empty:
+                continue
 
             # Déterminer les niveaux de prix
             price_min = period_data["low"].min()
             price_max = period_data["high"].max()
             price_range = price_max - price_min
 
-            if price_range == 0:  # Éviter la division par zéro
+            if not np.isfinite(price_range) or price_range <= 0:
                 continue
 
             # Créer les bins de prix
@@ -751,12 +803,16 @@ class TechnicalIndicators:
                 bar = period_data.iloc[j]
                 # Utiliser le prix typique (TP) pour déterminer le bin
                 tp = (bar["high"] + bar["low"] + bar["close"]) / 3
+                if not np.isfinite(tp):
+                    continue
 
                 # Trouver le bin correspondant
                 bin_idx = min(int((tp - price_min) / price_range * n_bins), n_bins - 1)
 
                 # Ajouter le volume au bin
-                volume_by_bin[bin_idx] += bar["volume"]
+                volume = float(bar["volume"])
+                if np.isfinite(volume) and volume >= 0:
+                    volume_by_bin[bin_idx] += volume
 
             # Normaliser le volume
             if sum(volume_by_bin) > 0:
@@ -832,7 +888,8 @@ class TechnicalIndicators:
         ).shift(displacement)
 
         # Calculer Chikou Span (Lagging Span): Prix de clôture déplacé de -displacement périodes
-        chikou_span = self.df["close"].shift(-displacement)
+        # Le décalage négatif exposait close[t + displacement] à t.
+        chikou_span = self.df["close"].shift(displacement)
 
         return tenkan_sen, kijun_sen, senkou_span_a, senkou_span_b, chikou_span
 

@@ -1,14 +1,9 @@
-import sys
 import unittest
-from pathlib import Path
 
 import numpy as np
 import torch
 
-# Ajouter le répertoire parent au chemin pour l'importation
-sys.path.append(str(Path(__file__).parent.parent))
-
-from rl.agents.layers.noisy_linear import NoisyLinear
+from ai_trading.rl.agents.layers.noisy_linear import NoisyLinear
 
 
 class TestNoisyLinear(unittest.TestCase):

@@ -1,5 +1,6 @@
 import unittest
 from datetime import datetime, timedelta
+from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
@@ -46,17 +47,28 @@ class TestMultiAssetTradingSystem(unittest.TestCase):
         self.assertEqual(len(self.system.positions), 5)
         self.assertEqual(len(self.system.prices), 5)
 
-    def test_collect_market_data(self):
-        """Teste la collecte des données de marché."""
-        end_date = datetime.now().strftime("%Y-%m-%d")
-        start_date = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+    @patch("yfinance.download")
+    def test_collect_traditional_market_data_uses_real_ohlcv_contract(self, download):
+        dates = pd.date_range("2024-01-01", periods=3, freq="D")
+        download.return_value = pd.DataFrame(
+            {
+                "Open": [1, 2, 3], "High": [2, 3, 4], "Low": [0, 1, 2],
+                "Adj Close": [1.4, 2.4, 3.4], "Close": [1.5, 2.5, 3.5],
+                "Volume": [10, 20, 30],
+            }, index=dates,
+        )
 
-        market_data = self.system.collect_market_data(start_date, end_date)
+        data = self.system._collect_traditional_market_data("XAU/USD", "2024-01-01", "2024-01-04")
 
-        self.assertIsInstance(market_data, dict)
-        for asset in self.system.assets:
-            self.assertIn(asset, market_data)
-            self.assertIsInstance(market_data[asset], pd.DataFrame)
+        download.assert_called_once()
+        self.assertEqual(set(data.columns), {"open", "high", "low", "close", "volume"})
+        self.assertEqual(len(data), 3)
+        self.assertEqual(data["close"].tolist(), [1.5, 2.5, 3.5])
+
+    @patch("yfinance.download", return_value=pd.DataFrame())
+    def test_collect_traditional_market_data_rejects_empty_source(self, _):
+        with self.assertRaisesRegex(RuntimeError, "Aucune donnée"):
+            self.system._collect_traditional_market_data("AAPL", "2024-01-01", "2024-01-04")
 
     def test_calculate_portfolio_metrics(self):
         """Teste le calcul des métriques du portefeuille."""
@@ -419,16 +431,20 @@ class TestMultiAssetTradingSystem(unittest.TestCase):
 
     def test_train(self):
         """Teste l'entraînement des systèmes de trading."""
-        self.system.train(self.market_data, epochs=2)
+        history = self.system.train(
+            self.market_data, epochs=1, max_steps=5, batch_size=4
+        )
 
         # Vérifier que les systèmes de trading ont été créés
         for asset in self.system.assets:
             self.assertIn(asset, self.system.trading_systems)
+            self.assertGreater(history[asset]["total_steps"], 0)
+            self.assertIsNotNone(self.system.trading_systems[asset]._agent)
 
     def test_predict_actions(self):
         """Teste la prédiction des actions."""
         # Entraîner d'abord
-        self.system.train(self.market_data, epochs=2)
+        self.system.train(self.market_data, epochs=1, max_steps=5, batch_size=4)
 
         # Prédire les actions
         actions = self.system.predict_actions(self.market_data)

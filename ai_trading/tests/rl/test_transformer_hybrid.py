@@ -1,15 +1,11 @@
 import os
-import sys
 import tempfile
 import unittest
 
 import numpy as np
 import tensorflow as tf
 
-# Ajouter le répertoire parent au chemin pour importer les modules
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from models.transformer_hybrid import (
+from ai_trading.models.transformer_hybrid import (
     PositionalEncoding,
     TransformerBlock,
     TransformerGRUModel,

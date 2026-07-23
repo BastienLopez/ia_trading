@@ -241,7 +241,7 @@ class PPOAgent:
         self.dones = []
         self.values = []
 
-    def get_action(self, state, deterministic=False):
+    def get_action(self, state, deterministic=False, action_mask=None):
         """
         Sélectionne une action à partir d'un état.
 
@@ -260,6 +260,7 @@ class PPOAgent:
             action, log_prob = self.ac_network.get_action_and_log_prob(
                 state, deterministic
             )
+        action = self._apply_action_mask(action, action_mask)
 
         # Stocker l'expérience si non déterministe (mode entraînement)
         if not deterministic:
@@ -270,6 +271,24 @@ class PPOAgent:
         return action.cpu().numpy(), (
             log_prob.cpu().numpy() if log_prob is not None else None
         )
+
+    @staticmethod
+    def _apply_action_mask(action, action_mask):
+        """Projette les actions continues dans les bornes exécutables.
+
+        Pour PPO, le masque est un dictionnaire ``low``/``high`` fourni par
+        l'environnement. Il interdit notamment les ventes sans inventaire et
+        les achats quand aucun cash n'est disponible.
+        """
+        if action_mask is None:
+            return action
+        if not isinstance(action_mask, dict) or {"low", "high"}.difference(action_mask):
+            raise ValueError("Le masque d'action PPO doit contenir low et high")
+        low = torch.as_tensor(action_mask["low"], dtype=action.dtype, device=action.device)
+        high = torch.as_tensor(action_mask["high"], dtype=action.dtype, device=action.device)
+        if low.numel() != action.shape[-1] or high.numel() != action.shape[-1] or torch.any(low > high):
+            raise ValueError("Bornes du masque PPO invalides")
+        return torch.maximum(torch.minimum(action, high), low)
 
     def compute_gae(self, next_value, rewards, masks, values):
         """
@@ -316,11 +335,13 @@ class PPOAgent:
             dict: Dictionnaire des statistiques d'entraînement
         """
         # Convertir en tensors
-        states = torch.FloatTensor(states).to(self.device)
-        actions = torch.FloatTensor(actions).to(self.device)
-        rewards = torch.FloatTensor(rewards).to(self.device)
-        next_states = torch.FloatTensor(next_states).to(self.device)
-        dones = torch.FloatTensor(dones).to(self.device)
+        # Une trajectoire est construite pas à pas : matérialiser un seul array
+        # évite le chemin PyTorch très lent ``list[np.ndarray]`` sur GPU.
+        states = torch.as_tensor(np.asarray(states, dtype=np.float32), device=self.device)
+        actions = torch.as_tensor(np.asarray(actions, dtype=np.float32), device=self.device)
+        rewards = torch.as_tensor(np.asarray(rewards, dtype=np.float32), device=self.device)
+        next_states = torch.as_tensor(np.asarray(next_states, dtype=np.float32), device=self.device)
+        dones = torch.as_tensor(np.asarray(dones, dtype=np.float32), device=self.device)
 
         # Calculer les valeurs des états
         with torch.no_grad():
@@ -328,18 +349,18 @@ class PPOAgent:
             next_value = self.ac_network.get_value(next_states[-1]).detach()
 
         # Convertir les valeurs en liste
-        values_list = [v.cpu().numpy()[0, 0] for v in values]
+        values_list = [float(v.squeeze().cpu().item()) for v in values]
 
         # Calculer les retours et avantages
         masks = 1 - dones.cpu().numpy()
         rewards_np = rewards.cpu().numpy()
         returns, advantages = self.compute_gae(
-            next_value.cpu().numpy()[0, 0], rewards_np, masks, values_list
+            float(next_value.squeeze().cpu().item()), rewards_np, masks, values_list
         )
 
         # Convertir en tensors
-        returns = torch.FloatTensor(returns).to(self.device)
-        advantages = torch.FloatTensor(advantages).to(self.device)
+        returns = torch.as_tensor(returns, dtype=torch.float32, device=self.device).unsqueeze(-1)
+        advantages = torch.as_tensor(advantages, dtype=torch.float32, device=self.device).unsqueeze(-1)
 
         # Normaliser les avantages
         advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
@@ -354,6 +375,7 @@ class PPOAgent:
         actor_loss_epoch = 0
         critic_loss_epoch = 0
         entropy_epoch = 0
+        n_updates = 0
 
         # Mise à jour sur plusieurs époques
         for _ in range(self.update_epochs):
@@ -415,12 +437,14 @@ class PPOAgent:
                 actor_loss_epoch += actor_loss.item()
                 critic_loss_epoch += critic_loss.item()
                 entropy_epoch += entropy.mean().item()
+                n_updates += 1
 
         # Moyenner les pertes sur toutes les époques
-        n_updates = states.size(0) // self.mini_batch_size
-        actor_loss_epoch /= n_updates * self.update_epochs
-        critic_loss_epoch /= n_updates * self.update_epochs
-        entropy_epoch /= n_updates * self.update_epochs
+        if n_updates == 0:
+            raise ValueError("PPO requiert au moins une transition pour la mise à jour")
+        actor_loss_epoch /= n_updates
+        critic_loss_epoch /= n_updates
+        entropy_epoch /= n_updates
 
         # Mettre à jour les historiques
         self.actor_loss_history.append(actor_loss_epoch)

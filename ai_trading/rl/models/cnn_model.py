@@ -134,23 +134,17 @@ class HybridCNNAttention(nn.Module):
         """
         super().__init__()
 
-        # CNN pour l'extraction de features
-        self.cnn = PriceGraphCNN(
-            input_channels=input_channels,
-            output_dim=hidden_dim,
-            kernel_sizes=cnn_kernel_sizes,
-            n_filters=cnn_filters,
-            dropout=dropout,
+        if hidden_dim % num_heads:
+            raise ValueError("hidden_dim doit être divisible par num_heads")
+        # Conserve la dimension temporelle : l'ancienne version comprimait la
+        # séquence en un seul vecteur avant l'attention, la rendant inutile.
+        self.cnn = nn.Sequential(
+            nn.Conv1d(input_channels, hidden_dim, kernel_size=3, padding=1),
+            nn.GELU(),
+            nn.Dropout(dropout),
         )
-
-        # Attention temporelle
-        from ai_trading.rl.models.temporal_attention import TemporalAttention
-
-        self.attention = TemporalAttention(
-            input_dim=hidden_dim,
-            hidden_dim=hidden_dim,
-            num_heads=num_heads,
-            dropout=dropout,
+        self.attention = nn.MultiheadAttention(
+            hidden_dim, num_heads, dropout=dropout, batch_first=True
         )
 
         # Couche de sortie
@@ -171,15 +165,10 @@ class HybridCNNAttention(nn.Module):
             - Tenseur de sortie de forme (batch_size, output_dim)
             - Dictionnaire des poids d'attention
         """
-        # CNN
-        cnn_features, cnn_attention = self.cnn(x)
-
-        # Reshape pour l'attention temporelle
-        batch_size = x.size(0)
-        features = cnn_features.view(batch_size, -1, self.attention.hidden_dim)
-
-        # Attention temporelle
-        attended_features, temporal_attention = self.attention(features, mask)
+        features = self.cnn(x).transpose(1, 2)
+        attended_features, temporal_attention = self.attention(
+            features, features, features, key_padding_mask=mask, need_weights=True
+        )
 
         # Dernière position de la séquence
         output = attended_features[:, -1, :]
@@ -188,6 +177,6 @@ class HybridCNNAttention(nn.Module):
         output = self.output_layer(output)
 
         # Retourner les deux types d'attention
-        attention_weights = {"cnn": cnn_attention, "temporal": temporal_attention}
+        attention_weights = {"temporal": temporal_attention}
 
         return output, attention_weights

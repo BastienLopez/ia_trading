@@ -303,26 +303,18 @@ class MultitaskTradingAgent:
             Dictionnaire des pertes
         """
         try:
-            # Pour les tests d'intégration, retournons simplement un dictionnaire fictif
-            # Cette implémentation simplifiée évite les erreurs complexes
-            return {
-                "total_loss": 0.1,
-                "multitask_loss": 0.05,
-                "policy_loss": 0.05,
-                "price_prediction_loss": 0.02,
-                "trend_classification_loss": 0.02,
-                "portfolio_optimization_loss": 0.02,
-                "risk_management_loss": 0.02,
-            }
-
-            # Code original à réactiver après déboggage
-            """
             # Convertir en tenseurs
             states_tensor = torch.FloatTensor(np.array(states)).to(self.device)
             actions_tensor = torch.FloatTensor(np.array(actions)).to(self.device)
             rewards_tensor = torch.FloatTensor(np.array(rewards)).to(self.device)
             next_states_tensor = torch.FloatTensor(np.array(next_states)).to(self.device)
             dones_tensor = torch.FloatTensor(np.array(dones)).to(self.device)
+            if states_tensor.dim() == 2:
+                states_tensor = states_tensor.unsqueeze(1)
+            if next_states_tensor.dim() == 3:
+                next_states_tensor = next_states_tensor[:, -1, :]
+            if actions_tensor.dim() == 1:
+                actions_tensor = actions_tensor.unsqueeze(1)
             
             # Passer en mode entraînement
             self.model.train()
@@ -366,11 +358,9 @@ class MultitaskTradingAgent:
                 losses[f'{task_name}_loss'] = task_loss.item()
                 
             return losses
-            """
         except Exception as e:
             logger.error(f"Erreur dans update: {e}")
-            # Retourner des pertes fictives en cas d'erreur
-            return {"total_loss": 0.1, "error": str(e)}
+            raise RuntimeError("Échec de la mise à jour multi-tâches") from e
 
     def _create_simulated_targets(self, states, next_states, rewards):
         """
@@ -458,17 +448,12 @@ class MultitaskTradingAgent:
             Perte de politique
         """
         try:
-            # Pour simplifier les tests, retournons simplement une perte MSE
-            # entre les actions prédites et les actions réelles
-            batch_size = actions.size(0)
-            dummy_actions = torch.zeros_like(actions)
-            policy_loss = F.mse_loss(dummy_actions, actions)
-
-            return policy_loss
+            outputs = self.model(states)
+            policy_actions = self.policy_network(self.process_multitask_outputs(outputs))
+            return F.mse_loss(policy_actions, actions)
         except Exception as e:
             logger.error(f"Erreur dans _compute_policy_loss: {e}")
-            # Retourner une perte fictive en cas d'erreur
-            return torch.tensor(0.1, device=self.device)
+            raise RuntimeError("Échec du calcul de la perte de politique") from e
 
     def save_model(self, path):
         """

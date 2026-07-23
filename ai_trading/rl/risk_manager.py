@@ -123,7 +123,8 @@ class RiskManager:
         return position_size
 
     def calculate_atr_stop_loss(
-        self, data, period=14, direction="long", current_price=None, position_id=None
+        self, data, period=14, direction="long", current_price=None, position_id=None, atr_value=None,
+        factor_multiplier=1.0,
     ):
         """
         Calcule un stop-loss dynamique basé sur l'ATR.
@@ -138,34 +139,34 @@ class RiskManager:
         Returns:
             float: Prix du stop-loss
         """
-        if data is None or len(data) < period:
+        if atr_value is None and (data is None or len(data) < period):
             logger.warning(
                 f"Données insuffisantes pour calculer l'ATR (besoin de {period} points)"
             )
             return None
 
-        # Initialiser les indicateurs avec les données
-        self.indicators = TechnicalIndicators(data)
-
-        # Calculer l'ATR
-        atr = self.indicators.calculate_atr(period=period)
-
-        # Vérifier la validité de l'ATR
-        if atr is None or len(atr) == 0 or np.isnan(atr.iloc[-1]):
-            logger.warning("Impossible de calculer l'ATR")
-            return None
-
-        # Utiliser le dernier ATR calculé
-        last_atr = atr.iloc[-1]
+        if atr_value is None:
+            self.indicators = TechnicalIndicators(data)
+            atr = self.indicators.calculate_atr(period=period)
+            if atr is None or len(atr) == 0 or np.isnan(atr.iloc[-1]):
+                logger.warning("Impossible de calculer l'ATR")
+                return None
+            last_atr = atr.iloc[-1]
+        else:
+            last_atr = float(atr_value)
+            if not np.isfinite(last_atr) or last_atr <= 0:
+                return None
 
         # Utiliser le prix actuel ou le dernier prix de clôture
         price = current_price if current_price is not None else data["close"].iloc[-1]
 
         # Calculer le stop-loss en fonction de la direction
+        if not np.isfinite(factor_multiplier) or factor_multiplier <= 0:
+            raise ValueError("factor_multiplier doit être positif et fini")
         if direction == "long":
-            stop_loss = price - (last_atr * self.stop_loss_atr_factor)
+            stop_loss = price - (last_atr * self.stop_loss_atr_factor * factor_multiplier)
         else:  # short
-            stop_loss = price + (last_atr * self.stop_loss_atr_factor)
+            stop_loss = price + (last_atr * self.stop_loss_atr_factor * factor_multiplier)
 
         # Enregistrer le stop-loss si un ID de position est fourni
         if position_id is not None:
@@ -192,7 +193,7 @@ class RiskManager:
         return stop_loss
 
     def calculate_atr_take_profit(
-        self, data, period=14, direction="long", current_price=None, position_id=None
+        self, data, period=14, direction="long", current_price=None, position_id=None, atr_value=None
     ):
         """
         Calcule un take-profit dynamique basé sur l'ATR.
@@ -207,25 +208,23 @@ class RiskManager:
         Returns:
             float: Prix du take-profit
         """
-        if data is None or len(data) < period:
+        if atr_value is None and (data is None or len(data) < period):
             logger.warning(
                 f"Données insuffisantes pour calculer l'ATR (besoin de {period} points)"
             )
             return None
 
-        # Initialiser les indicateurs avec les données
-        self.indicators = TechnicalIndicators(data)
-
-        # Calculer l'ATR
-        atr = self.indicators.calculate_atr(period=period)
-
-        # Vérifier la validité de l'ATR
-        if atr is None or len(atr) == 0 or np.isnan(atr.iloc[-1]):
-            logger.warning("Impossible de calculer l'ATR")
-            return None
-
-        # Utiliser le dernier ATR calculé
-        last_atr = atr.iloc[-1]
+        if atr_value is None:
+            self.indicators = TechnicalIndicators(data)
+            atr = self.indicators.calculate_atr(period=period)
+            if atr is None or len(atr) == 0 or np.isnan(atr.iloc[-1]):
+                logger.warning("Impossible de calculer l'ATR")
+                return None
+            last_atr = atr.iloc[-1]
+        else:
+            last_atr = float(atr_value)
+            if not np.isfinite(last_atr) or last_atr <= 0:
+                return None
 
         # Utiliser le prix actuel ou le dernier prix de clôture
         price = current_price if current_price is not None else data["close"].iloc[-1]
@@ -388,7 +387,7 @@ class RiskManager:
             logger.info(f"Position {position_id} supprimée du gestionnaire de risques")
 
     def update_atr_trailing_stop(
-        self, data, period=14, position_id=None, current_price=None, direction="long"
+        self, data, period=14, position_id=None, current_price=None, direction="long", atr_value=None
     ):
         """
         Met à jour le trailing stop dynamique basé sur l'ATR.
@@ -407,14 +406,16 @@ class RiskManager:
             logger.warning(f"Position {position_id} non trouvée")
             return None
 
-        # Calculer l'ATR
-        self.indicators = TechnicalIndicators(data)
-        atr = self.indicators.calculate_atr(period=period)
-
-        if atr is None or len(atr) == 0 or np.isnan(atr.iloc[-1]):
-            return self.position_stops[position_id]["trailing_stop"]
-
-        last_atr = atr.iloc[-1]
+        if atr_value is None:
+            self.indicators = TechnicalIndicators(data)
+            atr = self.indicators.calculate_atr(period=period)
+            if atr is None or len(atr) == 0 or np.isnan(atr.iloc[-1]):
+                return self.position_stops[position_id]["trailing_stop"]
+            last_atr = atr.iloc[-1]
+        else:
+            last_atr = float(atr_value)
+            if not np.isfinite(last_atr) or last_atr <= 0:
+                return self.position_stops[position_id]["trailing_stop"]
         price = current_price if current_price else data["close"].iloc[-1]
 
         # Calculer la distance du trailing stop

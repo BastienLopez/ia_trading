@@ -12,9 +12,9 @@ def trading_system():
 
 @pytest.fixture
 def sample_training_data():
-    # Générer des données d'entraînement synthétiques
-    n_samples = 100
-    seq_len = 50
+    # Jeu borné : ce test valide le contrat Transformer, pas la performance.
+    n_samples = 32
+    seq_len = 16
     input_dim = 5  # OHLCV
     data = torch.randn(n_samples, seq_len, input_dim)
     targets = torch.randn(n_samples, 1)  # Prix futur
@@ -22,7 +22,7 @@ def sample_training_data():
 
 
 def test_create_transformer(trading_system):
-    trading_system.create_transformer(input_dim=5, d_model=512, nhead=8, num_layers=6)
+    trading_system.create_transformer(input_dim=5, d_model=64, nhead=4, num_layers=2)
     assert trading_system._transformer is not None
     assert isinstance(trading_system._transformer, FinancialTemporalTransformer)
 
@@ -31,7 +31,7 @@ def test_train_transformer(trading_system, sample_training_data):
     data, targets = sample_training_data
 
     # Créer le transformer
-    trading_system.create_transformer(input_dim=5, d_model=512, nhead=8, num_layers=6)
+    trading_system.create_transformer(input_dim=5, d_model=64, nhead=4, num_layers=2)
 
     # Entraîner le transformer
     trading_system.train_transformer(
@@ -52,7 +52,7 @@ def test_predict_with_transformer(trading_system, sample_training_data):
     data, _ = sample_training_data
 
     # Créer et entraîner le transformer
-    trading_system.create_transformer(input_dim=5, d_model=512, nhead=8, num_layers=6)
+    trading_system.create_transformer(input_dim=5, d_model=64, nhead=4, num_layers=2)
 
     # Faire des prédictions
     predictions, attention_weights = trading_system.predict_with_transformer(
@@ -62,19 +62,19 @@ def test_predict_with_transformer(trading_system, sample_training_data):
     assert isinstance(predictions, torch.Tensor)
     assert isinstance(attention_weights, list)
     assert predictions.shape == (10, 1)  # (batch_size, output_dim)
-    assert len(attention_weights) == 6  # num_layers
+    assert len(attention_weights) == 2  # num_layers
 
 
 def test_load_transformer(trading_system, tmp_path):
     # Créer un modèle et le sauvegarder
-    trading_system.create_transformer(input_dim=5, d_model=512, nhead=8, num_layers=6)
+    trading_system.create_transformer(input_dim=5, d_model=64, nhead=4, num_layers=2)
 
     save_path = tmp_path / "transformer.pth"
     torch.save(trading_system._transformer.state_dict(), save_path)
 
     # Créer un nouveau système et charger le modèle
     new_system = RLTradingSystem()
-    new_system.create_transformer(input_dim=5, d_model=512, nhead=8, num_layers=6)
+    new_system.create_transformer(input_dim=5, d_model=64, nhead=4, num_layers=2)
     new_system.load_transformer(str(save_path))
 
     # Vérifier que les poids sont les mêmes
@@ -88,7 +88,7 @@ def test_transformer_integration(trading_system, sample_training_data):
     data, targets = sample_training_data
 
     # Créer et entraîner le transformer
-    trading_system.create_transformer(input_dim=5, d_model=512, nhead=8, num_layers=6)
+    trading_system.create_transformer(input_dim=5, d_model=64, nhead=4, num_layers=2)
 
     trading_system.train_transformer(
         data=data, targets=targets, epochs=2, batch_size=32

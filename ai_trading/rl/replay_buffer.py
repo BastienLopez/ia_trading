@@ -308,8 +308,16 @@ class PrioritizedReplayBuffer(ReplayBuffer):
         # Incrémenter beta
         self.beta = min(1.0, self.beta + self.beta_increment)
 
-        # Échantillonner les transitions
-        states, actions, rewards, next_states, dones = super().sample(batch_size)
+        # Extraire exactement les transitions correspondant aux indices
+        # priorisés. L'ancienne implémentation tirait un second batch uniforme,
+        # ce qui appliquait les poids TD à de mauvaises expériences.
+        transitions = [self.buffer[index] for index in indices]
+        states, actions, rewards, next_states, dones = zip(*transitions)
+        states = np.asarray(states, dtype=np.float32)
+        actions = np.asarray(actions, dtype=np.float32)
+        rewards = np.asarray(rewards, dtype=np.float32).reshape(-1, 1)
+        next_states = np.asarray(next_states, dtype=np.float32)
+        dones = np.asarray(dones, dtype=np.float32).reshape(-1, 1)
 
         return states, actions, rewards, next_states, dones, indices, weights
 

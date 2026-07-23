@@ -1,39 +1,12 @@
-prod : 
-- **Training**:
-  - Regrouper `train.py`, `train_with_curriculum.py` et `train_with_gradient_accumulation.py` en `training.py` (environ 1275 lignes)
-
-  - Regrouper `distributed_ppo_training.py` et `distributed_transformer_ppo_training.py` en `distributed_training.py` (environ 988 lignes)
-
-test:
- - Regrouper `test_basic_training.py` et `test_curriculum_learning.py` et `test_gradient_accumulation.py` en `tests/rl/training/test_training.py`
-
- - Regrouper `test_ppo_distribution.py` et `test_transformer_distribution.py` en `tests/rl/training/test_distributed_training.py`
-
-examples : 
- - Regrouper `example_basic_training.py` et `example_curriculum.py` et `example_gradient_acc.py` en `examples/rl/training/training_example.py`
-
-  - Regrouper `example_ppo_cluster.py` et `example_transformer_parallel.py` en `examples/rl/training/distributed_training_example.py`
+New-Item -ItemType Directory -Force ai_trading\info_retour\p3_manual_10m | Out-Null
+docker compose -f docker\docker-compose.yml exec -T ai_api timeout --signal=INT 600s python3 -m ai_trading.scripts.run_real_multi_asset_walk_forward --days 1200 --train-candles 400 --validation-candles 120 --test-candles 120 --step-candles 120 --max-windows 1 --validation-seeds 42 --episodes 5 --max-training-steps 1200 --max-optimization-steps 120 --batch-size 64 --buffer-size 5000 --sequence-length 8 --window-size 50 --min-closed-trades 5 --output-dir ai_trading/info_retour/p3_manual_10m 2>&1 | Tee-Object ai_trading\info_retour\p3_manual_10m\command.log
 
 
-si `exploration.py, `test_exploration.py` et `exploration_example.py` sont bien implementer et sans perte du au regroupement,
- test les et si ca fonctionne supprime : 
-- `train.py` 
-- `train_with_curriculum.py` 
-- `train_with_gradient_accumulation.py` 
-- `distributed_ppo_training` 
-- `distributed_transformer_ppo_training`
-- `test_basic_training`
-- `test_curriculum_learning`
-- `test_gradient_accumulation`
-- `test_ppo_distribution`
-- `test_transformer_distribution`
-- `example_basic_training`
-- `example_curriculum`
-- `example_gradient_acc`
-- `example_ppo_cluster`
-- `example_transformer_parallel`
+New-Item -ItemType Directory -Force ai_trading\info_retour\p3_manual_1h | Out-Null
+docker compose -f docker\docker-compose.yml exec -T ai_api timeout --signal=INT 3600s python3 -m ai_trading.scripts.run_real_multi_asset_walk_forward --days 2200 --train-candles 600 --validation-candles 180 --test-candles 180 --step-candles 180 --max-windows 1 --validation-seeds 42 --episodes 20 --max-training-steps 5000 --max-optimization-steps 500 --batch-size 64 --buffer-size 10000 --sequence-length 8 --window-size 50 --min-closed-trades 15 --output-dir ai_trading/info_retour/p3_manual_1h 2>&1 | Tee-Object ai_trading\info_retour\p3_manual_1h\command.log
 
 
-puisqu'il sont dans mtn regrouper en d'aute fichier
+New-Item -ItemType Directory -Force ai_trading\info_retour\p3_manual_3h | Out-Null
+docker compose -f docker\docker-compose.yml exec -T ai_api timeout --signal=INT 10800s python3 -m ai_trading.scripts.run_real_multi_asset_walk_forward --days 2500 --train-candles 700 --validation-candles 200 --test-candles 200 --step-candles 200 --max-windows 1 --validation-seeds 42 314 --episodes 50 --max-training-steps 15000 --max-optimization-steps 1500 --batch-size 64 --buffer-size 20000 --sequence-length 8 --window-size 50 --min-closed-trades 20 --output-dir ai_trading/info_retour/p3_manual_3h 2>&1 | Tee-Object ai_trading\info_retour\p3_manual_3h\command.log
 
-verif que tt les fichier ayant deja été regroupé n'ont pas de perte, qu'il ne manque rien et que tout foncitonne 
+

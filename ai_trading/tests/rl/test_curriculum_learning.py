@@ -6,6 +6,7 @@ import pandas as pd
 
 from ai_trading.rl.agents.sac_agent import SACAgent
 from ai_trading.rl.curriculum_learning import CurriculumLearning, CurriculumTrainer
+from ai_trading.rl.agents.dqn_agent import DQNAgent
 from ai_trading.rl.trading_environment import TradingEnvironment
 
 
@@ -352,6 +353,46 @@ class TestCurriculumTrainer(unittest.TestCase):
         finally:
             # Restaurer la fonction originale
             self.curriculum.agent_performance_fn = original_fn
+
+    def test_real_dqn_curriculum_episode_updates_the_agent_and_progresses(self):
+        data = self.df.iloc[:50].copy()
+        curriculum = CurriculumLearning(
+            df=data,
+            initial_difficulty=0.1,
+            max_difficulty=0.2,
+            difficulty_increment=0.1,
+            success_threshold=0.5,
+            patience=1,
+            curriculum_type="reward",
+            agent_performance_fn=lambda agent, env: 1.0,
+            env_params={
+                "window_size": 5,
+                "include_technical_indicators": False,
+                "risk_management": False,
+                "action_type": "discrete",
+            },
+        )
+        env = curriculum.create_environment()
+        agent = DQNAgent(
+            state_size=env.observation_space.shape[0],
+            action_size=env.action_space.n,
+            hidden_size=16,
+            batch_size=4,
+            buffer_size=128,
+        )
+        trainer = CurriculumTrainer(
+            agent=agent,
+            curriculum=curriculum,
+            episodes_per_level=1,
+            max_episodes=1,
+            eval_every=1,
+        )
+
+        history = trainer.train(verbose=False)
+
+        self.assertEqual(len(history["episode"]), 1)
+        self.assertGreater(len(agent.memory), 0)
+        self.assertGreater(curriculum.current_difficulty, 0.1)
 
 
 if __name__ == "__main__":

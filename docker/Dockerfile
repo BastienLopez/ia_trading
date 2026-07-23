@@ -1,6 +1,6 @@
-# Image CUDA conservée pour compatibilité avec les dépendances ML.
-# Le compose CPU par défaut fonctionne aussi sans pilote NVIDIA.
-FROM nvidia/cuda:12.2.0-runtime-ubuntu22.04
+# L'image de développement CUDA apporte NVVM/libdevice, requis par TensorFlow
+# quand XLA compile réellement sur GPU. L'image runtime seule ne le contient pas.
+FROM nvidia/cuda:12.2.0-devel-ubuntu22.04
 
 WORKDIR /app
 
@@ -32,6 +32,7 @@ RUN apt-get update \
       libopenblas-dev \
       libgomp1 \
       libgl1 \
+      libglib2.0-0 \
  && rm -rf /var/lib/apt/lists/*
 
 # On copie les dépendances avant le code pour profiter du cache Docker.

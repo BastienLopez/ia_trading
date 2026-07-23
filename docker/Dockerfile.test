@@ -1,5 +1,6 @@
-# Image de base avec support CUDA pour les tests
-FROM nvidia/cuda:12.2.0-runtime-ubuntu22.04
+# NVVM/libdevice est nécessaire aux kernels TensorFlow/XLA réellement exécutés
+# sur GPU durant les tests hybrides.
+FROM nvidia/cuda:12.2.0-devel-ubuntu22.04
 
 WORKDIR /app
 
@@ -192,4 +193,4 @@ RUN echo "import os" > /app/run_tests.py && \
     echo "sys.exit(exit_code)" >> /app/run_tests.py
 
 # Commande par défaut
-ENTRYPOINT ["python3", "/app/run_tests.py"] 
+ENTRYPOINT ["python3", "/app/run_tests.py"]

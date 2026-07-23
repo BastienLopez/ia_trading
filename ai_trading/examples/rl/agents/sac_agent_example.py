@@ -13,8 +13,8 @@ from ai_trading.config import INFO_RETOUR_DIR
 from ai_trading.examples.rl.agents.multi_asset_trading_example import generate_synthetic_data
 from ai_trading.rl.agents.sac_agent import SACAgent
 from ai_trading.rl.agents.transformer_sac_agent import TransformerSACAgent
-from ai_trading.rl.environments.trading_environment import TradingEnvironment
-from ai_trading.rl.environments.multi_asset_trading_environment import MultiAssetTradingEnvironment
+from ai_trading.rl.trading_environment import TradingEnvironment
+from ai_trading.rl.multi_asset_trading_environment import MultiAssetTradingEnvironment
 
 # Configuration du logger
 logging.basicConfig(
@@ -430,4 +430,4 @@ def main():
     logger.info("Exemple terminé.")
 
 if __name__ == "__main__":
-    main() 
+    main()

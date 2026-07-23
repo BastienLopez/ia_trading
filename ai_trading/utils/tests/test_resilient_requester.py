@@ -390,13 +390,13 @@ class TestMultiSourceRequester(unittest.TestCase):
         def fast_source(*args, **kwargs):
             return "fast result"
 
-        # Créer un MultiSourceRequester avec un timeout très court
+        # Le budget global doit laisser le temps au fallback de s'exécuter.
         sources = {"slow": (slow_source, {}), "fast": (fast_source, {})}
 
         multi_requester = MultiSourceRequester(
             sources=sources,
             source_priority=["slow", "fast"],
-            global_timeout=0.1,  # Timeout très court
+            global_timeout=0.5,
         )
 
         # Configurer le requester de slow sans retries
@@ -405,14 +405,34 @@ class TestMultiSourceRequester(unittest.TestCase):
         )
 
         # La source lente devrait échouer par timeout, puis passer à la source rapide
-        try:
-            result, source = multi_requester.request()
-            self.assertEqual(source, "fast")
-            self.assertEqual(result, "fast result")
-        except AllSourcesFailedError:
-            # Si même la source rapide n'a pas le temps de s'exécuter à cause du timeout global
-            # ce n'est pas un problème pour le test
-            pass
+        result, source = multi_requester.request()
+        self.assertEqual(source, "fast")
+        self.assertEqual(result, "fast result")
+
+    def test_global_timeout_blocks_fallback_when_budget_is_exhausted(self):
+        """Le fallback ne doit jamais dépasser le délai global demandé."""
+        calls = []
+
+        def slow_source(*args, **kwargs):
+            calls.append("slow")
+            time.sleep(0.2)
+            return "too late"
+
+        def fast_source(*args, **kwargs):
+            calls.append("fast")
+            return "fast result"
+
+        requester = MultiSourceRequester(
+            sources={"slow": (slow_source, {}), "fast": (fast_source, {})},
+            source_priority=["slow", "fast"],
+            global_timeout=0.05,
+        )
+        requester.requesters["slow"] = ResilientRequester(max_retries=0, timeout=0.2)
+
+        with self.assertRaises(AllSourcesFailedError):
+            requester.request()
+
+        self.assertEqual(calls, ["slow"])
 
 
 class TestResilientDecorator(unittest.TestCase):

@@ -103,21 +103,37 @@ class MultiAssetTradingSystem:
         # Collecter les données pour les actifs traditionnels
         for asset in self.traditional_assets:
             try:
-                # TODO: Implémenter la collecte pour les actifs traditionnels
-                # Pour l'instant, on génère des données synthétiques
-                data = self.data_integrator._generate_synthetic_market_data(
-                    start_date=start_date, end_date=end_date, interval="1d"
-                )
+                data = self._collect_traditional_market_data(asset, start_date, end_date)
                 market_data[asset] = data
-                logger.info(
-                    f"Données synthétiques générées pour {asset}: {len(data)} points"
-                )
+                logger.info(f"Données collectées pour {asset}: {len(data)} points")
             except Exception as e:
                 logger.error(
                     f"Erreur lors de la collecte des données pour {asset}: {e}"
                 )
 
         return market_data
+
+    @staticmethod
+    def _collect_traditional_market_data(asset: str, start_date: str, end_date: str) -> pd.DataFrame:
+        """Collecte OHLCV réelle via Yahoo Finance, sans fallback synthétique."""
+        import yfinance as yf
+
+        ticker = {"XAU/USD": "GC=F"}.get(asset, asset)
+        raw = yf.download(ticker, start=start_date, end=end_date, progress=False, auto_adjust=False)
+        if raw.empty:
+            raise RuntimeError(f"Aucune donnée Yahoo Finance pour {asset} ({ticker})")
+        if isinstance(raw.columns, pd.MultiIndex):
+            raw.columns = raw.columns.get_level_values(0)
+        data = raw.rename(columns=str.lower).rename(columns={"adj close": "close"})
+        # Yahoo peut renvoyer simultanément ``Adj Close`` et ``Close``. Après
+        # normalisation les deux s'appellent close : conserver le Close brut,
+        # dernière occurrence, pour éviter une colonne 2D invalide en OHLCV.
+        data = data.loc[:, ~data.columns.duplicated(keep="last")]
+        required = ["open", "high", "low", "close", "volume"]
+        missing = set(required).difference(data.columns)
+        if missing:
+            raise RuntimeError(f"OHLCV incomplet pour {asset}: {sorted(missing)}")
+        return data[required].dropna().astype(float)
 
     def calculate_portfolio_metrics(self) -> Dict[str, float]:
         """
@@ -652,7 +668,13 @@ class MultiAssetTradingSystem:
                 )
                 continue
 
-    def train(self, market_data: Dict[str, pd.DataFrame], epochs: int = 100) -> None:
+    def train(
+        self,
+        market_data: Dict[str, pd.DataFrame],
+        epochs: int = 100,
+        max_steps: int | None = None,
+        batch_size: int = 32,
+    ) -> Dict[str, Dict]:
         """
         Entraîne les systèmes de trading pour chaque actif.
 
@@ -661,8 +683,8 @@ class MultiAssetTradingSystem:
             epochs (int): Nombre d'époques d'entraînement
         """
         if not market_data:
-            logger.error("Aucune donnée de marché fournie pour l'entraînement")
-            return
+            raise ValueError("Aucune donnée de marché fournie pour l'entraînement")
+        training_results = {}
 
         for asset, data in market_data.items():
             try:
@@ -690,14 +712,28 @@ class MultiAssetTradingSystem:
                     self.trading_systems[asset] = RLTradingSystem(config=config)
                     logger.info(f"Système de trading créé pour {asset}")
 
-                # Entraîner le système
+                environment = self.trading_systems[asset].create_environment(data=data)
+                agent = self.trading_systems[asset].create_agent(
+                    "dqn",
+                    state_size=environment.observation_space.shape[0],
+                    action_size=environment.action_space.n,
+                    batch_size=batch_size,
+                )
                 logger.info(f"Début de l'entraînement pour {asset}")
-                self.trading_systems[asset].train(data, epochs=epochs)
+                history = self.trading_systems[asset].train(
+                    agent=agent,
+                    episodes=epochs,
+                    batch_size=batch_size,
+                    max_steps=max_steps,
+                )
+                if history["total_steps"] <= 0:
+                    raise RuntimeError(f"Aucun pas d'entraînement effectué pour {asset}")
+                training_results[asset] = history
                 logger.info(f"Entraînement terminé pour {asset}")
 
             except Exception as e:
-                logger.error(f"Erreur lors de l'entraînement pour {asset}: {str(e)}")
-                continue
+                raise RuntimeError(f"Erreur lors de l'entraînement pour {asset}") from e
+        return training_results
 
     def adjust_positions_for_correlation(
         self, actions: Dict[str, float], market_data: Dict[str, pd.DataFrame]
@@ -802,7 +838,12 @@ class MultiAssetTradingSystem:
 
                 # Accès sécurisé aux données
                 try:
-                    action = self.trading_systems[asset].predict_action(data.iloc[-1:])
+                    system = self.trading_systems[asset]
+                    environment = system.create_environment(data=data)
+                    environment.current_step = len(environment.df) - 2
+                    state = environment._get_observation()
+                    discrete_action = system.predict_action(state)
+                    action = float(environment._discrete_to_continuous(int(discrete_action)))
                     actions[asset] = action
                     logger.info(f"Action prédite pour {asset}: {action:.4f}")
                 except Exception as e:

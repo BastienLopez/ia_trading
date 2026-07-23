@@ -56,6 +56,41 @@ class TestTechnicalIndicators(unittest.TestCase):
         # Vérifier que les premières valeurs ne sont pas NaN (l'EMA peut être calculé dès le début)
         self.assertFalse(np.isnan(ema.iloc[-1]))
 
+    def test_constant_zscore_is_deterministic_and_does_not_invent_noise(self):
+        constant = pd.Series([7.0, 7.0, 7.0], index=self.test_data.index[:3])
+
+        normalized = self.indicators.normalize_indicator(constant, method="zscore")
+
+        pd.testing.assert_series_equal(normalized, pd.Series(0.0, index=constant.index))
+
+    def test_weekly_and_monthly_pivots_use_only_completed_periods(self):
+        dates = pd.date_range("2024-01-01", periods=70, freq="D")
+        data = pd.DataFrame(
+            {
+                "open": np.arange(70, dtype=float) + 100,
+                "high": np.arange(70, dtype=float) + 102,
+                "low": np.arange(70, dtype=float) + 99,
+                "close": np.arange(70, dtype=float) + 101,
+                "volume": np.full(70, 1_000.0),
+            },
+            index=dates,
+        )
+        indicators = TechnicalIndicators(data)
+
+        weekly = indicators.calculate_pivots("weekly")
+        monthly = indicators.calculate_pivots("monthly")
+
+        first_week_high = data.loc[:"2024-01-07", "high"].max()
+        first_week_low = data.loc[:"2024-01-07", "low"].min()
+        first_week_close = data.loc[:"2024-01-07", "close"].iloc[-1]
+        self.assertAlmostEqual(
+            weekly.loc["2024-01-08", "P"],
+            (first_week_high + first_week_low + first_week_close) / 3,
+        )
+        january = data.loc["2024-01-01":"2024-01-31"]
+        expected_monthly = (january.high.max() + january.low.min() + january.close.iloc[-1]) / 3
+        self.assertAlmostEqual(monthly.loc["2024-02-01", "P"], expected_monthly)
+
     def test_macd(self):
         """Teste le calcul du MACD."""
         # Calculer le MACD
@@ -330,8 +365,12 @@ class TestTechnicalIndicators(unittest.TestCase):
 
         # Vérifier que la normalisation zscore a une moyenne proche de 0 et un écart-type proche de 1
         # Utiliser une tolérance plus large pour les tests
-        self.assertAlmostEqual(rsi_zscore[14:].dropna().mean(), 0, delta=0.5)
-        self.assertAlmostEqual(rsi_zscore[14:].dropna().std(), 1, delta=0.5)
+        valid_zscore = rsi_zscore[14:].dropna()
+        self.assertAlmostEqual(valid_zscore.mean(), 0, delta=0.5)
+        if rsi[14:].dropna().std() > 0:
+            self.assertAlmostEqual(valid_zscore.std(), 1, delta=0.5)
+        else:
+            self.assertTrue((valid_zscore == 0).all())
 
     def test_get_all_indicators(self):
         """Teste le calcul de tous les indicateurs."""
