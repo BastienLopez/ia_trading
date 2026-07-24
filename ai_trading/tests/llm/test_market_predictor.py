@@ -1,354 +1,185 @@
-"""
-Script de test pour MarketPredictor et PredictionModel.
-"""
+"""Contrats P4 de MarketPredictor : données causales et LLM injectable."""
 
-import os
-import sys
 import json
-import logging
-from unittest.mock import patch, MagicMock
-import pandas as pd
+import time
+from concurrent.futures import ThreadPoolExecutor
+
 import numpy as np
-from datetime import datetime, timedelta
-from typing import Dict, Any, Optional
-import unittest
+import pandas as pd
+import pytest
 
-# Ajouter le répertoire du projet au chemin (si nécessaire)
-current_dir = os.path.dirname(os.path.abspath(__file__))
-project_root = os.path.abspath(os.path.join(current_dir))
-if project_root not in sys.path:
-    sys.path.append(project_root)
+from ai_trading.llm.predictions.market_predictor import MarketPredictor, P2SentimentDataProvider
+from ai_trading.llm.predictions.prediction_contract import PredictionInputError, align_market_and_sentiment
+from ai_trading.llm.sentiment_analysis.sentiment_pipeline import SentimentPipeline
 
-# Configuration du logging basique
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger("test_market_predictor")
 
-# Création des mocks
-class MockNewsAnalyzer:
-    def analyze_sentiment(self, asset, timeframe=None):
-        logger.info(f"Mock news analysis for {asset} over {timeframe}")
-        return {
-            "sentiment_score": 0.65,
-            "volume": 120,
-            "topics": ["regulation", "adoption", "technology"],
-            "average_score": 0.65,
-            "top_topics": ["regulation", "adoption", "technology"],
-            "major_events": ["Partnership announcement"]
-        }
+def market_frame(periods=48):
+    timestamps = pd.date_range("2025-01-01", periods=periods, freq="h", tz="UTC")
+    close = 100 + np.linspace(0, 6, periods)
+    return pd.DataFrame({"timestamp": timestamps, "open": close - .2, "high": close + .5,
+                         "low": close - .5, "close": close, "volume": 1000,
+                         "source": "p1_fixture", "asset": "BTC", "timeframe": "1h"})
 
-class MockSocialAnalyzer:
-    def analyze_sentiment(self, asset, timeframe=None):
-        logger.info(f"Mock social analysis for {asset} over {timeframe}")
-        return {
-            "sentiment_score": 0.72,
-            "volume": 350,
-            "topics": ["price", "trading", "news"],
-            "average_score": 0.72,
-            "trends": ["price", "trading", "news"],
-            "discussion_volume": "high"
-        }
 
-def mock_setup_logger(name):
-    return logging.getLogger(name)
+def sentiment_frame(periods=48):
+    timestamps = pd.date_range("2025-01-01", periods=periods, freq="h", tz="UTC")
+    return pd.DataFrame({"timestamp": timestamps, "sentiment_score": np.linspace(-.1, .3, periods),
+                         "source": "p2_fixture", "quality": .9, "asset": "BTC"})
 
-class TestMarketPredictor(unittest.TestCase):
-    """Tests unitaires pour la classe MarketPredictor."""
-    
-    def setUp(self):
-        """Configuration initiale pour chaque test."""
-        # Appliquer les patches pour les dépendances externes
-        self.patches = [
-            patch("ai_trading.llm.sentiment_analysis.news_analyzer.NewsAnalyzer", return_value=MockNewsAnalyzer()),
-            patch("ai_trading.llm.sentiment_analysis.social_analyzer.SocialAnalyzer", return_value=MockSocialAnalyzer()),
-            patch("ai_trading.utils.setup_logger", mock_setup_logger)
-        ]
-        
-        for p in self.patches:
-            p.start()
-        
-        # Initialisation de l'objet à tester
-        from ai_trading.llm.predictions.market_predictor import MarketPredictor
-        self.predictor = MarketPredictor(custom_config={"model_name": "gpt-4"})
-        
-        # Mock des méthodes qui posent problème
-        self.original_predict = self.predictor.predict_market_direction
-        self.original_insights = self.predictor.generate_market_insights
-        
-        def mock_predict_market_direction(asset, timeframe, market_data=None):
-            prediction = {
-                "id": "test-123",
-                "asset": asset,
-                "timeframe": timeframe,
-                "direction": "bullish",
-                "confidence": "medium",
-                "factors": ["Price trend", "Volume increase"],
-                "volatility": "medium",
-                "timestamp": datetime.now().isoformat(),
-                "sentiment_score": 0.7,
-                "raw_response": '{"direction": "bullish", "confidence": "medium", "factors": ["Price trend", "Volume increase"], "contradictions": null, "volatility": "medium"}'
-            }
-            # Ajouter la prédiction à l'historique
-            self.predictor.predictions_history[prediction["id"]] = prediction
-            return prediction
-            
-        def mock_generate_market_insights(asset, timeframe="7d"):
-            return {
-                "id": "insights-123",
-                "asset": asset,
-                "timestamp": datetime.now().isoformat(),
-                "insights": ["Price might increase", "High volume expected"],
-                "confidence": "medium"
-            }
-            
-        self.predictor.predict_market_direction = mock_predict_market_direction
-        self.predictor.generate_market_insights = mock_generate_market_insights
-    
-    def tearDown(self):
-        """Nettoyage après chaque test."""
-        # Restauration des méthodes originales
-        if hasattr(self, 'original_predict'):
-            self.predictor.predict_market_direction = self.original_predict
-        if hasattr(self, 'original_insights'):
-            self.predictor.generate_market_insights = self.original_insights
-            
-        # Arrêter les patches
-        for p in self.patches:
-            p.stop()
-    
-    def test_initialization(self):
-        """Teste l'initialisation du MarketPredictor."""
-        self.assertEqual(self.predictor.model_name, "gpt-4")
-        self.assertEqual(self.predictor.temperature, 0.1)
-        self.assertEqual(self.predictor.max_tokens, 1000)
-        self.assertTrue(hasattr(self.predictor, "news_analyzer"))
-        self.assertTrue(hasattr(self.predictor, "social_analyzer"))
-        self.assertTrue(hasattr(self.predictor, "client"))
-        self.assertEqual(len(self.predictor.predictions_history), 0)
-    
-    def test_predict_market_direction(self):
-        """Teste la prédiction de direction du marché."""
-        # Créer un DataFrame de test pour les données de marché
-        market_data = pd.DataFrame({
-            "date": pd.date_range(end=datetime.now(), periods=30, freq='D'),
-            "open": [100 + i for i in range(30)],
-            "high": [105 + i for i in range(30)],
-            "low": [95 + i for i in range(30)],
-            "close": [102 + i for i in range(30)],
-            "volume": [1000000 - i * 10000 for i in range(30)]
-        })
-        
-        # Appeler la méthode à tester
-        prediction = self.predictor.predict_market_direction(
-            asset="BTC",
-            timeframe="24h",
-            market_data=market_data
-        )
-        
-        # Vérifications
-        self.assertEqual(prediction["asset"], "BTC")
-        self.assertEqual(prediction["timeframe"], "24h")
-        self.assertEqual(prediction["direction"], "bullish")
-        self.assertEqual(prediction["confidence"], "medium")
-        self.assertTrue(isinstance(prediction["factors"], list))
-        self.assertTrue(len(prediction["factors"]) > 0)
-        self.assertTrue("id" in prediction)
-        self.assertTrue("timestamp" in prediction)
-        
-        # Vérifier que la prédiction est stockée dans l'historique
-        self.assertEqual(len(self.predictor.predictions_history), 1)
-        self.assertTrue(prediction["id"] in self.predictor.predictions_history)
-    
-    def test_generate_market_insights(self):
-        """Teste la génération d'insights de marché."""
-        # Appeler la méthode à tester
-        insights = self.predictor.generate_market_insights(asset="ETH")
-        
-        # Vérifications
-        self.assertEqual(insights["asset"], "ETH")
-        self.assertTrue("timestamp" in insights)
-        self.assertTrue("insights" in insights)
-        self.assertTrue("id" in insights)
-    
-    def test_get_confidence_score(self):
-        """Teste le calcul du score de confiance."""
-        # Cas 1: Direction et sentiment alignés (bullish et positif)
-        aligned_prediction = {
-            "direction": "bullish",
-            "sentiment_score": 0.6
-        }
-        aligned_score = self.predictor.get_confidence_score(aligned_prediction)
-        self.assertTrue(aligned_score > 0.5)
-        
-        # Cas 2: Direction et sentiment en désaccord (bullish et négatif)
-        misaligned_prediction = {
-            "direction": "bullish",
-            "sentiment_score": -0.4
-        }
-        misaligned_score = self.predictor.get_confidence_score(misaligned_prediction)
-        self.assertTrue(misaligned_score < 0.5)
-        
-        # Cas 3: Direction bearish et sentiment négatif (alignés)
-        bearish_prediction = {
-            "direction": "bearish",
-            "sentiment_score": -0.7
-        }
-        bearish_score = self.predictor.get_confidence_score(bearish_prediction)
-        self.assertTrue(bearish_score > 0.5)
-    
-    def test_explain_prediction(self):
-        """Teste l'explication d'une prédiction."""
-        # Créer d'abord une prédiction et l'ajouter à l'historique
-        prediction = {
-            "id": "test_id_123",
-            "asset": "BTC",
-            "direction": "bullish",
-            "timeframe": "24h",
-            "news_sentiment": {"average_score": 0.65},
-            "social_sentiment": {"average_score": 0.72},
-            "technical_factors": ["Price momentum", "Volume increase"]
-        }
-        self.predictor.predictions_history["test_id_123"] = prediction
-        
-        # Appeler la méthode à tester
-        explanation = self.predictor.explain_prediction("test_id_123")
-        
-        # Vérifications
-        self.assertEqual(explanation["prediction_id"], "test_id_123")
-        self.assertEqual(explanation["asset"], "BTC")
-        self.assertEqual(explanation["direction"], "bullish")
-        self.assertTrue("explanation" in explanation)
-        self.assertTrue("timestamp" in explanation)
-    
-    def test_fetch_market_data(self):
-        """Teste la récupération des données de marché."""
-        data = self.predictor._fetch_market_data("BTC", "24h")
-        
-        # Vérifications
-        self.assertTrue(isinstance(data, pd.DataFrame))
-        self.assertTrue("date" in data.columns)
-        self.assertTrue("open" in data.columns)
-        self.assertTrue("high" in data.columns)
-        self.assertTrue("low" in data.columns)
-        self.assertTrue("close" in data.columns)
-        self.assertTrue("volume" in data.columns)
-        self.assertEqual(len(data), 30)  # Par défaut, 30 périodes
-    
-    def test_format_prompt(self):
-        """Teste le formatage du prompt de prédiction."""
-        # Données de test
-        data = pd.DataFrame({
-            "date": pd.date_range(end=datetime.now(), periods=5, freq='D'),
-            "open": [100, 101, 102, 103, 104],
-            "high": [105, 106, 107, 108, 109],
-            "low": [95, 96, 97, 98, 99],
-            "close": [102, 103, 104, 105, 106],
-            "volume": [1000000, 990000, 980000, 970000, 960000]
-        })
-        
-        news_sentiment = {
-            "sentiment_score": 0.65,
-            "average_score": 0.65,
-            "top_topics": ["regulation", "adoption"],
-            "major_events": ["Partnership announcement"],
-            "source_count": 5
-        }
-        
-        social_sentiment = {
-            "sentiment_score": 0.72,
-            "average_score": 0.72,
-            "trends": ["price", "trading"],
-            "discussion_volume": "high",
-            "source_count": 10
-        }
-        
-        # Appeler la méthode à tester
-        prompt = self.predictor._format_prompt(
-            data=data,
-            news_sentiment=news_sentiment,
-            social_sentiment=social_sentiment,
-            asset="BTC",
-            timeframe="24h"
-        )
-        
-        # Vérifications
-        self.assertTrue(isinstance(prompt, str))
-        self.assertTrue("BTC" in prompt)
-        self.assertTrue("24h" in prompt)
-        
-        # Utiliser repr() pour afficher le contenu exact du prompt
-        prompt_repr = repr(prompt)
-        self.assertTrue("0.65" in prompt_repr or "0,65" in prompt_repr, f"Le score de sentiment 0.65 n'est pas trouvé dans: {prompt_repr}")
-        self.assertTrue("0.72" in prompt_repr or "0,72" in prompt_repr, f"Le score de sentiment 0.72 n'est pas trouvé dans: {prompt_repr}")
-        self.assertTrue("Agissez en tant qu'analyste financier expert" in prompt)
-    
-    def test_parse_prediction(self):
-        """Teste le parsing de la réponse du LLM."""
-        # Créer une réponse JSON de test
-        response = json.dumps({
-            "direction": "bullish",
-            "confidence": "high",
-            "factors": ["Strong technical indicators", "Positive news sentiment"],
-            "contradictions": None,
-            "volatility": "medium"
-        })
-        
-        # Appeler la méthode à tester
-        parsed = self.predictor._parse_prediction(response, "ETH", "7d")
-        
-        # Vérifications
-        self.assertEqual(parsed["asset"], "ETH")
-        self.assertEqual(parsed["timeframe"], "7d")
-        self.assertEqual(parsed["direction"], "bullish")
-        self.assertEqual(parsed["confidence"], "high")
-        self.assertEqual(parsed["volatility"], "medium")
-        self.assertEqual(len(parsed["factors"]), 2)
-        self.assertEqual(parsed["raw_response"], response)
-    
-    def test_error_handling(self):
-        """Teste la gestion des erreurs lors du parsing des réponses."""
-        # Réponse invalide
-        invalid_response = "This is not a valid JSON response"
-        
-        # Appeler la méthode à tester
-        parsed = self.predictor._parse_prediction(invalid_response, "LTC", "12h")
-        
-        # Vérifications
-        self.assertEqual(parsed["asset"], "LTC")
-        self.assertEqual(parsed["timeframe"], "12h")
-        self.assertEqual(parsed["direction"], "neutral")  # Valeur par défaut
-        self.assertEqual(parsed["confidence"], "low")     # Valeur par défaut
-        self.assertTrue("error" in parsed)
-        self.assertEqual(parsed["raw_response"], invalid_response)
 
-def main():
-    """Fonction principale de test."""
-    logger.info("=== Début des tests ===")
-    
-    # Application des patches
-    patches = [
-        patch("ai_trading.llm.sentiment_analysis.news_analyzer.NewsAnalyzer", return_value=MockNewsAnalyzer()),
-        patch("ai_trading.llm.sentiment_analysis.social_analyzer.SocialAnalyzer", return_value=MockSocialAnalyzer()),
-        patch("ai_trading.utils.setup_logger", mock_setup_logger)
+class InvalidClient:
+    def complete(self, prompt, context):
+        del prompt, context
+        return "not-json"
+
+
+class DeterministicClient:
+    mode = "test_injected_client"
+
+    def __init__(self):
+        self.calls = 0
+
+    def complete(self, prompt, context):
+        del prompt, context
+        self.calls += 1
+        return json.dumps({"direction": "bullish", "confidence": 0.7, "factors": [], "contradictions": []})
+
+
+class SlowClient:
+    mode = "slow_test_client"
+
+    def __init__(self):
+        self.calls = 0
+
+    def complete(self, prompt, context):
+        del prompt, context
+        self.calls += 1
+        time.sleep(.05)
+        return '{}'
+
+
+def predictor(tmp_path, client=None):
+    return MarketPredictor({"llm_client": client or DeterministicClient(), "cache_dir": str(tmp_path), "use_gpu": False})
+
+
+def test_offline_prediction_is_timestamped_and_cached(tmp_path):
+    market, sentiment = market_frame(), sentiment_frame()
+    service = predictor(tmp_path)
+    first = service.predict_market_direction("BTC", "1h", market, sentiment, market.timestamp.iloc[-1])
+    second = service.predict_market_direction("BTC", "1h", market, sentiment, market.timestamp.iloc[-1])
+    assert first["mode"] == "test_injected_client"
+    assert first["as_of"] == market.timestamp.iloc[-1].isoformat()
+    assert 0 <= first["confidence"] <= 1
+    assert first["sentiment_sources"] == ["p2_fixture"]
+    assert first["sentiment_freshness_seconds"] == 0.0
+    assert first["data_version"] == first["input_fingerprint"]
+    assert second["id"] == first["id"]
+    assert second["input_fingerprint"] == first["input_fingerprint"]
+
+
+def test_invalid_llm_response_is_degraded_after_bounded_retries(tmp_path):
+    result = predictor(tmp_path, InvalidClient()).predict_market_direction(
+        "BTC", "1h", market_frame(), sentiment_frame(), "2025-01-02T23:00:00Z"
+    )
+    assert result["mode"] == "degraded"
+    assert result["abstain"] is True
+    assert result["error"]["type"] == "RuntimeError"
+
+
+def test_future_observation_is_rejected_without_silent_alignment(tmp_path):
+    market, sentiment = market_frame(), sentiment_frame()
+    market.loc[market.index[-1], "timestamp"] = pd.Timestamp("2025-02-01", tz="UTC")
+    result = predictor(tmp_path).predict_market_direction("BTC", "1h", market, sentiment, "2025-01-02T23:00:00Z")
+    assert result["mode"] == "degraded"
+    assert result["abstain"] is True
+    assert "future" in result["error"]["message"].lower()
+
+
+def test_p2_requires_identity_source_and_freshness():
+    market, sentiment = market_frame(), sentiment_frame()
+    with pytest.raises(PredictionInputError, match="observation périmée"):
+        align_market_and_sentiment(market, sentiment.iloc[:1], market.timestamp.iloc[-1], asset="BTC", timeframe="1h")
+    without_source = sentiment.drop(columns="source")
+    with pytest.raises(PredictionInputError, match="provenance source obligatoire"):
+        align_market_and_sentiment(market, without_source, market.timestamp.iloc[-1], asset="BTC", timeframe="1h")
+    wrong_asset = sentiment.assign(asset="ETH")
+    with pytest.raises(PredictionInputError, match="actif incompatible"):
+        align_market_and_sentiment(market, wrong_asset, market.timestamp.iloc[-1], asset="BTC", timeframe="1h")
+
+
+def test_llm_parser_rejects_text_confidence_and_disabled_client(tmp_path):
+    market, sentiment = market_frame(), sentiment_frame()
+    service = predictor(tmp_path)
+    parsed = service._parse_prediction('{"direction":"bullish","confidence":"high","factors":[]}', "BTC", "1h")
+    assert "error" in parsed
+    disabled = MarketPredictor({"cache_dir": str(tmp_path / "disabled"), "use_gpu": False})
+    result = disabled.predict_market_direction("BTC", "1h", market, sentiment, market.timestamp.iloc[-1])
+    assert result["mode"] == "degraded"
+    assert result["abstain"] is True
+
+
+def test_p2_persisted_provider_filters_asset_timeframe_and_cutoff(tmp_path):
+    market, sentiment = market_frame(), sentiment_frame()
+    observations_path = tmp_path / "p2.csv"
+    sentiment.assign(timeframe="1h").to_csv(observations_path, index=False)
+    provider = P2SentimentDataProvider(observations_path)
+    loaded = provider.fetch("BTC", "1h", market.timestamp.iloc[-1])
+    assert len(loaded) == len(sentiment)
+    service = MarketPredictor({"llm_client": DeterministicClient(), "p2_observations_path": str(observations_path),
+                               "cache_dir": str(tmp_path / "cache"), "use_gpu": False})
+    result = service.predict_market_direction("BTC", "1h", market, as_of=market.timestamp.iloc[-1])
+    assert result["sentiment_sources"] == ["p2_fixture"]
+
+
+def test_p2_pipeline_persists_the_contract_consumed_by_p4(tmp_path):
+    market, _ = market_frame(), sentiment_frame()
+    analyses = pd.DataFrame({"published_at": market.timestamp.iloc[-2:], "compound_score": [.2, .4],
+                             "credibility_score": [.7, .9]})
+    observations = SentimentPipeline.to_p4_observations(analyses, "BTC", "1h", "p2_news")
+    path = SentimentPipeline.persist_p4_observations(observations, tmp_path / "observations.csv")
+    loaded = P2SentimentDataProvider(path).fetch("BTC", "1h", market.timestamp.iloc[-1])
+    assert set(loaded.columns) >= {"timestamp", "asset", "timeframe", "sentiment_score", "quality", "source"}
+    assert len(loaded) == 2
+
+
+def test_injected_llm_timeout_is_bounded_and_traceable(tmp_path):
+    market, sentiment = market_frame(), sentiment_frame()
+    slow = SlowClient()
+    service = MarketPredictor({"llm_client": slow, "llm_timeout_seconds": .01, "cache_dir": str(tmp_path), "use_gpu": False})
+    result = service.predict_market_direction("BTC", "1h", market, sentiment, market.timestamp.iloc[-1])
+    assert result["mode"] == "degraded"
+    assert result["error"]["type"] == "RuntimeError"
+    assert slow.calls == 3
+
+
+def test_concurrent_identical_requests_keep_one_contract_fingerprint(tmp_path):
+    market, sentiment = market_frame(), sentiment_frame()
+    client = DeterministicClient()
+    service = predictor(tmp_path, client)
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        results = list(executor.map(
+            lambda _: service.predict_market_direction("BTC", "1h", market, sentiment, "2025-01-02T23:00:00Z"), range(4)
+        ))
+    assert len({item["input_fingerprint"] for item in results}) == 1
+    assert all(item["mode"] == "test_injected_client" for item in results)
+    assert client.calls == 1
+
+
+def test_input_change_and_stream_error_invalidate_asset_cache(tmp_path):
+    market, sentiment = market_frame(), sentiment_frame()
+    service = predictor(tmp_path)
+    first = service.predict_market_direction("BTC", "1h", market, sentiment, market.timestamp.iloc[-1])
+    changed = market.copy()
+    changed.loc[changed.index[-1], "close"] += 5
+    changed.loc[changed.index[-1], "high"] += 5
+    second = service.predict_market_direction("BTC", "1h", changed, sentiment, changed.timestamp.iloc[-1])
+    assert first["input_fingerprint"] != second["input_fingerprint"]
+    assert list(service.cache.memory_cache) == [
+        f"p4:v2:BTC:1h:{second['input_fingerprint']}"
     ]
-    
-    for p in patches:
-        p.start()
-    
-    try:
-        # Test du MarketPredictor
-        unittest.main()
-        
-        logger.info("=== Fin des tests ===")
-        return 0
-    except Exception as e:
-        logger.error(f"Erreur lors des tests: {e}")
-        import traceback
-        traceback.print_exc()
-        return 1
-    finally:
-        # Arrêter les patches
-        for p in patches:
-            p.stop()
 
-if __name__ == "__main__":
-    sys.exit(main()) 
+    future = changed.copy()
+    future.loc[future.index[-1], "timestamp"] = pd.Timestamp("2025-02-01", tz="UTC")
+    failed = service.predict_market_direction("BTC", "1h", future, sentiment, "2025-01-02T23:00:00Z")
+    assert failed["mode"] == "degraded"
+    assert not service.cache.memory_cache

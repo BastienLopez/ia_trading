@@ -17,7 +17,8 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from scipy import stats
 from sklearn.calibration import calibration_curve
-from sklearn.model_selection import cross_val_predict, KFold
+from sklearn.base import clone
+from sklearn.model_selection import TimeSeriesSplit
 from sklearn.metrics import brier_score_loss, log_loss
 
 from ai_trading.utils import setup_logger
@@ -49,6 +50,7 @@ class UncertaintyCalibrator:
         self.calibration_results = {}
         self.confidence_intervals = {}
         self.outliers = {}
+        self.calibration_bins = []
         
         # Vérifier le type de modèle pour adapter la calibration
         if isinstance(prediction_model, PredictionModel):
@@ -77,152 +79,35 @@ class UncertaintyCalibrator:
         Returns:
             Dictionnaire contenant les intervalles de confiance
         """
-        logger.info(f"Calcul des intervalles de confiance ({method}, {confidence_level*100}%)")
-        
+        logger.info("Calcul d'intervalle empirique (%s, %.1f%%)", method, confidence_level * 100)
+        if not self.calibration_bins:
+            return {"error": "Calibration hors échantillon requise avant intervalle", "prediction_id": prediction.get("id", "unknown")}
+        confidence_value = float(prediction.get("confidence", 0.0))
+        matching_bin = next((item for item in self.calibration_bins if item["lower"] <= confidence_value <= item["upper"]), None)
+        if matching_bin is None:
+            matching_bin = min(self.calibration_bins, key=lambda item: abs(item["mean_confidence"] - confidence_value))
+        alpha = 1 - confidence_level
+        successes, count = matching_bin["successes"], matching_bin["count"]
+        lower_probability = float(stats.beta.ppf(alpha / 2, successes + 1, count - successes + 1))
+        upper_probability = float(stats.beta.ppf(1 - alpha / 2, successes + 1, count - successes + 1))
         result = {
             "prediction_id": prediction.get("id", "unknown"),
             "asset": prediction.get("asset", "unknown"),
             "direction": prediction.get("direction", "unknown"),
             "confidence_level": confidence_level,
             "method": method,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
+            "calibration_samples": count,
+            "lower_confidence": lower_probability,
+            "upper_confidence": upper_probability,
         }
-        
-        # Direction qualitative à convertir en valeur numérique pour l'intervalle
-        direction_map = {"bearish": -1, "neutral": 0, "bullish": 1}
-        direction_value = direction_map.get(prediction.get("direction", "neutral"), 0)
-        
-        # Confiance qualitative à convertir en valeur numérique
-        confidence_map = {"low": 0.3, "medium": 0.6, "high": 0.9}
-        confidence_value = confidence_map.get(prediction.get("confidence", "medium"), 0.5)
-        
-        # Méthodes de calcul d'intervalle de confiance
-        if method == "bootstrap":
-            interval = self._bootstrap_confidence_interval(direction_value, confidence_value, confidence_level)
-        elif method == "parametric":
-            interval = self._parametric_confidence_interval(direction_value, confidence_value, confidence_level)
-        elif method == "bayesian":
-            interval = self._bayesian_confidence_interval(direction_value, confidence_value, confidence_level)
-        else:
-            # Méthode par défaut: approche paramétrique simple
-            interval = self._parametric_confidence_interval(direction_value, confidence_value, confidence_level)
-        
-        # Conversion des valeurs numériques en directions qualitatives
-        inverse_direction_map = {-1: "bearish", 0: "neutral", 1: "bullish"}
-        
-        # Arrondir aux directions discrètes les plus proches
-        lower_dir = inverse_direction_map[max(-1, min(1, round(interval[0])))]
-        upper_dir = inverse_direction_map[max(-1, min(1, round(interval[1])))]
-        
-        result.update({
-            "point_estimate": direction_value,
-            "lower_bound": interval[0],
-            "upper_bound": interval[1],
-            "lower_direction": lower_dir,
-            "upper_direction": upper_dir,
-            "interval_width": interval[1] - interval[0]
-        })
+        result.update({"point_estimate": confidence_value, "lower_bound": lower_probability, "upper_bound": upper_probability,
+                       "interval_width": upper_probability - lower_probability, "method": "empirical_beta_bin"})
         
         # Stocker le résultat
         self.confidence_intervals[prediction.get("id", "unknown")] = result
         
         return result
-    
-    def _bootstrap_confidence_interval(self, 
-                                     point_estimate: float, 
-                                     uncertainty: float, 
-                                     confidence_level: float) -> Tuple[float, float]:
-        """
-        Calcule un intervalle de confiance par bootstrap.
-        
-        Args:
-            point_estimate: Estimation ponctuelle
-            uncertainty: Incertitude estimée
-            confidence_level: Niveau de confiance
-            
-        Returns:
-            Tuple (borne inférieure, borne supérieure)
-        """
-        # Simuler des prédictions par bootstrap
-        n_bootstrap = 1000
-        noise_scale = 0.5 * (1 - uncertainty)  # Plus d'incertitude = plus de bruit
-        
-        bootstrap_samples = np.random.normal(point_estimate, noise_scale, n_bootstrap)
-        
-        # Calculer les quantiles pour l'intervalle de confiance
-        alpha = 1 - confidence_level
-        lower_bound = np.quantile(bootstrap_samples, alpha/2)
-        upper_bound = np.quantile(bootstrap_samples, 1 - alpha/2)
-        
-        return (lower_bound, upper_bound)
-    
-    def _parametric_confidence_interval(self, 
-                                      point_estimate: float, 
-                                      uncertainty: float, 
-                                      confidence_level: float) -> Tuple[float, float]:
-        """
-        Calcule un intervalle de confiance paramétrique.
-        
-        Args:
-            point_estimate: Estimation ponctuelle
-            uncertainty: Incertitude estimée
-            confidence_level: Niveau de confiance
-            
-        Returns:
-            Tuple (borne inférieure, borne supérieure)
-        """
-        # Convertir l'incertitude en écart-type
-        std_dev = 0.5 * (1 - uncertainty)
-        
-        # Calculer l'intervalle de confiance paramétrique
-        z_score = stats.norm.ppf(1 - (1 - confidence_level) / 2)
-        margin = z_score * std_dev
-        
-        lower_bound = point_estimate - margin
-        upper_bound = point_estimate + margin
-        
-        return (lower_bound, upper_bound)
-    
-    def _bayesian_confidence_interval(self, 
-                                    point_estimate: float, 
-                                    uncertainty: float, 
-                                    confidence_level: float) -> Tuple[float, float]:
-        """
-        Calcule un intervalle de confiance bayésien.
-        
-        Args:
-            point_estimate: Estimation ponctuelle
-            uncertainty: Incertitude estimée
-            confidence_level: Niveau de confiance
-            
-        Returns:
-            Tuple (borne inférieure, borne supérieure)
-        """
-        # Approche simplifiée d'un intervalle bayésien
-        # Dans une implémentation réelle, on utiliserait PyMC ou un autre framework bayésien
-        
-        # Simuler une distribution a posteriori
-        n_samples = 2000
-        prior_mean = 0  # Neutre
-        prior_std = 1.0
-        
-        # Force du prior vs. données (plus d'incertitude = plus de poids au prior)
-        prior_weight = 0.5 * (1 - uncertainty)
-        data_weight = 1 - prior_weight
-        
-        # Moyenne et écart-type de la distribution a posteriori
-        posterior_mean = (prior_weight * prior_mean + data_weight * point_estimate) / (prior_weight + data_weight)
-        posterior_std = np.sqrt(1 / (1/prior_std**2 + 1/(0.5**2/data_weight)))
-        
-        # Générer des échantillons de la distribution a posteriori
-        posterior_samples = np.random.normal(posterior_mean, posterior_std, n_samples)
-        
-        # Calculer les quantiles pour l'intervalle de confiance
-        alpha = 1 - confidence_level
-        lower_bound = np.quantile(posterior_samples, alpha/2)
-        upper_bound = np.quantile(posterior_samples, 1 - alpha/2)
-        
-        return (lower_bound, upper_bound)
     
     def estimate_probability_distribution(self, 
                                         prediction: Dict[str, Any],
@@ -239,26 +124,26 @@ class UncertaintyCalibrator:
         """
         logger.info(f"Estimation de la distribution de probabilité pour {prediction.get('asset', 'unknown')}")
         
-        # Direction qualitative à convertir en valeur numérique
-        direction_map = {"bearish": -1, "neutral": 0, "bullish": 1}
-        direction_value = direction_map.get(prediction.get("direction", "neutral"), 0)
-        
-        # Confiance qualitative à convertir en valeur numérique
-        confidence_map = {"low": 0.3, "medium": 0.6, "high": 0.9}
-        confidence_value = confidence_map.get(prediction.get("confidence", "medium"), 0.5)
-        
-        # Paramètres de la distribution
-        mean = direction_value
-        std_dev = 0.5 * (1 - confidence_value)  # Plus de confiance = moins de variance
-        
-        # Générer la distribution
-        x = np.linspace(-1.5, 1.5, num_points)
-        y = stats.norm.pdf(x, mean, std_dev)
-        
-        # Calculer les probabilités pour chaque direction
-        p_bearish = stats.norm.cdf(-0.5, mean, std_dev)
-        p_neutral = stats.norm.cdf(0.5, mean, std_dev) - stats.norm.cdf(-0.5, mean, std_dev)
-        p_bullish = 1 - stats.norm.cdf(0.5, mean, std_dev)
+        del num_points
+        raw_probabilities = prediction.get("probabilities")
+        if not isinstance(raw_probabilities, dict):
+            return {
+                "prediction_id": prediction.get("id", "unknown"),
+                "error": "Probabilités de prédiction requises; aucune distribution simulée n'est produite",
+            }
+        values = np.asarray([
+            raw_probabilities.get("bearish", 0.0),
+            raw_probabilities.get("neutral", 0.0),
+            raw_probabilities.get("bullish", 0.0),
+        ], dtype=float)
+        if not np.isfinite(values).all() or (values < 0).any() or values.sum() <= 0:
+            return {"prediction_id": prediction.get("id", "unknown"), "error": "Probabilités invalides"}
+        values /= values.sum()
+        p_bearish, p_neutral, p_bullish = values.tolist()
+        x = np.asarray([-1.0, 0.0, 1.0])
+        y = values
+        mean = float(p_bullish - p_bearish)
+        std_dev = float(np.sqrt(np.dot(values, (x - mean) ** 2)))
         
         result = {
             "prediction_id": prediction.get("id", "unknown"),
@@ -275,7 +160,8 @@ class UncertaintyCalibrator:
             "most_likely_direction": "bearish" if p_bearish > max(p_neutral, p_bullish) else 
                                   "neutral" if p_neutral > max(p_bearish, p_bullish) else 
                                   "bullish",
-            "entropy": stats.entropy([p_bearish, p_neutral, p_bullish], base=3)  # Entropie normalisée (0-1)
+            "entropy": float(stats.entropy(values, base=3)),
+            "distribution_source": "model_probabilities",
         }
         
         return result
@@ -305,8 +191,10 @@ class UncertaintyCalibrator:
         for pred in predictions:
             direction_value = direction_map.get(pred.get("direction", "neutral"), 0)
             
-            confidence_map = {"low": 0.3, "medium": 0.6, "high": 0.9}
-            confidence_value = confidence_map.get(pred.get("confidence", "medium"), 0.5)
+            try:
+                confidence_value = float(pred.get("confidence", 0.0))
+            except (TypeError, ValueError):
+                confidence_value = 0.0
             
             pred_data.append({
                 "id": pred.get("id", "unknown"),
@@ -322,9 +210,13 @@ class UncertaintyCalibrator:
         outlier_indices = []
         scores = []
         
+        if df.empty:
+            return {"total_predictions": 0, "outliers_detected": 0, "outlier_percentage": 0.0,
+                    "method": method, "threshold": threshold, "outliers": []}
         if method == "z_score":
             # Méthode du Z-score
-            z_scores = stats.zscore(df["direction_value"])
+            z_scores = stats.zscore(df["direction_value"], nan_policy="omit")
+            z_scores = np.nan_to_num(z_scores)
             outlier_indices = np.where(np.abs(z_scores) > threshold)[0]
             scores = z_scores
             
@@ -389,42 +281,112 @@ class UncertaintyCalibrator:
         Returns:
             Dictionnaire contenant les résultats de validation croisée
         """
-        logger.info(f"Validation croisée avec {n_splits} plis")
-        
-        if not hasattr(self.prediction_model, "ml_model") or self.prediction_model is None:
+        logger.info(f"Validation walk-forward avec {n_splits} plis")
+        del random_state  # Une validation temporelle ne mélange pas les observations.
+        if self.prediction_model is None or not getattr(self.prediction_model, "ml_model", None):
             logger.warning("Pas de modèle ML disponible pour la validation croisée")
             return {"error": "Pas de modèle ML disponible"}
-        
-        model = self.prediction_model.ml_model
-        
-        # Configurer la validation croisée
-        cv = KFold(n_splits=n_splits, shuffle=True, random_state=random_state)
-        
-        # Prédictions par validation croisée
-        y_pred_proba = cross_val_predict(model, X, y, cv=cv, method="predict_proba")
-        
-        # Calculer les métriques de calibration
-        brier = brier_score_loss(y, y_pred_proba[:, 1])
-        
-        # Courbe de calibration
-        prob_true, prob_pred = calibration_curve(y, y_pred_proba[:, 1], n_bins=10)
-        
-        # Calculer l'erreur de calibration moyenne
-        calibration_error = np.mean(np.abs(prob_true - prob_pred))
-        
-        result = {
-            "n_splits": n_splits,
-            "brier_score": brier,
-            "calibration_error": calibration_error,
-            "prob_true": prob_true.tolist(),
-            "prob_pred": prob_pred.tolist(),
-            "timestamp": datetime.now().isoformat()
-        }
+        X = np.asarray(X)
+        y = np.asarray(y, dtype=int)
+        if len(X) != len(y) or len(X) <= n_splits:
+            return {"error": "Données insuffisantes pour walk-forward"}
+        splitter = TimeSeriesSplit(n_splits=n_splits)
+        oos_probabilities, oos_targets = [], []
+        for train_index, test_index in splitter.split(X):
+            fold_probabilities = []
+            if len(np.unique(y[train_index])) < 2:
+                continue
+            for model in self.prediction_model.ml_model:
+                fitted = clone(model).fit(X[train_index], y[train_index])
+                raw = fitted.predict_proba(X[test_index])
+                expanded = np.zeros((len(test_index), 3), dtype=float)
+                for column, class_id in enumerate(fitted.classes_):
+                    if int(class_id) in (0, 1, 2):
+                        expanded[:, int(class_id)] = raw[:, column]
+                fold_probabilities.append(expanded)
+            if not fold_probabilities:
+                continue
+            probabilities = np.mean(fold_probabilities, axis=0)
+            probabilities /= probabilities.sum(axis=1, keepdims=True)
+            oos_probabilities.append(probabilities)
+            oos_targets.append(y[test_index])
+        if not oos_probabilities:
+            return {"error": "Aucun pli walk-forward exploitable"}
+        probabilities = np.vstack(oos_probabilities)
+        targets = np.concatenate(oos_targets)
+        result = self.fit_calibration(probabilities, targets)
+        result.update({"n_splits": n_splits, "validation_type": "walk_forward", "timestamp": datetime.now().isoformat()})
         
         # Stocker le résultat
         self.calibration_results["cross_validation"] = result
         
         return result
+
+    @staticmethod
+    def _normalise_probabilities(probabilities: np.ndarray) -> np.ndarray:
+        values = np.asarray(probabilities, dtype=float)
+        if values.ndim != 2 or values.shape[1] < 2 or not np.isfinite(values).all() or (values < 0).any():
+            raise ValueError("probabilités invalides")
+        row_sums = values.sum(axis=1, keepdims=True)
+        if (row_sums <= 0).any():
+            raise ValueError("distribution vide")
+        return values / row_sums
+
+    def _interval_width(self, confidence: float, confidence_level: float = 0.95) -> float:
+        if not self.calibration_bins:
+            return float("nan")
+        selected = min(self.calibration_bins, key=lambda item: abs(item["mean_confidence"] - confidence))
+        alpha = 1 - confidence_level
+        successes, count = selected["successes"], selected["count"]
+        return float(stats.beta.ppf(1 - alpha / 2, successes + 1, count - successes + 1)
+                     - stats.beta.ppf(alpha / 2, successes + 1, count - successes + 1))
+
+    def _metrics(self, probabilities: np.ndarray, y_true: np.ndarray, n_bins: int = 10,
+                 abstention_threshold: float = 0.45) -> Dict[str, Any]:
+        probabilities = self._normalise_probabilities(probabilities)
+        y_true = np.asarray(y_true, dtype=int)
+        if len(probabilities) != len(y_true) or (y_true < 0).any() or (y_true >= probabilities.shape[1]).any():
+            raise ValueError("probabilités et labels invalides")
+        predicted = probabilities.argmax(axis=1)
+        confidence = probabilities.max(axis=1)
+        correct = (predicted == y_true).astype(int)
+        bins = []
+        for lower, upper in zip(np.linspace(0, 1, n_bins, endpoint=False), np.linspace(1 / n_bins, 1, n_bins)):
+            mask = (confidence >= lower) & ((confidence < upper) if upper < 1 else (confidence <= upper))
+            if mask.any():
+                bins.append({"lower": float(lower), "upper": float(upper), "count": int(mask.sum()),
+                             "mean_confidence": float(confidence[mask].mean()), "empirical_accuracy": float(correct[mask].mean()),
+                             "successes": int(correct[mask].sum())})
+        one_hot = np.eye(probabilities.shape[1])[y_true]
+        brier = float(np.mean(np.sum((probabilities - one_hot) ** 2, axis=1)))
+        ece = float(sum(abs(item["mean_confidence"] - item["empirical_accuracy"]) * item["count"] for item in bins) / len(y_true))
+        return {"samples": int(len(y_true)), "brier_score": brier, "ece": ece, "coverage": float(correct.mean()),
+                "abstention_threshold": float(abstention_threshold),
+                "abstention_rate": float(np.mean(confidence < abstention_threshold)),
+                "calibration_bins": bins, "probabilities": probabilities.tolist(), "targets": y_true.tolist()}
+
+    def fit_calibration(self, probabilities: np.ndarray, y_true: np.ndarray, n_bins: int = 10,
+                        abstention_threshold: float = 0.45) -> Dict[str, Any]:
+        """Ajuste la confiance sur des prédictions réellement hors échantillon."""
+        result = self._metrics(probabilities, y_true, n_bins, abstention_threshold)
+        self.calibration_bins = result["calibration_bins"]
+        widths = [self._interval_width(float(max(row))) for row in probabilities]
+        result["mean_interval_width"] = float(np.nanmean(widths))
+        self.calibration_results["cross_validation"] = result
+        return result
+
+    def evaluate_validation_and_test(self, validation_probabilities: np.ndarray, validation_targets: np.ndarray,
+                                     test_probabilities: np.ndarray, test_targets: np.ndarray,
+                                     abstention_threshold: float = 0.45) -> Dict[str, Any]:
+        """Calibre sur validation OOS puis rapporte séparément le test final."""
+        validation = self.fit_calibration(validation_probabilities, validation_targets,
+                                          abstention_threshold=abstention_threshold)
+        test = self._metrics(test_probabilities, test_targets, abstention_threshold=abstention_threshold)
+        widths = [self._interval_width(float(max(row))) for row in self._normalise_probabilities(test_probabilities)]
+        test["mean_interval_width"] = float(np.nanmean(widths))
+        report = {"validation": validation, "test": test, "calibration_source": "validation_oos"}
+        self.calibration_results["validation_test"] = report
+        return report
     
     def plot_calibration_curve(self, save_path: Optional[str] = None):
         """
@@ -441,16 +403,20 @@ class UncertaintyCalibrator:
         
         plt.figure(figsize=(10, 8))
         
-        # Courbe de calibration
-        plt.plot(cv_results["prob_pred"], cv_results["prob_true"], 
-                 marker='o', linewidth=2, label='Courbe de calibration')
+        bins = cv_results.get("calibration_bins", [])
+        if not bins:
+            logger.warning("Aucun bin de calibration disponible")
+            return
+        prob_pred = [item["mean_confidence"] for item in bins]
+        prob_true = [item["empirical_accuracy"] for item in bins]
+        plt.plot(prob_pred, prob_true, marker='o', linewidth=2, label='Courbe de calibration')
         
         # Ligne de référence (calibration parfaite)
         plt.plot([0, 1], [0, 1], linestyle='--', color='gray', label='Calibration parfaite')
         
         plt.xlabel('Probabilité prédite')
         plt.ylabel('Fréquence empirique')
-        plt.title(f'Courbe de calibration (Erreur: {cv_results["calibration_error"]:.4f})')
+        plt.title(f'Courbe de calibration (ECE: {cv_results.get("ece", 0.0):.4f})')
         plt.legend()
         plt.grid(True, alpha=0.3)
         
@@ -531,40 +497,16 @@ class UncertaintyCalibrator:
         """
         logger.info(f"Calibration de prédiction avec méthode {calibration_method}")
         
-        # Confiance qualitative à convertir en valeur numérique
-        confidence_map = {"low": 0.3, "medium": 0.6, "high": 0.9}
-        confidence_value = confidence_map.get(prediction.get("confidence", "medium"), 0.5)
+        try:
+            confidence_value = float(prediction.get("confidence", 0.0))
+        except (TypeError, ValueError):
+            return {**prediction, "calibration_error": "Confiance numérique requise"}
         
-        # Direction qualitative à convertir en valeur numérique
-        direction_map = {"bearish": -1, "neutral": 0, "bullish": 1}
-        direction_value = direction_map.get(prediction.get("direction", "neutral"), 0)
-        
-        # Calibration simplifiée (dans une implémentation réelle, on utiliserait des données historiques)
-        calibrated_confidence = confidence_value
-        
-        if calibration_method == "platt":
-            # Version simplifiée de la calibration de Platt
-            # Dans une implémentation réelle, on calibrerait avec LogisticRegression
-            # Ici, on simule un ajustement de la confiance
-            if confidence_value > 0.7:
-                calibrated_confidence = 0.7 + 0.3 * (confidence_value - 0.7)  # Réduire les confiances trop élevées
-            elif confidence_value < 0.4:
-                calibrated_confidence = 0.2 + 0.5 * confidence_value  # Augmenter les confiances très basses
-        
-        elif calibration_method == "isotonic":
-            # Version simplifiée de la calibration isotonique
-            # Dans une implémentation réelle, on utiliserait IsotonicRegression
-            # Ici, on simule un mappage non-paramétrique
-            breakpoints = [0, 0.3, 0.6, 0.9, 1.0]
-            calibrated_values = [0, 0.25, 0.5, 0.8, 1.0]
-            
-            # Trouver l'intervalle approprié
-            for i in range(len(breakpoints) - 1):
-                if breakpoints[i] <= confidence_value < breakpoints[i + 1]:
-                    # Interpolation linéaire
-                    t = (confidence_value - breakpoints[i]) / (breakpoints[i + 1] - breakpoints[i])
-                    calibrated_confidence = calibrated_values[i] + t * (calibrated_values[i + 1] - calibrated_values[i])
-                    break
+        if not self.calibration_bins:
+            return {**prediction, "calibration_error": "Calibration hors échantillon requise"}
+        requested_method = calibration_method
+        selected_bin = min(self.calibration_bins, key=lambda item: abs(item["mean_confidence"] - confidence_value))
+        calibrated_confidence = float(selected_bin["empirical_accuracy"])
         
         # Convertir la confiance calibrée en catégorie qualitative
         if calibrated_confidence < 0.4:
@@ -577,10 +519,10 @@ class UncertaintyCalibrator:
         # Créer la prédiction calibrée
         calibrated_prediction = prediction.copy()
         calibrated_prediction.update({
-            "original_confidence": prediction.get("confidence", "medium"),
-            "confidence": calibrated_confidence_label,
-            "confidence_value": calibrated_confidence,
-            "calibration_method": calibration_method
+            "original_confidence": confidence_value,
+            "confidence": calibrated_confidence,
+            "confidence_label": calibrated_confidence_label,
+            "calibration_method": f"empirical_bin ({requested_method})"
         })
         
         return calibrated_prediction
@@ -591,4 +533,4 @@ calibrator = UncertaintyCalibrator(prediction_model)
 confidence_intervals = calibrator.calculate_confidence_intervals(prediction)
 distribution = calibrator.estimate_probability_distribution(prediction)
 calibrated_prediction = calibrator.calibrate_prediction(prediction)
-""" 
+"""

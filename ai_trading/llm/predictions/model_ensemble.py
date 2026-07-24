@@ -179,6 +179,37 @@ class ModelEnsemble:
         result = self._fusion_predictions(predictions, confidences, weights)
         
         return result
+
+    def fuse_probabilities(self, probability_sets: List[Union[List[float], np.ndarray]],
+                           weights: Optional[List[float]] = None) -> Dict[str, Any]:
+        """Fusionne des probabilités [bearish, neutral, bullish] de façon unique et traçable."""
+        if not probability_sets:
+            raise ValueError("Au moins une distribution de probabilités est requise")
+        distributions = np.asarray(probability_sets, dtype=float)
+        if distributions.ndim != 2 or distributions.shape[1] != 3:
+            raise ValueError("Chaque distribution doit contenir bearish, neutral et bullish")
+        if not np.isfinite(distributions).all() or (distributions < 0).any():
+            raise ValueError("Probabilités invalides")
+        row_sums = distributions.sum(axis=1)
+        if (row_sums <= 0).any():
+            raise ValueError("Une distribution ne peut pas être vide")
+        distributions = distributions / row_sums[:, None]
+        effective_weights = np.ones(len(distributions), dtype=float) if weights is None else np.asarray(weights, dtype=float)
+        if effective_weights.shape != (len(distributions),) or (effective_weights < 0).any() or effective_weights.sum() <= 0:
+            raise ValueError("Poids d'ensemble invalides")
+        fused = np.average(distributions, axis=0, weights=effective_weights)
+        direction_index = int(np.argmax(fused))
+        direction = ("bearish", "neutral", "bullish")[direction_index]
+        consensus = float(effective_weights[np.argmax(distributions, axis=1) == direction_index].sum() /
+                          effective_weights.sum())
+        return {
+            "direction": direction,
+            "confidence": float(fused[direction_index]),
+            "probabilities": dict(zip(("bearish", "neutral", "bullish"), map(float, fused))),
+            "consensus_ratio": consensus,
+            "is_consensus_sufficient": consensus >= self.min_consensus_ratio,
+            "fusion_strategy": "probability_weighted",
+        }
     
     def _fusion_predictions(self, 
                            predictions: List[Any], 
@@ -600,4 +631,4 @@ class ModelEnsemble:
                 'metadata': m['metadata']
             }
             for m in self.models
-        ] 
+        ]

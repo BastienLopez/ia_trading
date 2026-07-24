@@ -7,6 +7,9 @@ import json
 from datetime import datetime, timedelta
 from typing import Dict, List, Union, Optional, Tuple, Any
 
+import numpy as np
+import pandas as pd
+
 from ai_trading.utils import setup_logger
 from ai_trading.llm.predictions.market_predictor import MarketPredictor
 from ai_trading.llm.predictions.prediction_model import PredictionModel
@@ -81,7 +84,9 @@ class MultiHorizonPredictor:
                 
                 if os.path.exists(model_path) and self.use_hybrid:
                     # Charger un modèle existant
-                    self.prediction_models[timeframe] = PredictionModel()
+                    self.prediction_models[timeframe] = PredictionModel(
+                        custom_config={"model_dir": self.model_save_dir, **(self.market_predictor.config or {})}
+                    )
                     self.prediction_models[timeframe].load_model(model_path)
                     logger.info(f"Modèle chargé pour {timeframe} depuis {model_path}")
                 elif self.use_hybrid:
@@ -90,7 +95,10 @@ class MultiHorizonPredictor:
                         custom_config={
                             "model_dir": self.model_save_dir,
                             "llm_weight": 0.4,  # Donner un peu plus de poids au LLM
-                            "ml_weight": 0.6
+                            "ml_weight": 0.6,
+                            "market_data_provider": self.market_predictor.market_data_provider,
+                            "sentiment_provider": self.market_predictor.sentiment_provider,
+                            "llm_client": self.market_predictor.client,
                         }
                     )
                     logger.info(f"Nouveau modèle créé pour {timeframe}")
@@ -101,7 +109,10 @@ class MultiHorizonPredictor:
                            asset: str, 
                            short_term: bool = True, 
                            medium_term: bool = True, 
-                           long_term: bool = True) -> Dict[str, Dict]:
+                            long_term: bool = True,
+                            market_data: Optional[pd.DataFrame] = None,
+                            sentiment_data: Optional[pd.DataFrame] = None,
+                            as_of: Optional[Any] = None) -> Dict[str, Dict]:
         """
         Génère des prédictions pour tous les horizons temporels spécifiés.
         
@@ -133,22 +144,28 @@ class MultiHorizonPredictor:
             if self.use_hybrid and timeframe in self.prediction_models:
                 # Utiliser le modèle hybride si disponible
                 try:
-                    current_data = self._get_data_for_timeframe(asset, timeframe)
-                    prediction = self.prediction_models[timeframe].predict(current_data, timeframe)
+                    prediction = self.prediction_models[timeframe].predict(
+                        asset, timeframe, market_data=market_data,
+                        sentiment_data=sentiment_data, as_of=as_of,
+                    )
                     predictions[timeframe] = prediction
                 except Exception as e:
                     logger.error(f"Erreur lors de la prédiction hybride pour {timeframe}: {str(e)}")
                     # Fallback sur LLM si erreur
-                    prediction = self.market_predictor.predict_market_direction(asset, timeframe)
+                    prediction = self.market_predictor.predict_market_direction(
+                        asset, timeframe, market_data, sentiment_data, as_of
+                    )
                     predictions[timeframe] = prediction
             else:
                 # Utiliser uniquement le LLM
-                prediction = self.market_predictor.predict_market_direction(asset, timeframe)
+                prediction = self.market_predictor.predict_market_direction(
+                    asset, timeframe, market_data, sentiment_data, as_of
+                )
                 predictions[timeframe] = prediction
                 
         return predictions
     
-    def _get_data_for_timeframe(self, asset: str, timeframe: str) -> Dict:
+    def _get_data_for_timeframe(self, asset: str, timeframe: str, as_of: Optional[Any] = None) -> Dict:
         """
         Récupère les données nécessaires pour un horizon temporel spécifique.
         
@@ -159,37 +176,20 @@ class MultiHorizonPredictor:
         Returns:
             Dict: Données préparées pour la prédiction
         """
-        # Cette méthode devrait être implémentée pour récupérer les données
-        # appropriées pour chaque timeframe à partir d'une source de données
-        # Pour l'instant, nous utilisons des données fictives
-        
-        # Dans une implémentation réelle, vous récupéreriez les données
-        # de marché et de sentiment pour le timeframe spécifié
-        
-        from ai_trading.llm.predictions.test_predictions import generate_mock_market_data, generate_mock_sentiment_data
-        
-        # Ajuster la longueur des données en fonction du timeframe
-        if timeframe in self.SHORT_TERM:
-            days = 30  # Moins de données pour le court terme
-        elif timeframe in self.MEDIUM_TERM:
-            days = 60  # Plus de données pour le moyen terme
-        else:
-            days = 100  # Encore plus pour le long terme
-            
-        market_data = generate_mock_market_data(days=days)
-        sentiment_data = generate_mock_sentiment_data(days=days)
-        
-        return {
-            "market_data": market_data,
-            "sentiment_data": sentiment_data,
-            "asset": asset,
-            "timeframe": timeframe
-        }
+        market_data = self.market_predictor._fetch_market_data(asset, timeframe, as_of)
+        sentiment_data = (
+            self.market_predictor.sentiment_provider(asset=asset, timeframe=timeframe, as_of=as_of)
+            if self.market_predictor.sentiment_provider else None
+        )
+        return {"market_data": market_data, "sentiment_data": sentiment_data, "asset": asset, "timeframe": timeframe}
     
     def train_models(self, 
                     asset: str, 
                     timeframes: List[str], 
-                    historical_days: int = 365) -> Dict[str, Dict]:
+                    historical_days: int = 365,
+                    market_data: Optional[pd.DataFrame] = None,
+                    sentiment_data: Optional[pd.DataFrame] = None,
+                    as_of: Optional[Any] = None) -> Dict[str, Dict]:
         """
         Entraîne les modèles de prédiction pour chaque horizon temporel spécifié.
         
@@ -213,7 +213,8 @@ class MultiHorizonPredictor:
             logger.info(f"Entraînement du modèle pour {asset} sur {timeframe}")
             try:
                 # Récupérer les données d'entraînement
-                data = self._get_training_data(asset, timeframe, historical_days)
+                data = ({"market_data": market_data, "sentiment_data": sentiment_data}
+                        if market_data is not None else self._get_training_data(asset, timeframe, historical_days, as_of))
                 
                 # Entraîner le modèle
                 metrics = self.prediction_models[timeframe].train(
@@ -238,7 +239,7 @@ class MultiHorizonPredictor:
                 
         return results
     
-    def _get_training_data(self, asset: str, timeframe: str, days: int) -> Dict:
+    def _get_training_data(self, asset: str, timeframe: str, days: int, as_of: Optional[Any] = None) -> Dict:
         """
         Récupère les données d'entraînement pour un actif et un horizon temporel.
         
@@ -250,18 +251,8 @@ class MultiHorizonPredictor:
         Returns:
             Dict: Données d'entraînement structurées
         """
-        # Dans une implémentation réelle, vous récupéreriez les données
-        # historiques appropriées pour l'entraînement
-        
-        from ai_trading.llm.predictions.test_predictions import generate_mock_market_data, generate_mock_sentiment_data
-        
-        market_data = generate_mock_market_data(days=days)
-        sentiment_data = generate_mock_sentiment_data(days=days)
-        
-        return {
-            "market_data": market_data,
-            "sentiment_data": sentiment_data
-        }
+        del days
+        return self._get_data_for_timeframe(asset, timeframe, as_of)
     
     def analyze_consistency(self, predictions: Dict[str, Dict]) -> Dict:
         """
@@ -312,7 +303,7 @@ class MultiHorizonPredictor:
             "timestamp": datetime.now().isoformat()
         }
     
-    def _analyze_horizon_consistency(self, directions: List[str], confidences: List[str]) -> Dict:
+    def _analyze_horizon_consistency(self, directions: List[str], confidences: List[float]) -> Dict:
         """
         Analyse la cohérence des prédictions au sein d'un horizon temporel.
         
@@ -342,21 +333,13 @@ class MultiHorizonPredictor:
         # Calculer la cohérence (proportion de la direction dominante)
         consistency = max_count / total if total > 0 else 0
         
-        # Convertir les niveaux de confiance en valeurs numériques
-        confidence_values = {
-            "high": 3,
-            "medium": 2,
-            "low": 1,
-            "unknown": 0
-        }
-        
-        conf_values = [confidence_values.get(conf, 0) for conf in confidences]
-        avg_confidence = sum(conf_values) / len(conf_values) if conf_values else 0
+        conf_values = [float(conf) for conf in confidences if isinstance(conf, (int, float, np.number))]
+        avg_confidence = sum(conf_values) / len(conf_values) if conf_values else 0.0
         
         # Reconvertir la confiance moyenne en catégorie
-        if avg_confidence >= 2.5:
+        if avg_confidence >= 0.7:
             confidence_label = "high"
-        elif avg_confidence >= 1.5:
+        elif avg_confidence >= 0.4:
             confidence_label = "medium"
         elif avg_confidence > 0:
             confidence_label = "low"
@@ -366,7 +349,8 @@ class MultiHorizonPredictor:
         return {
             "consistency": consistency,
             "overall_direction": max_direction,
-            "confidence": confidence_label,
+            "confidence": avg_confidence,
+            "confidence_label": confidence_label,
             "direction_counts": direction_counts,
             "total_signals": total
         }
@@ -449,10 +433,6 @@ class MultiHorizonPredictor:
             "short_term_dir": short_term.get("overall_direction"),
             "medium_term_dir": medium_term.get("overall_direction"),
             "long_term_dir": long_term.get("overall_direction"),
-            "confidence": min(
-                short_term.get("confidence", "low"),
-                medium_term.get("confidence", "low"),
-                long_term.get("confidence", "low"),
-                key=lambda x: {"high": 3, "medium": 2, "low": 1, "unknown": 0}[x]
-            )
-        } 
+            "confidence": min(float(short_term.get("confidence", 0.0)), float(medium_term.get("confidence", 0.0)), float(long_term.get("confidence", 0.0))),
+            "trading_enabled": False,
+        }

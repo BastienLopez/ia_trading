@@ -1,6 +1,7 @@
 """Pipeline unifié pour enrichir le sentiment par crédibilité et contexte marché."""
 
 from typing import Any, Dict, Iterable, List, Optional
+from pathlib import Path
 
 import pandas as pd
 
@@ -70,6 +71,60 @@ class SentimentPipeline:
             for post in posts
         ]
         return pd.concat([results.reset_index(drop=True), pd.DataFrame(context)], axis=1)
+
+    @staticmethod
+    def to_p4_observations(analyses: pd.DataFrame, asset: str, timeframe: str,
+                           source: str, timestamp_column: str = "timestamp") -> pd.DataFrame:
+        """Convertit une sortie P2 en observations causales persistables pour P4."""
+        if analyses.empty:
+            raise ValueError("P2: aucune analyse à convertir")
+        if not asset or not timeframe or not source:
+            raise ValueError("P2: actif, timeframe et source sont obligatoires")
+        timestamp_col = next((column for column in (timestamp_column, "published_at", "created_at", "date")
+                              if column in analyses.columns), None)
+        score_col = next((column for column in ("sentiment_score", "global_sentiment_score", "compound_score", "score")
+                          if column in analyses.columns), None)
+        if timestamp_col is None or score_col is None:
+            raise ValueError("P2: timestamp et score continu obligatoires pour P4")
+        timestamps = pd.to_datetime(analyses[timestamp_col], utc=True, errors="coerce")
+        scores = pd.to_numeric(analyses[score_col], errors="coerce")
+        if timestamps.isna().any() or scores.isna().any():
+            raise ValueError("P2: timestamp ou score invalide pour P4")
+        quality = analyses.get("quality", analyses.get("credibility_score", pd.Series(1.0, index=analyses.index)))
+        observations = pd.DataFrame({
+            "timestamp": timestamps,
+            "asset": asset.upper(),
+            "timeframe": timeframe,
+            "sentiment_score": scores.clip(-1.0, 1.0),
+            "quality": pd.to_numeric(quality, errors="coerce").fillna(0.0).clip(0.0, 1.0),
+            "source": source,
+        })
+        return observations.sort_values("timestamp").reset_index(drop=True)
+
+    @staticmethod
+    def persist_p4_observations(observations: pd.DataFrame, path: Any) -> Path:
+        """Persiste atomiquement les observations P2 consommées par P4."""
+        target = Path(path)
+        if target.suffix.lower() not in {".csv", ".parquet"}:
+            raise ValueError("P2: sortie P4 attendue en .csv ou .parquet")
+        required = {"timestamp", "asset", "timeframe", "sentiment_score", "quality", "source"}
+        if not required.issubset(observations.columns):
+            raise ValueError("P2: contrat d'observations P4 incomplet")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.exists():
+            existing = pd.read_parquet(target) if target.suffix.lower() == ".parquet" else pd.read_csv(target)
+            combined = pd.concat([existing, observations], ignore_index=True)
+        else:
+            combined = observations.copy()
+        combined["timestamp"] = pd.to_datetime(combined["timestamp"], utc=True, errors="raise")
+        combined = combined.drop_duplicates(["timestamp", "asset", "timeframe", "source"], keep="last")
+        temporary = target.with_suffix(f"{target.suffix}.tmp")
+        if target.suffix.lower() == ".parquet":
+            combined.to_parquet(temporary, index=False)
+        else:
+            combined.to_csv(temporary, index=False)
+        temporary.replace(target)
+        return target
 
     def _enrich_news(
         self,

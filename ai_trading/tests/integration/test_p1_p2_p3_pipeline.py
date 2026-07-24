@@ -4,6 +4,15 @@ import pandas as pd
 from ai_trading.rl.agents.sac_agent import SACAgent
 from ai_trading.rl.data_integration import RLDataIntegrator
 from ai_trading.rl.trading_environment import TradingEnvironment
+from ai_trading.llm.predictions.market_predictor import MarketPredictor
+
+
+class DeterministicClient:
+    mode = "test_injected_client"
+
+    def complete(self, prompt, context):
+        del prompt, context
+        return '{"direction":"bullish","confidence":0.7,"factors":[],"contradictions":[]}'
 
 
 def test_market_sentiment_to_gpu_rl_environment_contract_has_no_lookahead():
@@ -49,3 +58,17 @@ def test_market_sentiment_to_gpu_rl_environment_contract_has_no_lookahead():
     assert next_state.shape == state.shape
     assert np.isfinite(reward)
     assert not (terminated and truncated)
+
+    p4_market = integrated.reset_index().rename(columns={"index": "timestamp"})
+    p4_market["source"] = "p1_p2_p3_integration"
+    p4_sentiment = pd.DataFrame(
+        {"timestamp": dates, "sentiment_score": integrated["compound_score"].to_numpy(),
+         "quality": 1.0, "source": "p2_p3_integration"}
+    )
+    prediction = MarketPredictor({"use_gpu": False, "enable_disk_cache": False,
+                                  "llm_client": DeterministicClient()}).predict_market_direction(
+        "BTC", "1h", p4_market, p4_sentiment, p4_market["timestamp"].iloc[-1]
+    )
+    assert prediction["mode"] == "test_injected_client"
+    assert prediction["abstain"] is False
+    assert prediction["trading_enabled"] is False

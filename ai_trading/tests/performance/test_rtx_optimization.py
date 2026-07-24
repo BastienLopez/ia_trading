@@ -54,7 +54,7 @@ class MockRTXOptimizer:
     
     def get_device(self):
         return self.device
-    
+
     def to_device(self, model):
         return model
     
@@ -89,6 +89,14 @@ class MockRTXOptimizer:
     
     def clear_cache(self):
         pass
+
+
+class DeterministicClient:
+    mode = "test_injected_client"
+
+    def complete(self, prompt, context):
+        del prompt, context
+        return '{"direction":"bullish","confidence":0.7,"factors":[],"contradictions":[]}'
 
 @unittest.skipIf(not HAS_TORCH, "PyTorch n'est pas installé")
 class TestRTXOptimizer(unittest.TestCase):
@@ -245,7 +253,8 @@ class TestMarketPredictorWithRTX(unittest.TestCase):
             "enable_disk_cache": True,
             "use_gpu": True,
             "enable_tensor_cores": True,
-            "enable_half_precision": True
+            "enable_half_precision": True,
+            "llm_client": DeterministicClient(),
         }
         
         # Initialisation de l'objet à tester
@@ -270,8 +279,15 @@ class TestMarketPredictorWithRTX(unittest.TestCase):
     
     def test_prediction_with_rtx(self):
         """Teste la génération de prédiction avec l'optimiseur RTX."""
-        # Génération d'une prédiction
-        prediction = self.predictor.predict_market_direction("BTC", "24h")
+        timestamps = pd.date_range("2025-01-01", periods=24, freq="h", tz="UTC")
+        close = 100 + np.arange(24) * .1
+        market_data = pd.DataFrame({"timestamp": timestamps, "open": close - .1, "high": close + .2,
+                                    "low": close - .2, "close": close, "volume": 1000, "source": "p1_fixture"})
+        sentiment_data = pd.DataFrame({"timestamp": timestamps, "sentiment_score": .1,
+                                       "quality": .9, "source": "p2_fixture"})
+        prediction = self.predictor.predict_market_direction(
+            "BTC", "24h", market_data, sentiment_data, timestamps[-1]
+        )
         
         # Vérification de la présence des informations GPU
         self.assertIn("gpu_info", prediction)
@@ -340,20 +356,6 @@ class TestPredictionModelWithRTX(unittest.TestCase):
         
         # Import des modules nécessaires
         from ai_trading.llm.predictions.prediction_model import PredictionModel
-        
-        # Patch pour EnsembleParallelProcessor
-        class MockEnsembleParallelProcessor:
-            def __init__(self, max_workers=4, **kwargs):
-                self.max_workers = max_workers
-                
-            def process(self, items, processing_func):
-                return [processing_func(item) for item in items]
-        
-        # Appliquer le patch pour EnsembleParallelProcessor
-        self.patches.append(patch('ai_trading.llm.predictions.prediction_model.EnsembleParallelProcessor', 
-                                   MockEnsembleParallelProcessor))
-        p = self.patches[-1]
-        p.start()
         
         # Configuration pour les tests
         self.config = {
@@ -573,4 +575,4 @@ class TestTensorRTOptimization(unittest.TestCase):
             self.assertIsNotNone(optimized)
 
 if __name__ == "__main__":
-    unittest.main() 
+    unittest.main()

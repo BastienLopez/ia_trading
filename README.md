@@ -135,56 +135,129 @@ Ce module contient l'implémentation d'un système de trading de cryptomonnaies 
 -----------------------------------------------------------------------------------------------------------------------
 
 ### Phase 4: Prédictions de Marché (LLM) ⏳
-- ✅ 4.1 Implémentation de `llm/predictions/market_predictor.py`
-  - Génération de prédictions basées sur les données de marché et le sentiment
-- ✅ 4.2 Implémentation de `llm/predictions/prediction_model.py`
-  - Modèle de prédiction combinant données techniques et sentiment
-- ✅ **Prédictions multi-horizons**
-  - Court terme (minutes)
-  - Moyen terme (heures)
-  - Long terme (jours)
-  - Adaptation dynamique
-- ✅ **Interprétabilité des prédictions**
-  - SHAP values
-  - LIME explanations
-  - Visualisations interactives
-  - Rapports détaillés
-- ✅ **Calibration des incertitudes**
-  - Intervalles de confiance
-  - Distributions de probabilité
-  - Gestion des outliers
-  - Validation croisée
-- ✅ **Ensemble de modèles**
-  - Combinaison de plusieurs modèles
-  - Fusion de prédictions
-  - Enrichissement des informations
-- ✅ **Adaptation en temps réel**
-  - Mise à jour des prédictions en temps réel
-  - Réaction aux changements de marché
-  - Intégration de nouvelles données
-- ✅ **Correction des tests unitaires** :
-  - Résoudre les problèmes dans test_predict_numerical et test_predict_categorical
-  - Améliorer la compatibilité avec les types de retour numpy
-- ✅ **Amélioration de la robustesse** :
-  - Optimiser la détection des changements significatifs du marché
-  - Améliorer la gestion des données aberrantes
-  - Gestion des cas d'erreur et récupération
-  - Tolérance aux erreurs de flux de données
-- ✅ **Performance et optimisation** :
-  - Optimiser le traitement des données en temps réel pour réduire la latence
-  - Implémenter un système de mise en cache pour les calculs intensifs
-  - Parallélisation des opérations d'ensemble de modèles
-  - Profilage et optimisation des goulots d'étranglement
-- ✅ **Points d'amélioration** :
-  - Implémenter une stratégie "confidence" robuste pour l'ensemble de modèles
-  - Ajouter des tests de stress pour les scénarios de haute volatilité
-  - Développer une visualisation en temps réel des indicateurs de marché
-  - Optimiser la consommation mémoire pour les historiques de prix volumineux
-  - Étendre les capacités de détection d'anomalies pour identifier les manipulations de marché
-- ✅ Priorisation GPU du projet si disponible
-- ✅ Optimisation supplémentaire pour des GPU spécifiques (comme les RTX séries 30 et 40)
- - Intégration avec d'autres frameworks comme TensorRT pour des performances encore meilleures
- - Quantification plus avancée des modèles pour réduire l'empreinte mémoire
+- État après audit Docker du 24/07/2026 : P4 est à construire et à valider. Des composants existent, mais le chemin complet est incomplet : données de marché fictives, client LLM mocké, modèle hybride cassé, incertitudes non calibrées et aucune intégration API/dashboard/P3. Les tests unitaires verts ne constituent pas une preuve de prédiction fiable ni de performance de trading.
+- P3 reste verrouillée sur `p3-bf72563778749e59`, avec performance économique provisoire. P4 ne doit ni déclencher de trading réel ni prétendre améliorer ou dépasser Buy & Hold sans validation hors échantillon reproductible.
+
+#### P0 — Fondations bloquantes
+
+- [x] **4.1 Données P1 et sentiment P2 réellement horodatés**
+  - Remplacer les OHLCV fictifs de `llm/predictions/market_predictor.py`.
+  - Remplacer les requêtes sentiment textuelles par des observations P2 avec
+    source, actif, horodatage, fraîcheur et qualité.
+  - Définir un contrat commun : actif, timeframe, `as_of`, OHLCV, indicateurs,
+    sentiment, provenance et version de données.
+  - Refuser toute observation future ou non horodatée ; aucune concaténation par
+    index lorsque les timestamps manquent.
+
+- [x] **4.2 Client LLM réel, injectable et tolérant aux pannes**
+  - Retirer `MockLLMClient` du chemin runtime ; le réserver aux tests via
+    injection de dépendance.
+  - Valider strictement le JSON, les directions autorisées et une confiance
+    numérique bornée dans `[0, 1]`.
+  - Gérer timeout, retries bornés, erreurs de parsing, indisponibilité réseau et
+    réponse dégradée traçable.
+
+- [x] **4.3 Modèle hybride technique + sentiment exécutable**
+  - Réparer `llm/predictions/prediction_model.py` et ses méthodes manquantes :
+    préparation des données, récupération récente, prédiction ML, combinaison,
+    ensemble, sauvegarde et chargement.
+  - Supprimer les dépendances production vers les fonctions mock des fichiers de
+    test ; déplacer les fixtures dans les tests.
+  - Assurer la compatibilité des signatures, des features, du scaler, des
+    classes et des probabilités entre entraînement et inférence.
+
+- [x] **4.4 Ensemble et confiance cohérents**
+  - Choisir une seule implémentation d'ensemble entre `PredictionModel` et
+    `ModelEnsemble`.
+  - Définir fusion, consensus, pondération, abstention et stratégie de repli.
+  - Couvrir les retours numpy numériques, catégoriels et probabilistes ;
+    conserver les tests `test_predict_numerical` et `test_predict_categorical`.
+
+- [x] **4.5 Incertitude et calibration hors échantillon**
+  - Remplacer les intervalles, distributions et calibrations simulés par des
+    estimations fondées sur prédictions et labels historiques.
+  - Remplacer toute validation croisée aléatoire par un walk-forward strictement
+    temporel.
+  - Reporter coverage, Brier score, ECE, largeur d'intervalle et taux
+    d'abstention sur jeux validation/test distincts.
+
+- [x] **4.6 Cache exact et fraîcheur des données**
+  - Inclure dans les clés de cache l'actif, l'horizon, le cutoff temporel et la
+    version des entrées marché/sentiment.
+  - Invalider lors d'une nouvelle bougie, d'un sentiment récent ou d'une erreur
+    de flux ; tester TTL, disque, concurrence et redémarrage.
+
+#### P1 — Fonctionnalités P4 à intégrer après le socle
+
+- [ ] **4.7 Prédictions multi-horizons et adaptation dynamique**
+  - Court terme : minutes ; moyen terme : heures ; long terme : jours.
+  - Entraîner, persister et évaluer chaque horizon séparément sur des données
+    causales ; ne pas retomber silencieusement sur des données fictives.
+  - Produire une cohérence inter-horizons sans convertir une confiance numérique
+    en catégorie incompatible.
+
+- [ ] **4.8 Temps réel et résilience des flux**
+  - Brancher une source de flux P1, avec queue bornée, backpressure,
+    reconnexion, timeout, reprise et état dégradé.
+  - Mesurer latence de bout en bout, taille de queue, erreurs, cache hits et
+    mémoire ; ne pas considérer un thread local comme une intégration temps réel.
+
+- [ ] **4.9 Changements de marché, volatilité et anomalies**
+  - Tester sauts de prix, volumes anormaux, données invalides, flux en retard et
+    divergences sentiment/prix.
+  - Diminuer la confiance ou s'abstenir en régime instable ; ne pas produire de
+    signal de trading exploitable sans garde P3.
+
+- [ ] **4.10 Interprétabilité et visualisations réelles**
+  - SHAP/LIME uniquement pour des modèles compatibles et réellement entraînés ;
+    imports lazy, gestion d'erreur, budget temps/mémoire.
+  - Générer et vérifier des fichiers HTML/PNG/PDF réels, pas des chemins ou
+    scores simulés.
+  - Ajouter dashboard/API de lecture seule pour prédiction, explication,
+    incertitude, fraîcheur et métriques.
+
+- [ ] **4.11 API, dashboard et contrat avec P3**
+  - Ajouter des endpoints P4 versionnés, documentés et testés dans Docker.
+  - Intégrer P4 à P3 uniquement comme feature causale disponible avant la
+    décision RL ; conserver le lock P3 inchangé.
+  - Interdire tout ordre réel, toute allocation réelle et toute promesse de
+    surperformance durant cette phase.
+
+#### P2 — Optimisation seulement après preuves fonctionnelles
+
+- [ ] **4.12 GPU RTX 30/40 et fallback CPU**
+  - Détecter CUDA et le GPU réellement utilisé ; vérifier CPU fallback,
+    précision mixte, VRAM et nettoyage mémoire dans Docker.
+  - Mesurer latence et mémoire sur le même modèle P4, pas uniquement avec mocks.
+
+- [ ] **4.13 TensorRT sans fausse promesse**
+  - Activer TensorRT uniquement si `tensorrt` et `torch_tensorrt` sont réellement
+    installés et si un benchmark reproductible démontre un gain.
+  - Sinon reporter explicitement « non disponible » sans dégrader le fallback.
+
+- [ ] **4.14 Quantification et mémoire**
+  - Quantifier seulement un modèle P4 exportable et validé ; comparer FP32,
+    FP16 et INT8 sur taille, VRAM, latence et dérive de sortie.
+  - Ne pas déduire une optimisation P4 de tests génériques de quantification.
+
+- [ ] **4.15 Refactorings contrôlés**
+  - Regrouper après couverture : ensembles en doublon, caches en doublon,
+    rapports/visualisations en doublon et tests legacy.
+  - Ne supprimer aucun module avant migration des importeurs et tests associés.
+
+#### Validation obligatoire avant de déclarer P4 terminée
+
+- [ ] Tests unitaires P4 ciblés dans Docker `ai_api`, y compris les erreurs LLM,
+  cache, concurrence, types numpy, données invalides, haute volatilité, GPU/CPU
+  et absence de TensorRT.
+- [ ] Intégration Docker P1 + P2 + P3 + P4 sur données et sentiments horodatés,
+  avec preuve qu'aucune feature future n'atteint la décision RL.
+- [ ] Vérification des artefacts : données/version, prédictions, probabilités,
+  incertitudes, calibration, logs, cache, visualisations et rapports produits.
+- [ ] Rapport séparant strictement : code présent, tests verts, intégration
+  validée, performance mesurée et qualité prédictive hors échantillon.
+- [ ] Aucun qualificatif « bonne prédiction », aucune promesse de trading ni de
+  surperformance Buy & Hold sans métriques hors échantillon reproductibles.
 
 -----------------------------------------------------------------------------------------------------------------------
 

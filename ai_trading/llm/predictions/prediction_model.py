@@ -1,759 +1,312 @@
-"""
-Module de modèle de prédiction combinant données techniques et sentiment.
+"""Modèle hybride P4 : ML tabulaire calibré + prédiction contextuelle injectable."""
 
-Ce module implémente un modèle hybride qui combine les LLM avec des modèles 
-de machine learning traditionnels pour produire des prédictions de marché.
-"""
+from __future__ import annotations
 
-import json
-import logging
 import os
-import pickle
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple
 
 import joblib
 import numpy as np
 import pandas as pd
-from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
-from sklearn.preprocessing import StandardScaler
-from sklearn.calibration import CalibratedClassifierCV
-from sklearn.model_selection import TimeSeriesSplit
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score
 import torch
 import torch.nn as nn
-import time
+from sklearn.base import clone
+from sklearn.calibration import CalibratedClassifierCV
+from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
+from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
+from sklearn.model_selection import TimeSeriesSplit
+from sklearn.preprocessing import StandardScaler
 
-# Importations internes
-from ai_trading.llm.predictions.market_predictor import MarketPredictor
 import ai_trading.config as config
+from ai_trading.llm.predictions.market_predictor import MarketPredictor
+from ai_trading.llm.predictions.model_ensemble import ModelEnsemble
+from ai_trading.llm.predictions.prediction_contract import PredictionInputError, align_market_and_sentiment
+from ai_trading.llm.predictions.rtx_optimizer import RTXOptimizer, detect_rtx_gpu
 from ai_trading.utils import setup_logger
-from ai_trading.llm.predictions.parallel_processor import EnsembleParallelProcessor, ParallelProcessor
-from ai_trading.llm.predictions.cache_manager import CacheManager, cached
-from ai_trading.llm.predictions.performance_analysis import profile
-from ai_trading.llm.predictions.rtx_optimizer import RTXOptimizer, detect_rtx_gpu, setup_rtx_environment
 
-# Configuration du logger
 logger = setup_logger("prediction_model")
 
-# Configuration initiale de l'environnement GPU
-rtx_gpu_info = None
-if torch.cuda.is_available():
-    # Vérifier d'abord si un GPU RTX est disponible
-    rtx_gpu_info = detect_rtx_gpu()
-    if rtx_gpu_info:
-        # Optimisation spécifique pour RTX
-        setup_rtx_environment()
-        logger.info(f"Environnement GPU RTX {rtx_gpu_info['series']} configuré pour les modèles de prédiction")
-    else:
-        logger.info("Aucun GPU RTX détecté, exécution standard pour les modèles de prédiction")
-else:
-    logger.info("Aucun GPU détecté, exécution en mode CPU pour les modèles de prédiction")
 
-# Classe pour les réseaux de neurones PyTorch 
 class PredictionNN(nn.Module):
-    """
-    Réseau de neurones simple pour la prédiction de marché.
-    
-    Ce modèle PyTorch peut exploiter l'accélération GPU disponible.
-    """
-    
-    def __init__(self, input_size, hidden_size=64, output_size=3):
-        """
-        Initialise le réseau de neurones.
-        
-        Args:
-            input_size: Taille des features d'entrée
-            hidden_size: Taille des couches cachées
-            output_size: Nombre de classes de sortie
-        """
-        super(PredictionNN, self).__init__()
-        self.input_shape = (1, input_size)  # Pour les optimisations RTX et TensorRT
-        
-        self.model = nn.Sequential(
-            nn.Linear(input_size, hidden_size),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(hidden_size, hidden_size),
-            nn.ReLU(),
-            nn.Dropout(0.2),
-            nn.Linear(hidden_size, output_size),
-            nn.Softmax(dim=1)
-        )
-    
+    """Conservé pour compatibilité GPU ; P0 utilise l'ensemble tabulaire calibré."""
+
+    def __init__(self, input_size: int, hidden_size: int = 64, output_size: int = 3):
+        super().__init__()
+        self.input_shape = (1, input_size)
+        self.network = nn.Sequential(nn.Linear(input_size, hidden_size), nn.ReLU(), nn.Linear(hidden_size, output_size))
+
     def forward(self, x):
-        """
-        Propagation avant.
-        
-        Args:
-            x: Tenseur d'entrée
-        
-        Returns:
-            Tenseur de sortie avec probabilités
-        """
-        return self.model(x)
+        return torch.softmax(self.network(x), dim=1)
+
 
 class PredictionModel:
-    """
-    Modèle de prédiction hybride combinant LLM et ML.
-    
-    Ce modèle utilise une combinaison pondérée des prédictions LLM et ML
-    pour fournir des prédictions de marché plus robustes.
-    """
-    
+    direction_mapping = {"bearish": 0, "neutral": 1, "bullish": 2}
+    inverse_direction_mapping = {0: "bearish", 1: "neutral", 2: "bullish"}
+
     def __init__(self, custom_config: Optional[Dict[str, Any]] = None):
-        """
-        Initialise le modèle de prédiction.
-        
-        Args:
-            custom_config: Configuration personnalisée optionnelle
-        """
-        # Utilisation de la configuration du projet
         self.config = custom_config or {}
-        
-        # Poids pour la combinaison des prédictions
-        self.llm_weight = self.config.get("llm_weight", 0.4)
-        self.ml_weight = self.config.get("ml_weight", 0.6)
-        
-        # Méthode de calibration des modèles
-        self.calibration_method = self.config.get("calibration_method", "isotonic")
-        
-        # Répertoire de sauvegarde des modèles
-        self.model_dir = self.config.get("model_dir", str(config.DATA_DIR / "models"))
+        self.prediction_mode = self.config.get("prediction_mode", "ml_only")
+        if self.prediction_mode not in {"ml_only", "hybrid"}:
+            raise ValueError("prediction_mode doit être ml_only ou hybrid")
+        default_llm_weight = 0.0 if self.prediction_mode == "ml_only" else 0.4
+        default_ml_weight = 1.0 if self.prediction_mode == "ml_only" else 0.6
+        self.llm_weight = float(self.config.get("llm_weight", default_llm_weight))
+        self.ml_weight = float(self.config.get("ml_weight", default_ml_weight))
+        if self.llm_weight < 0 or self.ml_weight < 0 or self.llm_weight + self.ml_weight == 0:
+            raise ValueError("Les poids LLM/ML doivent être positifs")
+        total_weight = self.llm_weight + self.ml_weight
+        self.llm_weight, self.ml_weight = self.llm_weight / total_weight, self.ml_weight / total_weight
+        self.calibration_method = self.config.get("calibration_method", "sigmoid")
+        self.model_dir = self.config.get("model_dir", str(config.DATA_DIR / "models" / "predictions"))
         os.makedirs(self.model_dir, exist_ok=True)
-        
-        # Prédictor LLM
-        market_predictor_config = {
-            "model_name": self.config.get("llm_model_name", "gpt-4"),
-            "temperature": self.config.get("temperature", 0.1),
-            "max_tokens": self.config.get("max_tokens", 500),
-            "cache_dir": self.config.get("cache_dir", str(config.DATA_DIR / "cache" / "predictions")),
-            "use_gpu": self.config.get("use_gpu", True)
-        }
-        self.market_predictor = MarketPredictor(custom_config=market_predictor_config)
-        
-        # Modèles ML
-        self.ml_model = None
-        self.scaler = None
-        self.processor = EnsembleParallelProcessor(
-            max_workers=self.config.get("max_workers", 4)
-        )
-        
-        # Variables pour la gestion des features
-        self.feature_columns = []
+        predictor_config = dict(self.config.get("market_predictor_config", {}))
+        for key in ("market_data_provider", "sentiment_provider", "data_collector", "llm_client", "cache_dir", "use_gpu"):
+            if key in self.config:
+                predictor_config[key] = self.config[key]
+        self.market_predictor = self.config.get("market_predictor") or MarketPredictor(predictor_config)
+        self.ml_model: List[Any] = []
+        self.scaler: Optional[StandardScaler] = None
+        self.feature_columns: List[str] = []
         self.target_column = "direction"
-        self.direction_mapping = {"bullish": 2, "neutral": 1, "bearish": 0}
-        self.inverse_direction_mapping = {v: k for k, v in self.direction_mapping.items()}
-        
-        # Support PyTorch
+        self.ensemble = ModelEnsemble(fusion_strategy="confidence", adjust_weights=False,
+                                      min_consensus_ratio=float(self.config.get("min_consensus_ratio", 0.6)))
+        self.torch_models: List[nn.Module] = []
         self.has_torch_models = False
-        if torch.cuda.is_available():
-            self.has_torch_models = True
-            logger.info("Support PyTorch activé avec accélération GPU")
-        
-        # Initialisation des modèles PyTorch
-        self.torch_models = []
-        
-        # Initialisation de l'optimiseur RTX si disponible
-        use_gpu = self.config.get("use_gpu", True)
-        if use_gpu and torch.cuda.is_available():
-            # Vérification si RTX est disponible
-            if rtx_gpu_info:
-                # Utiliser l'optimiseur RTX spécifique
-                self.rtx_optimizer = RTXOptimizer(
-                    device_id=self.config.get("gpu_device_id", None),
-                    enable_tensor_cores=self.config.get("enable_tensor_cores", True),
-                    enable_half_precision=self.config.get("enable_half_precision", True),
-                    optimize_memory=self.config.get("optimize_memory", True),
-                    enable_tensorrt=self.config.get("enable_tensorrt", False)
-                )
-                logger.info(f"Accélération GPU RTX activée pour les modèles: {self.rtx_optimizer.get_optimization_info()}")
-            else:
-                # Pas d'optimiseur RTX
-                self.rtx_optimizer = None
-                logger.info("Support GPU standard activé (non RTX)")
-        else:
-            self.rtx_optimizer = None
-            if use_gpu:
-                logger.info("Accélération GPU demandée mais aucun GPU disponible")
-            else:
-                logger.info("Accélération GPU désactivée par configuration")
-        
-        logger.info("PredictionModel initialisé avec poids LLM: %s, ML: %s", self.llm_weight, self.ml_weight)
-    
+        self.rtx_optimizer = None
+        if self.config.get("use_gpu", True) and torch.cuda.is_available() and detect_rtx_gpu():
+            self.rtx_optimizer = RTXOptimizer(enable_tensorrt=self.config.get("enable_tensorrt", False))
+
     def _prepare_pytorch_models(self, input_size: int) -> List[nn.Module]:
-        """
-        Prépare les modèles PyTorch pour l'entraînement.
-        
-        Args:
-            input_size: Nombre de features d'entrée
-            
-        Returns:
-            Liste de modèles PyTorch
-        """
-        models = []
-        
-        # Modèle de base
-        base_model = PredictionNN(input_size=input_size)
-        models.append(base_model)
-        
-        # Modèle plus large (plus de neurones)
-        large_model = PredictionNN(input_size=input_size, hidden_size=128)
-        models.append(large_model)
-        
-        # Déplacer les modèles sur GPU si disponible
+        models = [PredictionNN(input_size), PredictionNN(input_size, hidden_size=128)]
         if self.rtx_optimizer:
-            # Priorité à l'optimiseur RTX
-            models = [self.rtx_optimizer.to_device(model) for model in models]
-        elif torch.cuda.is_available():
-            # Fallback direct sur CUDA
-            models = [model.to("cuda:0") for model in models]
-            
+            return [self.rtx_optimizer.to_device(model) for model in models]
         return models
-    
+
     def _optimize_pytorch_models(self, models: List[nn.Module]) -> List[nn.Module]:
-        """
-        Optimise les modèles PyTorch pour l'inférence.
-        
-        Args:
-            models: Liste de modèles PyTorch
-            
-        Returns:
-            Liste de modèles PyTorch optimisés
-        """
-        optimized_models = []
-        
-        for model in models:
-            model.eval()  # Passage en mode évaluation
-            
-            if self.rtx_optimizer:
-                # Optimisation spécifique RTX
-                optimized_model = self.rtx_optimizer.optimize_for_inference(model)
-                optimized_models.append(optimized_model)
-            else:
-                # Pas d'optimisation spécifique
-                optimized_models.append(model)
-                
-        return optimized_models
+        return [self.rtx_optimizer.optimize_for_inference(model) if self.rtx_optimizer else model.eval() for model in models]
 
-    @profile(output_dir=str(config.DATA_DIR / "profiling" / "prediction_model"))
-    def train(self, market_data: pd.DataFrame, sentiment_data: pd.DataFrame) -> Dict[str, Any]:
-        """
-        Entraîne les modèles de prédiction.
-        
-        Args:
-            market_data: Données de marché (OHLCV, indicateurs techniques, etc.)
-            sentiment_data: Données de sentiment (news, médias sociaux, etc.)
-            
-        Returns:
-            Métriques d'entraînement
-        """
-        logger.info("Début de l'entraînement des modèles de prédiction")
-        
-        # Préparation des données
-        X, y = self._prepare_data(market_data, sentiment_data)
-        
-        # Split des données pour validation temporelle
-        tscv = TimeSeriesSplit(n_splits=5)
-        train_indices, test_indices = list(tscv.split(X))[4]  # Utilisation du dernier split
-        
-        X_train, X_test = X.iloc[train_indices], X.iloc[test_indices]
-        y_train, y_test = y.iloc[train_indices], y.iloc[test_indices]
-        
-        # Scaling des features
-        self.scaler = StandardScaler()
-        X_train_scaled = self.scaler.fit_transform(X_train)
-        X_test_scaled = self.scaler.transform(X_test)
-        
-        # Liste de modèles à entraîner
-        models_config = [
-            {
-                "name": "RandomForest",
-                "model": RandomForestClassifier(
-                    n_estimators=100, max_depth=10, random_state=42
-                )
-            },
-            {
-                "name": "GradientBoosting",
-                "model": GradientBoostingClassifier(
-                    n_estimators=100, learning_rate=0.1, random_state=42
-                )
-            }
-        ]
-        
-        # Ajout de modèles PyTorch si disponibles
-        if self.has_torch_models:
-            # Préparation des tenseurs pour PyTorch
-            X_train_tensor = torch.tensor(X_train_scaled, dtype=torch.float32)
-            y_train_tensor = torch.tensor(y_train.values, dtype=torch.long)
-            
-            # Création et ajout des modèles PyTorch à la liste de modèles
-            input_size = X_train.shape[1]
-            self.torch_models = self._prepare_pytorch_models(input_size)
-            
-            # Optimisations spécifiques pour RTX si disponible
-            train_context = None
-            if self.rtx_optimizer:
-                train_context = self.rtx_optimizer.autocast_context()
+    def _prepare_data(
+        self, market_data: pd.DataFrame, sentiment_data: Optional[pd.DataFrame], for_training: bool = True,
+        as_of: Optional[Any] = None,
+    ) -> Tuple[pd.DataFrame, Optional[pd.Series]]:
+        asset = str(market_data["asset"].iloc[-1]) if "asset" in market_data.columns else None
+        timeframe = str(market_data["timeframe"].iloc[-1]) if "timeframe" in market_data.columns else None
+        aligned, _ = align_market_and_sentiment(
+            market_data, sentiment_data, as_of, asset=asset, timeframe=timeframe, require_sentiment=True,
+        )
+        aligned["return_1"] = aligned["close"].pct_change()
+        aligned["volume_change"] = aligned["volume"].pct_change().replace([np.inf, -np.inf], np.nan)
+        aligned["range_ratio"] = (aligned["high"] - aligned["low"]) / aligned["close"]
+        labels: Optional[pd.Series] = None
+        if for_training:
+            if "direction" in market_data.columns:
+                label_source = market_data.copy()
+                timestamp_col = next((column for column in ("timestamp", "date", "datetime") if column in label_source.columns), None)
+                if timestamp_col:
+                    label_source.index = pd.to_datetime(label_source[timestamp_col], utc=True)
+                labels = label_source["direction"].reindex(aligned.index).map(self.direction_mapping)
             else:
-                from contextlib import nullcontext
-                train_context = nullcontext()
-                
-            # Entraînement parallèle avec le contexte approprié
-            with train_context:
-                # Utilisation du processeur parallèle pour l'entraînement (traitement par lots)
-                self.processor.train_pytorch_models(
-                    self.torch_models, 
-                    X_train_tensor, 
-                    y_train_tensor,
-                    epochs=50,
-                    batch_size=32,
-                    learning_rate=0.001
-                )
-                
-            # Optimisation des modèles pour l'inférence
-            self.torch_models = self._optimize_pytorch_models(self.torch_models)
-        
-        # Entraînement en parallèle des modèles scikit-learn
-        self.ml_model = self.processor.train_models(models_config, X_train_scaled, y_train)
-        
-        # Évaluation des modèles
-        y_pred = self._ensemble_predict(X_test_scaled)
-        
-        metrics = {
-            "accuracy": accuracy_score(y_test, y_pred),
-            "precision": precision_score(y_test, y_pred, average='weighted'),
-            "recall": recall_score(y_test, y_pred, average='weighted'),
-            "f1": f1_score(y_test, y_pred, average='weighted'),
-            "train_samples": len(X_train),
-            "test_samples": len(X_test),
-            "features": list(X.columns),
-            "n_models": len(self.ml_model) + len(self.torch_models),
-            "gpu_acceleration": self.rtx_optimizer is not None
-        }
-        
-        # Ajout d'informations sur l'utilisation du GPU RTX
-        if self.rtx_optimizer:
-            metrics["gpu_info"] = self.rtx_optimizer.get_optimization_info()
-        
-        # Sauvegarde des modèles
-        self._save_models()
-        
-        logger.info("Entraînement terminé. Accuracy: %.4f, F1: %.4f", 
-                   metrics["accuracy"], metrics["f1"])
-        
-        return metrics
-    
-    @profile(output_dir=str(config.DATA_DIR / "profiling" / "prediction_model"))
-    def predict(self, asset: str, timeframe: str) -> Dict[str, Any]:
-        """
-        Génère une prédiction combinée pour un actif.
-        
-        Args:
-            asset: Symbole de l'actif (ex: "BTC", "ETH")
-            timeframe: Horizon temporel (ex: "1h", "24h", "7d")
-            
-        Returns:
-            Prédiction finale combinant LLM et ML
-        """
-        start_time = datetime.now()
-        
-        # 1. Prédiction du LLM
-        llm_prediction = self.market_predictor.predict_market_direction(asset, timeframe)
-        
-        # 2. Récupération des données récentes pour le ML
-        market_data, sentiment_data = self._fetch_recent_data(asset, timeframe)
-        
-        # 3. Préparation des données
-        X, _ = self._prepare_data(market_data, sentiment_data, for_training=False)
-        
-        # Si aucun modèle ML n'est entraîné, on utilise uniquement la prédiction LLM
-        if self.ml_model is None:
-            return llm_prediction
-        
-        # 4. Scaling des features
-        X_scaled = self.scaler.transform(X)
-        
-        # 5. Prédiction ML avec ensemble
-        ml_proba = self._predict_proba(X_scaled)
-        ml_direction_idx = np.argmax(ml_proba)
-        ml_direction = self.inverse_direction_mapping[ml_direction_idx]
-        ml_confidence = float(ml_proba[ml_direction_idx])
-        
-        # Création de la prédiction ML
-        ml_prediction = {
-            "direction": ml_direction,
-            "confidence": ml_confidence,
-            "probabilities": {
-                self.inverse_direction_mapping[i]: float(p) 
-                for i, p in enumerate(ml_proba)
-            }
-        }
-        
-        # 6. Combinaison des prédictions
-        combined_prediction = self._combine_predictions(llm_prediction, ml_prediction)
-        combined_prediction["asset"] = asset
-        combined_prediction["timeframe"] = timeframe
-        combined_prediction["llm_prediction"] = llm_prediction
-        combined_prediction["ml_prediction"] = ml_prediction
-        
-        # Temps de prédiction
-        prediction_time = (datetime.now() - start_time).total_seconds()
-        combined_prediction["prediction_time_seconds"] = prediction_time
-        
-        # Ajout d'informations sur l'utilisation du GPU RTX
-        if self.rtx_optimizer:
-            combined_prediction["gpu_info"] = self.rtx_optimizer.get_optimization_info()
-        
-        logger.info(f"Prédiction combinée pour {asset} ({timeframe}): {combined_prediction['direction']} "
-                   f"(confiance: {combined_prediction['confidence']:.2f})")
-        
-        return combined_prediction
-    
-    def _predict_proba(self, X: np.ndarray) -> np.ndarray:
-        """
-        Génère des probabilités de classe en utilisant l'ensemble de modèles.
-        
-        Args:
-            X: Features d'entrée
-            
-        Returns:
-            Probabilités moyennes pour chaque classe
-        """
-        # Initialisation du tableau de probabilités
-        all_probas = []
-        
-        # 1. Prédictions des modèles scikit-learn
-        if self.ml_model:
-            for model in self.ml_model:
-                # Vérification que le modèle a predict_proba
-                if hasattr(model, 'predict_proba'):
-                    all_probas.append(model.predict_proba(X))
-        
-        # 2. Prédictions des modèles PyTorch
-        if self.torch_models:
-            # Conversion en tenseur
-            X_tensor = torch.tensor(X, dtype=torch.float32)
-            
-            # Optimisations GPU RTX pour l'inférence
-            inference_context = None
-            if self.rtx_optimizer:
-                inference_context = self.rtx_optimizer.autocast_context()
-                X_tensor = torch.tensor(X, dtype=torch.float32, device=self.rtx_optimizer.device)
-            else:
-                from contextlib import nullcontext
-                inference_context = nullcontext()
-                if torch.cuda.is_available():
-                    X_tensor = X_tensor.cuda()
-                
-            # Prédiction avec le contexte approprié
-            with torch.no_grad(), inference_context:
-                for model in self.torch_models:
-                    proba = model(X_tensor).cpu().numpy()
-                    all_probas.append(proba)
-        
-        # Si aucun modèle n'a donné de prédiction, retourner probabilités uniformes
-        if not all_probas:
-            return np.ones(len(self.direction_mapping)) / len(self.direction_mapping)
-        
-        # Moyenne des probabilités (ensemble)
-        avg_proba = np.mean(all_probas, axis=0)
-        
-        return avg_proba
+                future_return = aligned["close"].shift(-1) / aligned["close"] - 1
+                labels = pd.Series(1, index=aligned.index, dtype=float)
+                labels[future_return > float(self.config.get("bullish_threshold", 0.002))] = 2
+                labels[future_return < -float(self.config.get("bearish_threshold", 0.002))] = 0
+                labels.iloc[-1] = np.nan
+        excluded = {"asset", "timeframe", "source", "sentiment_source", "as_of", "direction", "future_return", "direction_code"}
+        features = aligned[[column for column in aligned.columns if column not in excluded and pd.api.types.is_numeric_dtype(aligned[column])]].copy()
+        features = features.replace([np.inf, -np.inf], np.nan).ffill().fillna(0.0)
+        if for_training:
+            valid = labels.notna()
+            features, labels = features.loc[valid], labels.loc[valid].astype(int)
+            if len(features) < 20 or labels.nunique() < 2:
+                raise PredictionInputError("données insuffisantes pour entraîner P4")
+            self.feature_columns = list(features.columns)
+        elif self.feature_columns:
+            features = features.reindex(columns=self.feature_columns, fill_value=0.0)
+        return features, labels
 
-    def cleanup_resources(self):
-        """
-        Nettoie les ressources utilisées (mémoire GPU, etc.).
-        """
-        # Libération des ressources RTX
-        if self.rtx_optimizer:
-            self.rtx_optimizer.clear_cache()
-            logger.info("Ressources GPU RTX libérées")
-        elif torch.cuda.is_available():
-            # Nettoyage basique de la mémoire CUDA
-            torch.cuda.empty_cache()
-            logger.info("Cache CUDA vidé")
-        
-        # Nettoyage du MarketPredictor
-        self.market_predictor.cleanup_resources()
-
-    @profile(output_dir=str(config.DATA_DIR / "profiling" / "prediction_model"))
-    def batch_predict(self, assets: List[str], timeframe: str = "24h") -> Dict[str, Dict[str, Any]]:
-        """
-        Génère des prédictions pour plusieurs actifs.
-        
-        Args:
-            assets: Liste des symboles d'actifs
-            timeframe: Horizon temporel
-            
-        Returns:
-            Dictionnaire des prédictions par actif
-        """
-        # Si le market_predictor a une méthode batch_predict_directions, on l'utilise
-        if hasattr(self.market_predictor, 'batch_predict_directions'):
-            logger.info(f"Utilisation de la méthode batch_predict_directions pour {len(assets)} actifs")
-            return self.market_predictor.batch_predict_directions(assets, timeframe)
-        
-        # Sinon, fallback sur une approche parallèle
-        logger.info(f"Utilisation de la méthode parallèle pour {len(assets)} actifs")
-        results = {}
-        
-        def predict_asset(asset):
-            try:
-                return asset, self.predict(asset, timeframe)
-            except Exception as e:
-                logger.error(f"Erreur lors de la prédiction pour {asset}: {e}")
-                return asset, {"error": str(e), "direction": "neutral", "confidence": 0.5}
-        
-        # Prédictions en parallèle avec un nombre de workers adapté
-        results_list = self.processor.map(predict_asset, assets)
-        
-        # Conversion en dictionnaire
-        for asset, prediction in results_list:
-            results[asset] = prediction
-        
-        return results
-    
-    def preload_predictions(self, 
-                          assets: List[str], 
-                          timeframes: List[str] = ["24h"], 
-                          async_mode: bool = True) -> None:
-        """
-        Précharge des prédictions en cache pour des actifs et horizons temporels spécifiques.
-        
-        Cette méthode peut être utilisée pour préparer le cache avant les heures de forte demande.
-        
-        Args:
-            assets: Liste des symboles d'actifs à précharger
-            timeframes: Liste des horizons temporels
-            async_mode: Si True, exécute le préchargement de manière asynchrone
-        """
-        logger.info(f"Préchargement des prédictions pour {len(assets)} actifs sur {len(timeframes)} timeframes")
-        
-        def preload_worker():
-            start_time = time.time()
-            preloaded_count = 0
-            cache_hit_count = 0
-            
-            for timeframe in timeframes:
-                # Utiliser le traitement par lots pour chaque timeframe
-                batch_size = 5  # Taille optimale pour les appels groupés
-                for i in range(0, len(assets), batch_size):
-                    batch_assets = assets[i:i+batch_size]
-                    
-                    # Vérifier quels actifs sont déjà en cache
-                    assets_to_predict = []
-                    for asset in batch_assets:
-                        cache_key = f"predict_market_direction:{asset}:{timeframe}"
-                        if self.market_predictor.cache.get(cache_key) is not None:
-                            cache_hit_count += 1
-                        else:
-                            assets_to_predict.append(asset)
-                    
-                    if assets_to_predict:
-                        try:
-                            # Génération des prédictions manquantes
-                            self.batch_predict(assets_to_predict, timeframe)
-                            preloaded_count += len(assets_to_predict)
-                        except Exception as e:
-                            logger.error(f"Erreur lors du préchargement du lot {i//batch_size+1}: {e}")
-            
-            duration = time.time() - start_time
-            logger.info(f"Préchargement terminé en {duration:.2f}s. "
-                       f"Préchargés: {preloaded_count}, Déjà en cache: {cache_hit_count}")
-        
-        if async_mode:
-            # Exécution asynchrone dans un thread séparé
-            import threading
-            preload_thread = threading.Thread(target=preload_worker, daemon=True)
-            preload_thread.start()
-        else:
-            # Exécution synchrone
-            preload_worker()
-    
-    def schedule_prediction_preloading(self, 
-                                    assets: List[str], 
-                                    timeframes: List[str] = ["24h"],
-                                    interval_hours: int = 4) -> None:
-        """
-        Planifie le préchargement périodique des prédictions.
-        
-        Args:
-            assets: Liste des symboles d'actifs à précharger
-            timeframes: Liste des horizons temporels
-            interval_hours: Intervalle entre les préchargements en heures
-        """
-        logger.info(f"Planification du préchargement toutes les {interval_hours} heures")
-        
-        import threading
-        
-        def scheduler_worker():
-            while True:
-                try:
-                    # Exécuter le préchargement
-                    self.preload_predictions(assets, timeframes, async_mode=False)
-                    
-                    # Attendre jusqu'au prochain intervalle
-                    time.sleep(interval_hours * 3600)
-                except Exception as e:
-                    logger.error(f"Erreur dans la tâche planifiée de préchargement: {e}")
-                    time.sleep(300)  # Attendre 5 minutes en cas d'erreur
-        
-        # Démarrer dans un thread séparé
-        scheduler_thread = threading.Thread(target=scheduler_worker, daemon=True)
-        scheduler_thread.start()
-        
-        logger.info("Tâche de préchargement périodique démarrée")
-    
-    def optimize_prediction_pipeline(self, assets: List[str], timeframe: str = "24h") -> Dict[str, Any]:
-        """
-        Optimise la pipeline de prédiction pour un ensemble d'actifs.
-        
-        Cette méthode analyse les performances et réalise des optimisations dynamiques
-        pour améliorer la vitesse et la qualité des prédictions.
-        
-        Args:
-            assets: Liste des symboles d'actifs
-            timeframe: Horizon temporel
-            
-        Returns:
-            Statistiques d'optimisation
-        """
-        logger.info(f"Optimisation de la pipeline pour {len(assets)} actifs")
-        start_time = time.time()
-        
-        # 1. Tester et sélectionner la méthode de prédiction optimale
-        test_batch_size = min(3, len(assets))
-        test_assets = assets[:test_batch_size]
-        
-        # Tester la méthode batch
-        batch_start = time.time()
-        if hasattr(self.market_predictor, 'batch_predict_directions'):
-            try:
-                self.market_predictor.batch_predict_directions(test_assets, timeframe)
-                batch_duration = time.time() - batch_start
-                batch_per_asset = batch_duration / test_batch_size
-                batch_method_available = True
-            except Exception as e:
-                logger.error(f"Erreur lors du test de la méthode batch: {e}")
-                batch_method_available = False
-                batch_per_asset = float('inf')
-        else:
-            batch_method_available = False
-            batch_per_asset = float('inf')
-        
-        # Tester la méthode parallèle
-        parallel_start = time.time()
+    def _calibrate(self, estimator: Any, X: np.ndarray, y: pd.Series) -> Any:
+        splits = min(3, max(2, len(X) // 20))
         try:
-            def predict_test(asset):
-                return self.predict(asset, timeframe)
-            
-            self.processor.map(predict_test, test_assets)
-            parallel_duration = time.time() - parallel_start
-            parallel_per_asset = parallel_duration / test_batch_size
-        except Exception as e:
-            logger.error(f"Erreur lors du test de la méthode parallèle: {e}")
-            parallel_per_asset = float('inf')
-        
-        # 2. Optimiser les tailles de batch et le niveau de parallélisme
-        if batch_method_available and batch_per_asset <= parallel_per_asset:
-            # La méthode batch est plus rapide
-            optimal_method = "batch"
-            
-            # Déterminer la taille de batch optimale (entre 3 et 10)
-            batch_size = min(10, max(3, len(assets) // 2))
+            cv = TimeSeriesSplit(n_splits=splits)
+            try:
+                calibrated = CalibratedClassifierCV(estimator=clone(estimator), method=self.calibration_method, cv=cv)
+            except TypeError:  # scikit-learn < 1.2
+                calibrated = CalibratedClassifierCV(base_estimator=clone(estimator), method=self.calibration_method, cv=cv)
+            return calibrated.fit(X, y)
+        except ValueError as error:
+            logger.warning("Calibration indisponible, modèle brut conservé: %s", error)
+            return estimator.fit(X, y)
+
+    def train(self, market_data: pd.DataFrame, sentiment_data: Optional[pd.DataFrame], as_of: Optional[Any] = None) -> Dict[str, Any]:
+        X, y = self._prepare_data(market_data, sentiment_data, True, as_of)
+        split = TimeSeriesSplit(n_splits=5)
+        train_index, test_index = list(split.split(X))[-1]
+        X_train, X_test = X.iloc[train_index], X.iloc[test_index]
+        y_train, y_test = y.iloc[train_index], y.iloc[test_index]
+        self.scaler = StandardScaler().fit(X_train)
+        train_scaled, test_scaled = self.scaler.transform(X_train), self.scaler.transform(X_test)
+        candidates = [
+            RandomForestClassifier(n_estimators=120, max_depth=8, min_samples_leaf=2, random_state=42, n_jobs=1),
+            GradientBoostingClassifier(n_estimators=100, learning_rate=0.05, max_depth=3, random_state=42),
+        ]
+        self.ml_model = [self._calibrate(model, train_scaled, y_train) for model in candidates]
+        probabilities = self._predict_proba(test_scaled)
+        predictions = probabilities.argmax(axis=1)
+        # Calibration sur prédictions walk-forward du train, puis rapport séparé sur le test final.
+        from ai_trading.llm.predictions.uncertainty_calibration import UncertaintyCalibrator
+        calibrator = UncertaintyCalibrator(self)
+        validation = calibrator.perform_cross_validation(train_scaled, y_train.to_numpy(), n_splits=3)
+        if validation.get("error"):
+            calibration_report = {"validation": validation, "test": {"error": "validation_oos_indisponible"}}
         else:
-            # La méthode parallèle est plus rapide
-            optimal_method = "parallel"
-            
-            # Optimiser le nombre de workers
-            available_cores = os.cpu_count() or 4
-            optimal_workers = min(available_cores, max(2, len(assets)))
-            self.processor.max_workers = optimal_workers
-            
-            # Batch size pour le traitement parallèle
-            batch_size = 1
-        
-        # 3. Précharger les actifs les plus fréquemment demandés
-        if len(assets) > 3:
-            most_common_assets = assets[:3]  # Les 3 premiers sont supposés être les plus communs
-            self.preload_predictions(most_common_assets, [timeframe], async_mode=True)
-        
-        # Durée totale de l'optimisation
-        optimization_duration = time.time() - start_time
-        
-        # Statistiques d'optimisation
-        optimization_stats = {
-            "optimal_method": optimal_method,
-            "batch_per_asset_ms": batch_per_asset * 1000 if batch_method_available else None,
-            "parallel_per_asset_ms": parallel_per_asset * 1000,
-            "optimal_batch_size": batch_size,
-            "optimization_duration_ms": optimization_duration * 1000,
-            "num_assets": len(assets),
-            "timeframe": timeframe,
-            "num_workers": self.processor.max_workers,
-            "gpu_accelerated": self.rtx_optimizer is not None
+            validation_probabilities = np.asarray(validation["probabilities"], dtype=float)
+            validation_targets = np.asarray(validation["targets"], dtype=int)
+            calibration_report = calibrator.evaluate_validation_and_test(
+                validation_probabilities, validation_targets, probabilities, y_test.to_numpy(),
+                abstention_threshold=float(self.config.get("min_prediction_confidence", 0.45)),
+            )
+        metrics = {
+            "accuracy": float(accuracy_score(y_test, predictions)),
+            "precision": float(precision_score(y_test, predictions, average="weighted", zero_division=0)),
+            "recall": float(recall_score(y_test, predictions, average="weighted", zero_division=0)),
+            "f1": float(f1_score(y_test, predictions, average="weighted", zero_division=0)),
+            "train_samples": int(len(X_train)), "test_samples": int(len(X_test)), "features": self.feature_columns,
+            "n_models": len(self.ml_model), "validation_type": "timeseries_last_fold",
+            "calibration": calibration_report,
         }
-        
-        logger.info(f"Optimisation terminée. Méthode: {optimal_method}, "
-                   f"Durée: {optimization_duration:.2f}s")
-        
-        return optimization_stats
+        self._save_models()
+        return metrics
+
+    def _predict_proba(self, X: np.ndarray) -> np.ndarray:
+        if not self.ml_model:
+            return np.full((len(X), 3), 1 / 3)
+        probabilities = []
+        for model in self.ml_model:
+            raw = model.predict_proba(X)
+            expanded = np.zeros((len(X), 3), dtype=float)
+            for position, class_id in enumerate(model.classes_):
+                if int(class_id) in self.inverse_direction_mapping:
+                    expanded[:, int(class_id)] = raw[:, position]
+            probabilities.append(expanded)
+        average = np.mean(probabilities, axis=0)
+        return average / average.sum(axis=1, keepdims=True)
+
+    def _get_ml_prediction(self, data: Any) -> Dict[str, Any]:
+        if isinstance(data, pd.DataFrame):
+            features = data
+        else:
+            features = pd.DataFrame(data)
+        if self.scaler is None or not self.ml_model:
+            return {"direction": "neutral", "confidence": 0.0, "probabilities": {direction: 1 / 3 for direction in self.direction_mapping}, "abstain": True}
+        features = features.reindex(columns=self.feature_columns, fill_value=0.0)
+        probability = self._predict_proba(self.scaler.transform(features))[-1]
+        direction_id = int(np.argmax(probability))
+        return {"direction": self.inverse_direction_mapping[direction_id], "confidence": float(probability[direction_id]),
+                "probabilities": {self.inverse_direction_mapping[index]: float(value) for index, value in enumerate(probability)}}
+
+    def _combine_predictions(self, llm_prediction: Dict[str, Any], ml_prediction: Dict[str, Any]) -> Dict[str, Any]:
+        llm_probabilities = np.zeros(3, dtype=float)
+        llm_confidence = float(llm_prediction.get("confidence", 0.0))
+        for direction, index in self.direction_mapping.items():
+            llm_probability = (1.0 - llm_confidence) / 2
+            if llm_prediction.get("direction") == direction:
+                llm_probability = llm_confidence
+            llm_probabilities[index] = llm_probability
+        ml_probabilities = np.asarray([float(ml_prediction["probabilities"].get(direction, 0.0))
+                                       for direction in self.direction_mapping], dtype=float)
+        distributions, weights = [ml_probabilities], [self.ml_weight]
+        if self.llm_weight > 0:
+            distributions.insert(0, llm_probabilities)
+            weights.insert(0, self.llm_weight)
+        fused = self.ensemble.fuse_probabilities(distributions, weights=weights)
+        confidence = float(fused["confidence"])
+        disagreement = self.llm_weight > 0 and llm_prediction.get("direction") != ml_prediction.get("direction")
+        abstain = (confidence < float(self.config.get("min_prediction_confidence", 0.45))
+                   or not fused["is_consensus_sufficient"]
+                   or (disagreement and confidence < 0.60))
+        return {**fused, "direction": "neutral" if abstain else fused["direction"],
+                "abstain": abstain, "consensus": not disagreement}
+
+    def predict(self, asset: str, timeframe: str, market_data: Optional[pd.DataFrame] = None,
+                sentiment_data: Optional[pd.DataFrame] = None, as_of: Optional[Any] = None) -> Dict[str, Any]:
+        if self.prediction_mode == "ml_only":
+            raw_market = market_data if market_data is not None else self.market_predictor._fetch_market_data(asset, timeframe, as_of)
+            raw_sentiment = sentiment_data
+            if raw_sentiment is None and self.market_predictor.sentiment_provider is not None:
+                raw_sentiment = self.market_predictor.sentiment_provider(asset=asset, timeframe=timeframe, as_of=as_of)
+            if not self.ml_model or self.scaler is None:
+                return {
+                    "asset": asset.upper(), "timeframe": timeframe, "as_of": str(as_of) if as_of is not None else None,
+                    "direction": "neutral", "confidence": 0.0,
+                    "probabilities": {direction: 1 / 3 for direction in self.direction_mapping},
+                    "abstain": True, "hybrid_status": "ml_only_untrained", "mode": "ml_only",
+                    "trading_enabled": False,
+                }
+            try:
+                features, _ = self._prepare_data(raw_market, raw_sentiment, False, as_of)
+                ml_prediction = self._get_ml_prediction(features)
+                confidence = float(ml_prediction["confidence"])
+                abstain = confidence < float(self.config.get("min_prediction_confidence", 0.45))
+                return {
+                    **ml_prediction, "direction": "neutral" if abstain else ml_prediction["direction"],
+                    "abstain": abstain, "asset": asset.upper(), "timeframe": timeframe,
+                    "as_of": str(as_of) if as_of is not None else None, "hybrid_status": "ml_only_ready",
+                    "mode": "ml_only", "trading_enabled": False,
+                    "data_version": self.market_predictor._resolve_inputs(asset, timeframe, raw_market, raw_sentiment, as_of)[1].fingerprint,
+                }
+            except Exception as error:
+                return {
+                    "asset": asset.upper(), "timeframe": timeframe, "direction": "neutral", "confidence": 0.0,
+                    "abstain": True, "hybrid_status": "ml_only_degraded", "mode": "degraded",
+                    "trading_enabled": False, "error": {"type": type(error).__name__, "message": str(error)},
+                }
+        llm_prediction = self.market_predictor.predict_market_direction(asset, timeframe, market_data, sentiment_data, as_of)
+        if llm_prediction.get("mode") == "degraded" or not self.ml_model or self.scaler is None:
+            result = dict(llm_prediction)
+            result["hybrid_status"] = "llm_only_untrained" if self.ml_model == [] else "degraded"
+            return result
+        raw_market = market_data if market_data is not None else self.market_predictor._fetch_market_data(asset, timeframe, as_of)
+        features, _ = self._prepare_data(raw_market, sentiment_data, False, as_of)
+        ml_prediction = self._get_ml_prediction(features)
+        combined = self._combine_predictions(llm_prediction, ml_prediction)
+        combined.update({"asset": asset.upper(), "timeframe": timeframe, "as_of": llm_prediction.get("as_of"),
+                         "llm_prediction": llm_prediction, "ml_prediction": ml_prediction,
+                         "hybrid_status": "ready", "timestamp": datetime.now().isoformat()})
+        return combined
+
+    def batch_predict(self, assets: List[str], timeframe: str = "24h", **kwargs: Any) -> Dict[str, Dict[str, Any]]:
+        return {asset: self.predict(asset, timeframe, **kwargs) for asset in assets}
+
+    def _ensemble_predict(self, X: np.ndarray) -> np.ndarray:
+        return self._predict_proba(X).argmax(axis=1)
+
+    def _save_models(self, path: Optional[str] = None) -> str:
+        target = path or os.path.join(self.model_dir, "prediction_model.joblib")
+        joblib.dump({"models": self.ml_model, "scaler": self.scaler, "feature_columns": self.feature_columns,
+                     "config": {"llm_weight": self.llm_weight, "ml_weight": self.ml_weight,
+                                "prediction_mode": self.prediction_mode}}, target)
+        return target
+
+    def save_model(self, path: str) -> str:
+        return self._save_models(path)
+
+    def load_model(self, path: str) -> None:
+        payload = joblib.load(path)
+        self.ml_model, self.scaler = payload["models"], payload["scaler"]
+        self.feature_columns = list(payload["feature_columns"])
+        saved_config = payload.get("config", {})
+        self.prediction_mode = saved_config.get("prediction_mode", self.prediction_mode)
+
+    def _fetch_recent_data(self, asset: str, timeframe: str, as_of: Optional[Any] = None) -> Tuple[pd.DataFrame, Optional[pd.DataFrame]]:
+        sentiment = (self.market_predictor.sentiment_provider(asset=asset, timeframe=timeframe, as_of=as_of)
+                     if self.market_predictor.sentiment_provider else None)
+        return self.market_predictor._fetch_market_data(asset, timeframe, as_of), sentiment
 
     def get_cache_stats(self) -> Dict[str, Any]:
-        """
-        Récupère les statistiques du cache de prédiction.
-        
-        Returns:
-            Statistiques du cache
-        """
-        # Statistiques du cache du market_predictor
-        market_predictor_stats = self.market_predictor.get_cache_stats()
-        
-        return {
-            "market_predictor_cache": market_predictor_stats
-        }
+        return {"market_predictor_cache": self.market_predictor.get_cache_stats()}
 
-    def _preprocess_data(self, market_data: pd.DataFrame, sentiment_data: pd.DataFrame) -> pd.DataFrame:
-        """
-        Prétraite les données de marché et de sentiment pour l'entraînement ou la prédiction.
-        
-        Args:
-            market_data (pd.DataFrame): Données de marché avec colonnes OHLCV
-            sentiment_data (pd.DataFrame): Données de sentiment avec colonnes de sentiment
-            
-        Returns:
-            pd.DataFrame: Données prétraitées et fusionnées
-        """
-        # Fusionner les données de marché et de sentiment
-        if 'date' in market_data.columns and 'date' in sentiment_data.columns:
-            data = pd.merge(market_data, sentiment_data, on='date', how='inner')
-        else:
-            # Si les dates ne sont pas disponibles, on suppose que les indices correspondent
-            data = pd.concat([market_data.reset_index(drop=True), 
-                            sentiment_data.reset_index(drop=True)], axis=1)
-        
-        # Gestion des valeurs manquantes
-        data = data.fillna(method='ffill').fillna(method='bfill')
-        
-        # Exclure la colonne date pour le scaling
-        if 'date' in data.columns:
-            data = data.drop(columns=['date'])
-        
-        # Exclure les colonnes 'direction' ou autres colonnes texte
-        for col in ['direction']:
-            if col in data.columns:
-                data = data.drop(columns=[col])
-        
-        # S'assurer que toutes les colonnes sont numériques
-        for col in data.columns:
-            if data[col].dtype == 'object':
-                try:
-                    data[col] = pd.to_numeric(data[col])
-                except:
-                    data = data.drop(columns=[col])
-        
-        logger.info(f"Dimensions data après prétraitement: {data.shape}")
-        logger.info(f"Colonnes: {data.columns.tolist()}")
-        
-        return data 
+    def cleanup_resources(self) -> None:
+        self.market_predictor.cleanup_resources()
+        if self.rtx_optimizer:
+            self.rtx_optimizer.clear_cache()

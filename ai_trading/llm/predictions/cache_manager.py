@@ -206,6 +206,16 @@ class CacheManager:
             # Persistence sur disque
             if self.enable_disk_cache:
                 self._save_to_disk(key, value)
+
+    def get_or_compute(self, key: str, factory: Callable[[], Any], ttl: Optional[int] = None) -> Any:
+        """Retourne une entrée ou calcule une seule fois la valeur pour des appels concurrents."""
+        with self.lock:
+            cached = self.get(key)
+            if cached is not None:
+                return cached
+            value = factory()
+            self.set(key, value, ttl)
+            return value
     
     def prefetch(self, keys: List[str]) -> None:
         """
@@ -392,6 +402,29 @@ class CacheManager:
         """
         with self.lock:
             self._remove(key)
+            if self.enable_disk_cache:
+                file_path = self._get_disk_path(key)
+                if file_path and os.path.exists(file_path):
+                    os.remove(file_path)
+
+    def invalidate_prefix(self, prefix: str) -> int:
+        """Invalide mémoire et disque pour un actif/horizon devenu obsolète."""
+        with self.lock:
+            keys = {key for key in self.memory_cache if key.startswith(prefix)}
+            if self.enable_disk_cache and self.persist_path and os.path.exists(self.persist_path):
+                for filename in os.listdir(self.persist_path):
+                    if not filename.endswith(".cache"):
+                        continue
+                    try:
+                        with open(os.path.join(self.persist_path, filename), "rb") as handle:
+                            disk_key = pickle.load(handle).get("key")
+                        if disk_key and disk_key.startswith(prefix):
+                            keys.add(disk_key)
+                    except Exception as error:
+                        logger.warning("Cache disque illisible pendant invalidation: %s", error)
+            for key in keys:
+                self.remove(key)
+            return len(keys)
     
     def get_stats(self) -> Dict[str, Any]:
         """
@@ -490,6 +523,7 @@ class CacheManager:
         try:
             file_path = self._get_disk_path(key)
             disk_data = {
+                "key": key,
                 "value": value,
                 "expiry": self.expiry_times.get(key, 0)
             }
@@ -558,8 +592,11 @@ class CacheManager:
                         os.remove(file_path)
                         continue
                     
-                    # Extraction de la clé originale si possible, sinon utiliser le nom du fichier
-                    key = filename.split('.')[0]
+                    # Les anciens fichiers sans clé sont ignorés : leur hash ne peut pas
+                    # servir de clé mémoire correcte et risquerait un cache incohérent.
+                    key = disk_data.get("key")
+                    if not key:
+                        continue
                     value = disk_data.get("value")
                     
                     # Chargement en mémoire si la capacité le permet
@@ -627,7 +664,7 @@ class CacheManager:
             expired_keys = [key for key in list(self.memory_cache.keys()) if self._is_expired(key)]
             
             for key in expired_keys:
-                self._remove(key)
+                self.remove(key)
             
             logger.info(f"{len(expired_keys)} entrées expirées purgées du cache")
             return len(expired_keys)
@@ -676,4 +713,4 @@ def cached(ttl: Optional[int] = None, key_fn: Optional[Callable] = None):
         
         return wrapper
     
-    return decorator 
+    return decorator
