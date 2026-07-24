@@ -1,3 +1,5 @@
+import json
+
 import pandas as pd
 from types import SimpleNamespace
 
@@ -9,6 +11,9 @@ from ai_trading.scripts.run_real_multi_asset_walk_forward import (
     _assert_test_available,
     _eligible,
     _metrics,
+    _load_candidate_config,
+    _parameter_fingerprint,
+    _selected_candidate_entries,
     _passive_equity,
     _record_test_consumed,
     _save,
@@ -25,6 +30,32 @@ def test_candidate_protocol_does_not_override_the_cli_training_budget():
     trend_candidate = CANDIDATES[1]
     assert trend_candidate["turnover_reward_penalty"] < 0.002
     assert trend_candidate["bull_underexposure_penalty"] > 0
+
+
+def test_candidate_config_requires_a_complete_matching_fingerprint(tmp_path):
+    parameters = dict(CANDIDATES[0])
+    manifest = {
+        "schema_version": 1,
+        "candidates": [{
+            "candidate_id": "p3-test",
+            "original_candidate_index": 0,
+            "parameter_fingerprint": _parameter_fingerprint(parameters),
+            "parameters": parameters,
+            "source_runs": ["p3_validation_w01"],
+            "original_seeds": [42, 314, 2024],
+        }],
+    }
+    path = tmp_path / "candidates.json"
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    assert _load_candidate_config(path) == manifest["candidates"]
+    args = SimpleNamespace(candidate_config=str(path), candidate_indices=None, candidate_ids=["p3-test"])
+    assert _selected_candidate_entries(args) == manifest["candidates"]
+
+    manifest["candidates"][0]["parameter_fingerprint"] = "wrong"
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(ValueError, match="empreinte invalide"):
+        _load_candidate_config(path)
 
 
 def test_multi_seed_selection_rejects_a_candidate_with_one_losing_seed():

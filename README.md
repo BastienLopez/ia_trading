@@ -76,15 +76,15 @@ Ce module contient l'implémentation d'un système de trading de cryptomonnaies 
 
 -----------------------------------------------------------------------------------------------------------------------
 
-### Phase 3: Développement de l'Agent d'Apprentissage par Renforcement 🔄
+### Phase 3: Développement de l'Agent d'Apprentissage par Renforcement ✅
 
 > Le cœur P3 est opérationnel dans Docker avec CUDA et n'accepte plus de
 > données de marché synthétiques implicitement. Le protocole réel impose à
 > présent un ledger FIFO, des masques d'actions, une validation anti-politique
 > mono-action et un walk-forward train/validation/test strictement temporel.
-> La porte P4 reste fermée tant que les critères calculés sur plusieurs fenêtres
-> BTC, ETH et or ne sont pas tous verts ; aucun résultat court ne vaut preuve de
-> surperformance.
+> Le socle P3 est verrouillé de façon provisoire par décision produit dans
+> `ai_trading/configs/p3_locked_candidate.json`. La porte de mise en production
+> reste fermée : aucun résultat court ne vaut preuve de surperformance.
 
 #### 3.1 Fondations RL ✅
 
@@ -127,9 +127,10 @@ Ce module contient l'implémentation d'un système de trading de cryptomonnaies 
   sélection sur validation et un seul test figé par modèle retenu.
 - ✅ Porte P4 calculée : rendement net vs Buy & Hold, drawdown, profit factor,
   nombre minimal de trades, Sharpe/Sortino et diversité/stabilité.
-- 🔄 La validation économique reste à obtenir avec cette porte : l'implémentation
-  est contrôlée, mais P4 n'est pas autorisée tant que `overall_phase4_gate.passed`
-  n'est pas `true` sur les trois actifs.
+- ⚠️ La validation économique reste à obtenir : le lock P3 permet de poursuivre
+  le développement de P4/P5, mais `overall_phase4_gate.passed` n'est pas `true`
+  sur les trois actifs. Aucune mise en production ou allocation réelle n'est
+  autorisée sur cette base. Voir `p3_lock.md`.
 
 -----------------------------------------------------------------------------------------------------------------------
 

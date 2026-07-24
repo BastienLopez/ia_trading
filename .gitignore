@@ -123,6 +123,7 @@ onnx_models/
 *.eps
 !web_app/static/images/**
 !docs/images/**
+ai_trading/dashboard/test_output/
 
 # TensorFlow et autres frameworks ML
 *.pb

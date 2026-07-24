@@ -49,6 +49,93 @@ CANDIDATES = (
 )
 
 
+def _parameter_fingerprint(parameters: dict[str, Any]) -> str:
+    """Empreinte stable qui identifie une configuration indépendamment de son index."""
+    payload = json.dumps(parameters, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
+def _default_candidate_entries(indices: list[int] | range) -> list[dict[str, Any]]:
+    return [
+        {
+            "candidate_id": f"p3-candidate-{index:02d}-{_parameter_fingerprint(CANDIDATES[index])}",
+            "original_candidate_index": index,
+            "parameter_fingerprint": _parameter_fingerprint(CANDIDATES[index]),
+            "parameters": CANDIDATES[index],
+        }
+        for index in indices
+    ]
+
+
+def _load_candidate_config(path: str | os.PathLike[str]) -> list[dict[str, Any]]:
+    """Charge un manifeste versionné sans changer la grille historique par défaut."""
+    config_path = Path(path)
+    try:
+        payload = json.loads(config_path.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise ValueError(f"candidate-config introuvable: {config_path}") from exc
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"candidate-config JSON invalide: {config_path}") from exc
+    if not isinstance(payload, dict) or set(payload) != {"schema_version", "candidates"}:
+        raise ValueError("candidate-config doit contenir exactement schema_version et candidates")
+    if payload["schema_version"] != 1 or not isinstance(payload["candidates"], list) or not payload["candidates"]:
+        raise ValueError("candidate-config requiert schema_version=1 et une liste candidates non vide")
+
+    required = {
+        "candidate_id", "original_candidate_index", "parameter_fingerprint", "parameters",
+        "source_runs", "original_seeds",
+    }
+    entries: list[dict[str, Any]] = []
+    seen_ids, seen_fingerprints = set(), set()
+    for entry in payload["candidates"]:
+        if not isinstance(entry, dict) or set(entry) != required:
+            raise ValueError("chaque candidat doit respecter le schéma P3 complet")
+        parameters = entry["parameters"]
+        if (
+            not isinstance(entry["candidate_id"], str)
+            or not entry["candidate_id"]
+            or not isinstance(entry["original_candidate_index"], int)
+            or entry["original_candidate_index"] < 0
+            or not isinstance(parameters, dict)
+            or parameters.get("agent_type") not in {"ppo", "sac"}
+            or not isinstance(entry["source_runs"], list)
+            or not isinstance(entry["original_seeds"], list)
+        ):
+            raise ValueError("candidate-config contient un candidat mal typé ou incomplet")
+        fingerprint = _parameter_fingerprint(parameters)
+        if entry["parameter_fingerprint"] != fingerprint:
+            raise ValueError(f"empreinte invalide pour {entry['candidate_id']}")
+        if entry["candidate_id"] in seen_ids or fingerprint in seen_fingerprints:
+            raise ValueError("candidate-config contient des candidats ou empreintes dupliqués")
+        seen_ids.add(entry["candidate_id"])
+        seen_fingerprints.add(fingerprint)
+        entries.append(entry)
+    return entries
+
+
+def _selected_candidate_entries(args: argparse.Namespace) -> list[dict[str, Any]]:
+    if args.candidate_config:
+        if args.candidate_indices is not None:
+            raise ValueError("--candidate-config et --candidate-indices sont exclusifs")
+        entries = _load_candidate_config(args.candidate_config)
+        candidate_ids = getattr(args, "candidate_ids", None)
+        if candidate_ids is None:
+            return entries
+        if len(set(candidate_ids)) != len(candidate_ids):
+            raise ValueError("--candidate-id ne doit pas contenir de doublon")
+        by_id = {entry["candidate_id"]: entry for entry in entries}
+        missing = [candidate_id for candidate_id in candidate_ids if candidate_id not in by_id]
+        if missing:
+            raise ValueError(f"candidate-id absent du manifeste: {', '.join(missing)}")
+        return [by_id[candidate_id] for candidate_id in candidate_ids]
+    if getattr(args, "candidate_ids", None) is not None:
+        raise ValueError("--candidate-id requiert --candidate-config")
+    selected_indices = args.candidate_indices if args.candidate_indices is not None else range(len(CANDIDATES))
+    if any(index < 0 or index >= len(CANDIDATES) for index in selected_indices):
+        raise ValueError(f"candidate-indices doit être compris entre 0 et {len(CANDIDATES) - 1}")
+    return _default_candidate_entries(selected_indices)
+
+
 def _common_data(raw: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
     common = sorted(set.intersection(*(set(frame.index) for frame in raw.values())))
     if not common:
@@ -365,7 +452,15 @@ def _aggregate_validation(metrics_by_seed: list[dict[str, Any]]) -> dict[str, An
     return aggregate
 
 
-def _save(directory: Path, data: dict[str, pd.DataFrame], result: dict[str, Any], passive: list[float], metrics: dict[str, Any], stage: str) -> None:
+def _save(
+    directory: Path,
+    data: dict[str, pd.DataFrame],
+    result: dict[str, Any],
+    passive: list[float],
+    metrics: dict[str, Any],
+    stage: str,
+    candidate_metadata: dict[str, Any] | None = None,
+) -> None:
     directory.mkdir(parents=True, exist_ok=True)
     index = next(iter(data.values())).index
     # L'equity est valorisée après chaque step, tandis que l'action/fill est
@@ -391,6 +486,8 @@ def _save(directory: Path, data: dict[str, pd.DataFrame], result: dict[str, Any]
         initial_balance=float(result["equity"][0]),
         ending_equity=float(result["equity"][-1]),
     )
+    if candidate_metadata is not None:
+        metrics["candidate"] = candidate_metadata
     (directory / "metrics.json").write_text(json.dumps(metrics, indent=2, default=str), encoding="utf-8")
     fig, ax = plt.subplots(figsize=(14, 6))
     ax.plot(dates, agent_equity, label="Agent RL multi-actifs", color="#1f77b4")
@@ -508,11 +605,14 @@ def _run_unlocked(args: argparse.Namespace) -> Path:
     rows = []
     for window in windows:
         candidates = []
-        selected_indices = args.candidate_indices if args.candidate_indices is not None else range(len(CANDIDATES))
-        if any(index < 0 or index >= len(CANDIDATES) for index in selected_indices):
-            raise ValueError(f"candidate-indices doit être compris entre 0 et {len(CANDIDATES) - 1}")
-        for candidate_index in selected_indices:
-            params = CANDIDATES[candidate_index]
+        selected_entries = _selected_candidate_entries(args)
+        for candidate_slot, candidate in enumerate(selected_entries):
+            params = candidate["parameters"]
+            candidate_index = candidate["original_candidate_index"]
+            candidate_metadata = {
+                key: candidate[key]
+                for key in ("candidate_id", "original_candidate_index", "parameter_fingerprint", "parameters")
+            }
             seed_metrics = []
             for seed in args.validation_seeds:
                 _seed(seed + window.index * 10_000 + candidate_index * 100)
@@ -527,14 +627,16 @@ def _run_unlocked(args: argparse.Namespace) -> Path:
                     validation_data, args.initial_balance, args.transaction_fee, validation_start
                 )
                 validation_metrics = _metrics(validation_result, validation_passive, len(window.validation))
-                candidate_dir = root / f"window_{window.index:02d}" / "validation" / f"candidate_{candidate_index:02d}" / f"seed_{seed}"
-                _save(candidate_dir, validation_data, validation_result, validation_passive, validation_metrics, "validation")
+                candidate_dir = root / f"window_{window.index:02d}" / "validation" / f"candidate_{candidate_slot:02d}" / f"seed_{seed}"
+                _save(
+                    candidate_dir, validation_data, validation_result, validation_passive,
+                    validation_metrics, "validation", candidate_metadata,
+                )
                 seed_metrics.append(validation_metrics)
             validation_metrics = _aggregate_validation(seed_metrics)
             eligible, reason = _eligible(validation_metrics, args.min_closed_trades, args.max_agent_order_rate)
             candidates.append({
-                "parameters": params, "metrics": validation_metrics, "eligible": eligible,
-                "reason": reason,
+                **candidate_metadata, "metrics": validation_metrics, "eligible": eligible, "reason": reason,
             })
         eligible = [candidate for candidate in candidates if candidate["eligible"]]
         row: dict[str, Any] = {"window": window.index, "validation_candidates": candidates}
@@ -599,6 +701,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--disable-regime-action-guard", action="store_true", help="Désactive le blocage causal des positions contre-tendance.")
     parser.add_argument("--candidate-budget-scale", type=float, default=1.0, help="Réduit tous les budgets candidat pour un smoke test.")
     parser.add_argument("--candidate-indices", nargs="+", type=int, default=None, help="Sous-ensemble de candidats à valider, par indice zéro-based.")
+    parser.add_argument("--candidate-config", default=None, help="Manifeste JSON P3 strict de candidats explicites; exclusif avec --candidate-indices.")
+    parser.add_argument("--candidate-id", dest="candidate_ids", nargs="+", default=None, help="Sous-ensemble explicite d'IDs issu de --candidate-config.")
     parser.add_argument("--evaluation-mode", choices=("validation", "final-test"), default="validation", help="Validation only par défaut; le holdout ne s'exécute qu'en final-test.")
     parser.add_argument("--oos-registry", default="ai_trading/info_retour/p3_oos_registry.json", help="Registre persistant des fenêtres hors-échantillon consommées.")
     parser.add_argument("--seed", type=int, default=42); parser.add_argument("--output-dir", default="ai_trading/info_retour/p3_multi_asset_real")

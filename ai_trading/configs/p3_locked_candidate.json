@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "candidates": [
+    {
+      "candidate_id": "p3-bf72563778749e59",
+      "original_candidate_index": 2,
+      "parameter_fingerprint": "bf72563778749e59",
+      "parameters": {
+        "agent_type": "ppo",
+        "hidden_size": 64,
+        "learning_rate": 0.0005,
+        "base_slippage": 0.001,
+        "max_active_positions": 3,
+        "rebalance_frequency": 7,
+        "min_trade_fraction": 0.03,
+        "min_action_magnitude": 0.03,
+        "max_asset_exposure": 0.35,
+        "signal_action_blend": 0.45,
+        "strict_short_entry": true,
+        "short_entry_min_confidence": 0.3,
+        "turnover_reward_penalty": 0.0005
+      },
+      "source_runs": [
+        "p3_retest_c2_w5_20260724_134108",
+        "p3_retest_c2_w6_20260724_134118"
+      ],
+      "original_seeds": [73, 211, 997]
+    }
+  ]
+}
