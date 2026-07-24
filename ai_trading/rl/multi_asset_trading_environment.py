@@ -60,6 +60,23 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
         max_stop_loss_pct=0.10,
         max_trailing_drawdown_pct=0.12,
         max_asset_exposure=0.45,
+        allow_short=False,
+        max_short_exposure=0.25,
+        max_total_short_exposure=0.45,
+        short_initial_margin=0.50,
+        short_maintenance_margin=0.35,
+        short_borrow_fee_rate=0.0001,
+        max_short_loss_pct=0.08,
+        max_short_trailing_drawdown_pct=0.10,
+        strict_short_entry=False,
+        short_entry_min_confidence=0.25,
+        signal_action_blend=0.0,
+        regime_action_guard=False,
+        regime_min_confidence=0.15,
+        turnover_reward_penalty=0.002,
+        bull_exposure_target=0.75,
+        bull_underexposure_penalty=0.0,
+        start_step: int | None = None,
         max_active_positions=3,  # Nombre maximum de positions actives simultanées
         action_type="continuous",  # Pour le multi-actifs, on utilise des actions continues
         slippage_model="dynamic",
@@ -130,6 +147,17 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
         assert atr_stop_multiplier > 0 and atr_trailing_multiplier > 0, "Les multiplicateurs ATR doivent être positifs"
         assert 0 < max_stop_loss_pct < 1 and 0 < max_trailing_drawdown_pct < 1, "Les plafonds de perte doivent être entre 0 et 1"
         assert 0 < max_asset_exposure <= 1, "L'exposition maximale par actif doit être entre 0 et 1"
+        assert 0 < max_short_exposure <= 1, "L'exposition short maximale doit être entre 0 et 1"
+        assert 0 < max_total_short_exposure <= 1, "L'exposition short totale doit être entre 0 et 1"
+        assert 0 < short_initial_margin <= 1 and 0 < short_maintenance_margin < 1, "Les marges short doivent être entre 0 et 1"
+        assert short_borrow_fee_rate >= 0, "Le coût d'emprunt short doit être positif"
+        assert 0 < max_short_loss_pct < 1 and 0 < max_short_trailing_drawdown_pct < 1, "Les plafonds short doivent être entre 0 et 1"
+        assert 0 <= short_entry_min_confidence <= 1, "Le seuil de confiance short doit être entre 0 et 1"
+        assert 0 <= signal_action_blend <= 1, "Le mélange de signal doit être entre 0 et 1"
+        assert 0 <= regime_min_confidence <= 1, "La confiance minimale de régime doit être entre 0 et 1"
+        assert turnover_reward_penalty >= 0, "La pénalité de turnover doit être positive"
+        assert 0 <= bull_exposure_target <= 1, "La cible d'exposition bull doit être entre 0 et 1"
+        assert bull_underexposure_penalty >= 0, "La pénalité de sous-exposition bull doit être positive"
         assert (
             action_type == "continuous"
         ), "Pour le trading multi-actifs, seul le type d'action 'continuous' est supporté"
@@ -159,6 +187,23 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
         self.max_stop_loss_pct = max_stop_loss_pct
         self.max_trailing_drawdown_pct = max_trailing_drawdown_pct
         self.max_asset_exposure = max_asset_exposure
+        self.allow_short = allow_short
+        self.max_short_exposure = max_short_exposure
+        self.max_total_short_exposure = max_total_short_exposure
+        self.short_initial_margin = short_initial_margin
+        self.short_maintenance_margin = short_maintenance_margin
+        self.short_borrow_fee_rate = short_borrow_fee_rate
+        self.max_short_loss_pct = max_short_loss_pct
+        self.max_short_trailing_drawdown_pct = max_short_trailing_drawdown_pct
+        self.strict_short_entry = strict_short_entry
+        self.short_entry_min_confidence = short_entry_min_confidence
+        self.signal_action_blend = signal_action_blend
+        self.regime_action_guard = regime_action_guard
+        self.regime_min_confidence = regime_min_confidence
+        self.turnover_reward_penalty = turnover_reward_penalty
+        self.bull_exposure_target = bull_exposure_target
+        self.bull_underexposure_penalty = bull_underexposure_penalty
+        self.start_step = start_step
         self.max_active_positions = min(max_active_positions, self.num_assets)
         self.action_type = action_type
         self.slippage_model = slippage_model
@@ -206,11 +251,17 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
         self.crypto_holdings = {symbol: 0.0 for symbol in self.symbols}
         self.position_entry_prices = {symbol: 0.0 for symbol in self.symbols}
         self.position_peak_prices = {symbol: 0.0 for symbol in self.symbols}
+        self.short_entry_prices = {symbol: 0.0 for symbol in self.symbols}
+        self.short_trough_prices = {symbol: 0.0 for symbol in self.symbols}
+        self.short_sale_proceeds = {symbol: 0.0 for symbol in self.symbols}
+        self.short_margin_reserved = {symbol: 0.0 for symbol in self.symbols}
         self.last_prices = {symbol: 0.0 for symbol in self.symbols}
         self.portfolio_value_history = []
         self.returns_history = []
         self.allocation_history = []
-        self.current_step = self.window_size
+        self.current_step = self.window_size if self.start_step is None else self.start_step
+        if not self.window_size <= self.current_step < len(self.data_dict[self.symbols[0]]) - 1:
+            raise ValueError("start_step doit laisser au moins une bougie de trading après le warmup")
         # Le premier rééquilibrage reste autorisé immédiatement après reset.
         self.steps_since_rebalance = self.rebalance_frequency - 1
         self.active_assets = self.symbols[: self.max_active_positions]
@@ -271,7 +322,12 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
         close = pd.to_numeric(normalized["close"], errors="coerce")
         if close.isna().all():
             raise ValueError(f"La colonne 'close' de {symbol} ne contient aucune valeur numérique")
-        normalized["close"] = close.ffill().bfill()
+        normalized["close"] = close.ffill()
+        if normalized["close"].isna().any():
+            raise ValueError(
+                f"La colonne 'close' de {symbol} commence par une valeur manquante; "
+                "un remplissage futur est interdit"
+            )
 
         for column in ("open", "high", "low"):
             if column not in normalized.columns:
@@ -323,11 +379,15 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
         super().reset(seed=seed)
 
         # Réinitialiser l'état
-        self.current_step = self.window_size
+        self.current_step = self.window_size if self.start_step is None else self.start_step
         self.balance = self.initial_balance
         self.crypto_holdings = {symbol: 0.0 for symbol in self.symbols}
         self.position_entry_prices = {symbol: 0.0 for symbol in self.symbols}
         self.position_peak_prices = {symbol: 0.0 for symbol in self.symbols}
+        self.short_entry_prices = {symbol: 0.0 for symbol in self.symbols}
+        self.short_trough_prices = {symbol: 0.0 for symbol in self.symbols}
+        self.short_sale_proceeds = {symbol: 0.0 for symbol in self.symbols}
+        self.short_margin_reserved = {symbol: 0.0 for symbol in self.symbols}
         self.last_prices = {
             symbol: self.data_dict[symbol].iloc[self.current_step]["close"]
             for symbol in self.symbols
@@ -340,6 +400,7 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
         self.pending_orders = []
         self.reserved_cash = 0.0
         self.transaction_count = 0
+        self.trade_events = []
 
         # Obtenir l'observation initiale
         observation = self._get_observation()
@@ -361,6 +422,8 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
         previous_value = self.get_portfolio_value()
         transaction_count_before = self.transaction_count
 
+        self._charge_short_borrow_fees()
+
         # Traitement des ordres en attente
         self._process_pending_orders()
         if self.risk_management:
@@ -370,7 +433,7 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
         # fraction de l'inventaire correspondant. Une vente n'est donc jamais
         # calculée à partir du cash (ancien comportement erroné).
         normalized_actions = self.project_action(action)
-        buy_budget = max(0.0, self.balance - self.reserved_cash)
+        buy_budget = self._available_cash()
 
         # Création des nouveaux ordres
         for i, symbol in enumerate(self.symbols):
@@ -379,9 +442,17 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
             ):  # Seulement si l'action n'est pas nulle
                 current_price = self.data_dict[symbol].iloc[self.current_step]["close"]
                 if normalized_actions[i] > 0:
-                    quantity = buy_budget * normalized_actions[i] / current_price
+                    quantity = (
+                        abs(self.crypto_holdings[symbol]) * normalized_actions[i]
+                        if self.crypto_holdings[symbol] < -1e-12
+                        else buy_budget * normalized_actions[i] / current_price
+                    )
                 else:
-                    quantity = self.crypto_holdings[symbol] * abs(normalized_actions[i])
+                    quantity = (
+                        self.crypto_holdings[symbol] * abs(normalized_actions[i])
+                        if self.crypto_holdings[symbol] > 1e-12
+                        else self._short_capacity(symbol, current_price, previous_value) * abs(normalized_actions[i]) / current_price
+                    )
                 trade_notional = quantity * current_price
                 # Empêche les micro-achats récurrents qui gonflent le turnover
                 # sans modifier matériellement le portefeuille.
@@ -463,7 +534,9 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
                 self.rebalance_frequency - 1, self.steps_since_rebalance + 1
             )
 
-        # Mettre à jour l'historique des allocations
+        # Conserver les expositions nettes réelles. Normaliser uniquement les
+        # positions ouvertes ferait paraitre un portefeuille largement cash
+        # comme investi à 100 % dans son unique actif détenu.
         current_weights = {
             symbol: (
                 self.crypto_holdings[symbol]
@@ -472,20 +545,9 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
             / max(current_value, 1e-6)
             for symbol in self.symbols
         }
-
-        # Normaliser les poids pour s'assurer que leur somme est égale à 1.0
-        # Cette étape est importante pour passer le test test_different_allocation_methods
-        weights_sum = sum(current_weights.values())
-        if weights_sum > 0:
-            current_weights = {
-                symbol: weight / weights_sum
-                for symbol, weight in current_weights.items()
-            }
-        else:
-            # Si le portefeuille est vide, distribuer les poids également
-            current_weights = {
-                symbol: 1.0 / len(self.symbols) for symbol in self.symbols
-            }
+        current_weights["CASH"] = (
+            self.balance + sum(self.short_sale_proceeds.values())
+        ) / max(current_value, 1e-6)
 
         self.allocation_history.append(current_weights)
 
@@ -543,67 +605,175 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
             price (float): Prix de base
             slippage (float): Slippage calculé
         """
-        # Appliquer le slippage au prix
         execution_price = price * (1 + slippage if action_value > 0 else 1 - slippage)
+        timestamp = self.data_dict[symbol].index[self.current_step]
+        holding = self.crypto_holdings[symbol]
 
-        # Limiter le volume pour ne pas dépasser le solde disponible
-        if action_value > 0:  # Achat
-            cost = volume * execution_price * (1 + self.transaction_fee)
-            if cost > self.balance:
-                # Réduire le volume pour ne pas dépasser le solde
-                volume = self.balance / (execution_price * (1 + self.transaction_fee))
+        if action_value > 0 and holding < -1e-12:
+            covered = min(volume, abs(holding))
+            if covered <= 1e-12:
+                return
+            entry_price = self.short_entry_prices[symbol]
+            entry_proceeds = covered * entry_price
+            fee = covered * execution_price * self.transaction_fee
+            self.short_sale_proceeds[symbol] = max(0.0, self.short_sale_proceeds[symbol] - entry_proceeds)
+            self.balance += entry_proceeds - covered * execution_price - fee
+            self.crypto_holdings[symbol] += covered
+            if self.crypto_holdings[symbol] >= -1e-12:
+                self.crypto_holdings[symbol] = 0.0
+                self.short_entry_prices[symbol] = 0.0
+                self.short_trough_prices[symbol] = 0.0
+                self.short_margin_reserved[symbol] = 0.0
+            else:
+                self.short_margin_reserved[symbol] = abs(self.crypto_holdings[symbol]) * entry_price * self.short_initial_margin
+            self.transaction_count += 1
+            self.trade_events.append({"timestamp": timestamp, "symbol": symbol, "side": "short_cover", "quantity": float(covered), "price": float(execution_price), "fee": float(fee), "reason": reason, "position_side": "short"})
+            return
 
+        if action_value > 0:  # Achat long
             cost = volume * execution_price * (1 + self.transaction_fee)
-            previous_quantity = self.crypto_holdings[symbol]
+            available_cash = self._available_cash()
+            if cost > available_cash:
+                volume = available_cash / (execution_price * (1 + self.transaction_fee))
+            if volume <= 1e-12:
+                return
+            cost = volume * execution_price * (1 + self.transaction_fee)
+            previous_quantity = max(0.0, holding)
             self.balance -= cost
             self.crypto_holdings[symbol] += volume
             total_quantity = self.crypto_holdings[symbol]
-            if total_quantity > 0:
-                self.position_entry_prices[symbol] = (
-                    previous_quantity * self.position_entry_prices[symbol] + volume * execution_price
-                ) / total_quantity
-                self.position_peak_prices[symbol] = max(
-                    self.position_peak_prices[symbol], execution_price
-                )
+            self.position_entry_prices[symbol] = (
+                previous_quantity * self.position_entry_prices[symbol] + volume * execution_price
+            ) / total_quantity
+            self.position_peak_prices[symbol] = max(self.position_peak_prices[symbol], execution_price)
             self.transaction_count += 1
-            self.trade_events.append(
-                {
-                    "timestamp": self.data_dict[symbol].index[self.current_step],
-                    "symbol": symbol,
-                    "side": "buy",
-                    "quantity": float(volume),
-                    "price": float(execution_price),
-                    "fee": float(volume * execution_price * self.transaction_fee),
-                    "reason": reason,
-                }
-            )
-        else:  # Vente
-            max_volume = min(volume, self.crypto_holdings[symbol])
-            revenue = max_volume * execution_price * (1 - self.transaction_fee)
-            self.balance += revenue
-            self.crypto_holdings[symbol] -= max_volume
+            self.trade_events.append({"timestamp": timestamp, "symbol": symbol, "side": "buy", "quantity": float(volume), "price": float(execution_price), "fee": float(volume * execution_price * self.transaction_fee), "reason": reason, "position_side": "long"})
+            return
+
+        if holding > 1e-12:  # Vente / clôture long
+            sold = min(volume, holding)
+            if sold <= 1e-12:
+                return
+            fee = sold * execution_price * self.transaction_fee
+            self.balance += sold * execution_price - fee
+            self.crypto_holdings[symbol] -= sold
             if self.crypto_holdings[symbol] <= 1e-12:
                 self.crypto_holdings[symbol] = 0.0
                 self.position_entry_prices[symbol] = 0.0
                 self.position_peak_prices[symbol] = 0.0
-            if max_volume > 0:
-                self.transaction_count += 1
-                self.trade_events.append(
-                    {
-                        "timestamp": self.data_dict[symbol].index[self.current_step],
-                        "symbol": symbol,
-                        "side": "sell",
-                        "quantity": float(max_volume),
-                        "price": float(execution_price),
-                        "fee": float(max_volume * execution_price * self.transaction_fee),
-                        "reason": reason,
-                    }
-                )
+            self.transaction_count += 1
+            self.trade_events.append({"timestamp": timestamp, "symbol": symbol, "side": "sell", "quantity": float(sold), "price": float(execution_price), "fee": float(fee), "reason": reason, "position_side": "long"})
+            return
+
+        if not self.allow_short:
+            return
+        # La marge initiale est bloquée : un short ne peut pas utiliser du
+        # collatéral déjà consommé par des longs, des ordres différés ou un
+        # autre short. Cela évite un levier implicite dans le paper trading.
+        margin_limited_volume = self._available_cash() / max(
+            self.short_initial_margin * execution_price, 1e-12
+        )
+        opened = min(
+            volume,
+            self._short_capacity(symbol, price, self.get_portfolio_value()) / max(execution_price, 1e-12),
+            margin_limited_volume,
+        )
+        if opened <= 1e-12:
+            return
+        previous_short = abs(holding)
+        fee = opened * execution_price * self.transaction_fee
+        self.balance -= fee
+        self.crypto_holdings[symbol] -= opened
+        total_short = abs(self.crypto_holdings[symbol])
+        self.short_entry_prices[symbol] = (
+            previous_short * self.short_entry_prices[symbol] + opened * execution_price
+        ) / total_short
+        self.short_trough_prices[symbol] = min(
+            self.short_trough_prices[symbol] or execution_price, execution_price
+        )
+        self.short_sale_proceeds[symbol] += opened * execution_price
+        self.short_margin_reserved[symbol] = total_short * self.short_entry_prices[symbol] * self.short_initial_margin
+        self.transaction_count += 1
+        self.trade_events.append({"timestamp": timestamp, "symbol": symbol, "side": "short_open", "quantity": float(opened), "price": float(execution_price), "fee": float(fee), "reason": reason, "position_side": "short"})
+
+    def _available_cash(self) -> float:
+        return max(0.0, self.balance - self.reserved_cash - sum(self.short_margin_reserved.values()))
+
+    def close_all_positions(self, reason: str = "end_of_evaluation") -> None:
+        """Réalise les positions au dernier prix pour un backtest auditable.
+
+        Sans cette clôture de fin de fenêtre, la courbe d'equity inclut le
+        mark-to-market mais le ledger FIFO ne contient pas le PnL correspondant.
+        """
+        for symbol in self.symbols:
+            quantity = self.crypto_holdings[symbol]
+            if abs(quantity) <= 1e-12:
+                continue
+            price = float(self.data_dict[symbol].iloc[self.current_step]["close"])
+            action_value = -1.0 if quantity > 0 else 1.0
+            self._execute_trade(
+                symbol=symbol,
+                action_value=action_value,
+                volume=abs(quantity),
+                price=price,
+                slippage=self._calculate_slippage(symbol, action_value, abs(quantity)),
+                reason=reason,
+            )
+
+    def _short_capacity(self, symbol: str, price: float, portfolio_value: float) -> float:
+        current_notional = abs(min(0.0, self.crypto_holdings[symbol])) * price
+        total_short_notional = sum(
+            abs(min(0.0, self.crypto_holdings[name]))
+            * float(self.data_dict[name].iloc[self.current_step]["close"])
+            for name in self.symbols
+        )
+        per_asset_capacity = self.max_short_exposure * portfolio_value - current_notional
+        total_capacity = self.max_total_short_exposure * portfolio_value - total_short_notional
+        return max(0.0, min(per_asset_capacity, total_capacity))
+
+    def _charge_short_borrow_fees(self) -> None:
+        if not self.allow_short or self.short_borrow_fee_rate <= 0:
+            return
+        for symbol in self.symbols:
+            quantity = abs(min(0.0, self.crypto_holdings[symbol]))
+            if quantity <= 1e-12:
+                continue
+            price = float(self.data_dict[symbol].iloc[self.current_step]["close"])
+            fee = quantity * price * self.short_borrow_fee_rate
+            self.balance -= fee
+            self.trade_events.append({"timestamp": self.data_dict[symbol].index[self.current_step], "symbol": symbol, "side": "borrow_fee", "quantity": 0.0, "price": price, "fee": float(fee), "reason": "short_borrow_fee", "position_side": "short"})
 
     def _apply_atr_risk_exits(self):
         """Ferme une position quand le stop ATR ou le trailing-stop est touché."""
         for symbol in self.symbols:
             quantity = self.crypto_holdings[symbol]
+            if quantity < -1e-12:
+                price = float(self.data_dict[symbol].iloc[self.current_step]["close"])
+                features = self.technical_feature_data.get(symbol)
+                atr = float(features.iloc[self.current_step].get("atr", 0.0)) if features is not None else 0.0
+                atr = max(atr, price * 0.02)
+                entry_price = self.short_entry_prices[symbol]
+                self.short_trough_prices[symbol] = min(self.short_trough_prices[symbol] or price, price)
+                stop_price = min(
+                    entry_price + self.atr_stop_multiplier * atr,
+                    entry_price * (1.0 + self.max_short_loss_pct),
+                )
+                trailing_price = min(
+                    self.short_trough_prices[symbol] + self.atr_trailing_multiplier * atr,
+                    self.short_trough_prices[symbol] * (1.0 + self.max_short_trailing_drawdown_pct),
+                )
+                liability = abs(quantity) * price
+                margin_ratio = self.get_portfolio_value() / max(liability, 1e-12)
+                reason = None
+                if margin_ratio < self.short_maintenance_margin:
+                    reason = "short_margin_liquidation"
+                elif price >= stop_price:
+                    reason = "short_atr_stop_loss"
+                elif price >= trailing_price:
+                    reason = "short_atr_trailing_stop"
+                if reason:
+                    self._execute_trade(symbol, 1.0, abs(quantity), price, self._calculate_slippage(symbol, 1.0, abs(quantity)), reason)
+                continue
             if quantity <= 1e-12:
                 continue
             price = float(self.data_dict[symbol].iloc[self.current_step]["close"])
@@ -867,9 +1037,8 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
     def get_action_mask(self):
         """Retourne les bornes exécutables par actif pour PPO/SAC.
 
-        L'environnement est long-only : sans inventaire une vente est masquée,
-        et sans cash les achats sont masqués. Les agents continus reçoivent ces
-        bornes directement dans leur projection d'action.
+        Sans short, une vente reste masquée sans inventaire. Avec short, une
+        action négative peut ouvrir une position vendue sous plafond de marge.
         """
         if self.steps_since_rebalance < self.rebalance_frequency - 1:
             zeros = np.zeros(self.num_assets, dtype=np.float32)
@@ -880,18 +1049,98 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
             dtype=np.float32,
         )
         holdings = np.asarray([self.crypto_holdings[symbol] for symbol in self.symbols])
-        low = np.where(holdings * prices > 1e-8, -1.0, 0.0).astype(np.float32)
-        high = np.full(self.num_assets, 1.0 if self.balance - self.reserved_cash > 1e-8 else 0.0, dtype=np.float32)
+        low = np.where((holdings * prices > 1e-8) | self.allow_short, -1.0, 0.0).astype(np.float32)
+        high = np.where(
+            (self._available_cash() > 1e-8) | (holdings < -1e-8), 1.0, 0.0
+        ).astype(np.float32)
+        if self.regime_action_guard:
+            for index, symbol in enumerate(self.symbols):
+                direction = self._regime_direction(symbol)
+                # En tendance haussière confirmée, l'agent peut alléger un
+                # long existant mais ne peut pas ouvrir/augmenter un short.
+                if direction > 0 and holdings[index] <= 1e-8:
+                    low[index] = 0.0
+                # Symétriquement en bear confirmé : aucun nouvel achat long,
+                # mais la couverture d'un short reste toujours autorisée.
+                elif direction < 0 and holdings[index] >= -1e-8:
+                    # Si le short strict est lui-meme indisponible, bloquer
+                    # aussi l'achat rendrait ce composant inexecutable alors
+                    # que le cash et les limites de risque le permettent.
+                    # Le garde-fou bear reste actif des qu'une exposition
+                    # short conforme est reellement disponible.
+                    strict_short_blocked = (
+                        self.allow_short
+                        and self.strict_short_entry
+                        and not self._short_entry_allowed(symbol)
+                    )
+                    if not strict_short_blocked:
+                        high[index] = 0.0
+        if self.allow_short and self.strict_short_entry:
+            for index, symbol in enumerate(self.symbols):
+                # Une vente d'un long existant reste toujours possible. En
+                # revanche, l'ouverture ou l'augmentation d'un short exige un
+                # régime baissier causal et une confiance plus élevée que le
+                # simple garde-fou de régime.
+                if holdings[index] <= 1e-8 and not self._short_entry_allowed(symbol):
+                    low[index] = 0.0
         return {"low": low, "high": high}
+
+    def _short_entry_allowed(self, symbol: str) -> bool:
+        features = self.technical_feature_data.get(symbol)
+        if features is None:
+            return False
+        confidence = float(features.iloc[self.current_step].get("signal_confidence", 0.0))
+        return (
+            confidence >= self.short_entry_min_confidence
+            and self._regime_direction(symbol) < 0
+        )
+
+    def _regime_direction(self, symbol: str) -> int:
+        """Retourne -1/0/+1 uniquement pour un régime causal suffisamment confirmé."""
+        features = self.technical_feature_data.get(symbol)
+        if features is None:
+            return 0
+        row = features.iloc[self.current_step]
+        confidence = float(row.get("signal_confidence", 0.0))
+        trend = float(row.get("regime_trend", 0.0))
+        direction = float(row.get("signal_direction", 0.0))
+        if confidence < self.regime_min_confidence:
+            return 0
+        if trend >= 0.01 and direction > 0.0:
+            return 1
+        if trend <= -0.01 and direction < 0.0:
+            return -1
+        return 0
 
     def project_action(self, action):
         """Projette une action continue dans les contraintes cash/inventaire."""
         values = np.asarray(action, dtype=np.float32).reshape(self.num_assets)
+        if self.signal_action_blend:
+            # Prior causal borné : les indicateurs restent un contexte pour le
+            # RL, mais évitent qu'une politique peu entraînée reste cash dans
+            # une tendance unanimement confirmée. Aucun prix futur n'est lu.
+            prior = []
+            for symbol in self.symbols:
+                row = self.technical_feature_data[symbol].iloc[self.current_step]
+                direction = float(row.get("signal_direction", 0.0))
+                confidence = float(row.get("signal_confidence", 0.0))
+                prior.append(np.clip(direction * (0.5 + confidence), -1.0, 1.0))
+            values = (
+                (1.0 - self.signal_action_blend) * values
+                + self.signal_action_blend * np.asarray(prior, dtype=np.float32)
+            )
         mask = self.get_action_mask()
         values = np.clip(values, mask["low"], mask["high"])
         values[np.abs(values) < self.min_action_magnitude] = 0.0
         positive = np.clip(values, 0.0, None)
-        positive = np.minimum(positive, self.max_asset_exposure)
+        # Un plafond d'exposition ne doit jamais empêcher une couverture
+        # complète d'un short déjà ouvert : +1 signifie alors « couvrir 100 % ».
+        holdings = np.asarray([self.crypto_holdings[symbol] for symbol in self.symbols])
+        positive = np.where(
+            holdings < -1e-12,
+            positive,
+            np.minimum(positive, self.max_asset_exposure),
+        )
         positive_sum = float(positive.sum())
         if positive_sum > 1.0:
             positive /= positive_sum
@@ -905,12 +1154,17 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
         Returns:
             float: Valeur totale du portefeuille
         """
-        assets_value = sum(
-            self.crypto_holdings[symbol]
+        long_value = sum(
+            max(0.0, self.crypto_holdings[symbol])
             * self.data_dict[symbol].iloc[self.current_step]["close"]
             for symbol in self.symbols
         )
-        return self.balance + assets_value
+        short_liability = sum(
+            abs(min(0.0, self.crypto_holdings[symbol]))
+            * self.data_dict[symbol].iloc[self.current_step]["close"]
+            for symbol in self.symbols
+        )
+        return self.balance + sum(self.short_sale_proceeds.values()) + long_value - short_liability
 
     def _calculate_reward(self, previous_value, current_value, executed_trades: int = 0):
         """
@@ -960,7 +1214,23 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
         benchmark_return = float(np.mean(benchmark_returns)) if benchmark_returns else 0.0
         peak = max(self.portfolio_value_history, default=self.initial_balance)
         drawdown = max(0.0, (peak - self.portfolio_value_history[-1]) / max(peak, 1e-12))
-        reward = portfolio_return - benchmark_return - 0.25 * drawdown - 0.002 * max(0, executed_trades)
+        # Les frais, le slippage et le borrow sont déjà déduits de l'equity.
+        # Une pénalité fixe de 0,2 % par fill doublonnait ces coûts et rendait
+        # rationnel pour l'agent de rester sous-exposé. Elle reste présente,
+        # mais à une échelle cohérente avec un rendement journalier.
+        turnover_penalty = self.turnover_reward_penalty * max(0, executed_trades)
+        bull_exposure = sum(
+            max(0.0, self.crypto_holdings[symbol])
+            * float(self.data_dict[symbol].iloc[self.current_step]["close"])
+            for symbol in self.symbols
+            if self._regime_direction(symbol) > 0
+        ) / max(self.get_portfolio_value(), 1e-12)
+        underexposure_penalty = 0.0
+        if benchmark_return > 0:
+            underexposure_penalty = self.bull_underexposure_penalty * benchmark_return * max(
+                0.0, self.bull_exposure_target - bull_exposure
+            )
+        reward = portfolio_return - benchmark_return - 0.25 * drawdown - turnover_penalty - underexposure_penalty
         return float(np.clip(reward, -1.0, 1.0))
 
     def _normalize_allocation(self, allocation):

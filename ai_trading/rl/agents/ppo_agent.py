@@ -23,8 +23,8 @@ class PPOActorCritic(nn.Module):
         state_dim: int,
         action_dim: int,
         hidden_size: int = 256,
-        log_std_min: float = -20,
-        log_std_max: float = 2,
+        log_std_min: float = -5,
+        log_std_max: float = 1,
         action_bounds: Tuple[float, float] = (-1.0, 1.0),
     ):
         """
@@ -74,15 +74,27 @@ class PPOActorCritic(nn.Module):
         if isinstance(state, np.ndarray):
             state = torch.FloatTensor(state).to(self.mean.weight.device)
 
-        features = self.shared_network(state)
+        # Les données de marché sont normalisées en amont, mais ce garde-fou
+        # protège PPO contre une valeur non finie isolée et empêche sa
+        # propagation dans les paramètres GPU.
+        state = torch.nan_to_num(state, nan=0.0, posinf=10.0, neginf=-10.0)
+        features = torch.nan_to_num(
+            self.shared_network(state), nan=0.0, posinf=10.0, neginf=-10.0
+        )
 
         # Calcul de la moyenne et log_std pour la politique
-        mean = self.mean(features)
+        mean = torch.nan_to_num(
+            self.mean(features), nan=0.0, posinf=10.0, neginf=-10.0
+        ).clamp(-10.0, 10.0)
         log_std = self.log_std(features)
-        log_std = torch.clamp(log_std, self.log_std_min, self.log_std_max)
+        log_std = torch.nan_to_num(
+            log_std, nan=0.0, posinf=self.log_std_max, neginf=self.log_std_min
+        ).clamp(self.log_std_min, self.log_std_max)
 
         # Calcul de la valeur
-        value = self.value(features)
+        value = torch.nan_to_num(
+            self.value(features), nan=0.0, posinf=100.0, neginf=-100.0
+        ).clamp(-100.0, 100.0)
 
         return mean, log_std, value
 
@@ -143,12 +155,14 @@ class PPOActorCritic(nn.Module):
 
         # Transformation inverse de tanh pour obtenir les actions avant transformation
         # clipping pour éviter les problèmes numériques
-        actions_tanh = torch.clamp(actions, -0.999, 0.999)
+        actions_tanh = torch.nan_to_num(
+            actions, nan=0.0, posinf=0.999, neginf=-0.999
+        ).clamp(-0.999, 0.999)
         x_t = torch.atanh(actions_tanh)
 
         # Calcul des log_probs
         log_probs = normal.log_prob(x_t)
-        log_probs -= torch.log(1 - actions.pow(2) + 1e-6)
+        log_probs -= torch.log(1 - actions_tanh.pow(2) + 1e-6)
         log_probs = log_probs.sum(dim=-1, keepdim=True)
 
         # Calcul de l'entropie
@@ -342,6 +356,11 @@ class PPOAgent:
         rewards = torch.as_tensor(np.asarray(rewards, dtype=np.float32), device=self.device)
         next_states = torch.as_tensor(np.asarray(next_states, dtype=np.float32), device=self.device)
         dones = torch.as_tensor(np.asarray(dones, dtype=np.float32), device=self.device)
+        states = torch.nan_to_num(states, nan=0.0, posinf=10.0, neginf=-10.0)
+        actions = torch.nan_to_num(actions, nan=0.0, posinf=0.999, neginf=-0.999).clamp(-0.999, 0.999)
+        rewards = torch.nan_to_num(rewards, nan=0.0, posinf=1.0, neginf=-1.0).clamp(-1.0, 1.0)
+        next_states = torch.nan_to_num(next_states, nan=0.0, posinf=10.0, neginf=-10.0)
+        dones = torch.nan_to_num(dones, nan=1.0, posinf=1.0, neginf=0.0).clamp(0.0, 1.0)
 
         # Calculer les valeurs des états
         with torch.no_grad():
@@ -361,9 +380,11 @@ class PPOAgent:
         # Convertir en tensors
         returns = torch.as_tensor(returns, dtype=torch.float32, device=self.device).unsqueeze(-1)
         advantages = torch.as_tensor(advantages, dtype=torch.float32, device=self.device).unsqueeze(-1)
+        returns = torch.nan_to_num(returns, nan=0.0, posinf=100.0, neginf=-100.0).clamp(-100.0, 100.0)
+        advantages = torch.nan_to_num(advantages, nan=0.0, posinf=20.0, neginf=-20.0).clamp(-20.0, 20.0)
 
         # Normaliser les avantages
-        advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+        advantages = (advantages - advantages.mean()) / (advantages.std(unbiased=False) + 1e-8)
 
         # Récupérer les log_probs et valeurs originales
         with torch.no_grad():
@@ -400,7 +421,10 @@ class PPOAgent:
                 )
 
                 # Calcul du ratio pour PPO
-                ratio = torch.exp(new_log_probs - mb_old_log_probs)
+                # Sans borne, un écart de log-probabilité peut faire exploser
+                # ``exp`` malgré le clipping PPO appliqué seulement après.
+                log_ratio = torch.clamp(new_log_probs - mb_old_log_probs, -10.0, 10.0)
+                ratio = torch.exp(log_ratio)
 
                 # Calcul des deux termes de la perte de PPO
                 term1 = ratio * mb_advantages
@@ -423,15 +447,26 @@ class PPOAgent:
                 )
 
                 # Mise à jour des paramètres
+                if not torch.isfinite(loss):
+                    logger.warning("Mini-batch PPO non fini ignoré")
+                    continue
+
                 self.optimizer.zero_grad()
                 loss.backward()
 
                 # Gradient clipping
-                nn.utils.clip_grad_norm_(
-                    self.ac_network.parameters(), self.max_grad_norm
+                gradient_norm = nn.utils.clip_grad_norm_(
+                    self.ac_network.parameters(), self.max_grad_norm, error_if_nonfinite=False
                 )
+                if not torch.isfinite(gradient_norm):
+                    self.optimizer.zero_grad()
+                    logger.warning("Gradient PPO non fini ignoré")
+                    continue
 
                 self.optimizer.step()
+
+                if not all(torch.isfinite(parameter).all() for parameter in self.ac_network.parameters()):
+                    raise FloatingPointError("PPO a produit des paramètres non finis après optimisation")
 
                 # Accumuler les statistiques
                 actor_loss_epoch += actor_loss.item()

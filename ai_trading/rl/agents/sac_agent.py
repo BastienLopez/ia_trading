@@ -704,8 +704,6 @@ class OptimizedSACAgent:
         if self.entropy_regularization > 0:
             # Avec régularisation d'entropie, maximiser l'entropie (SAC classique)
             actor_loss = (alpha * log_probs - q).mean()
-            # Augmenter l'impact de la régularisation d'entropie
-            actor_loss = actor_loss - self.entropy_regularization * self.entropy_scale * log_probs.mean()
             alpha_loss = torch.tensor(0.0, device=self.device)
         else:
             # Sans régularisation, utiliser l'alpha automatique

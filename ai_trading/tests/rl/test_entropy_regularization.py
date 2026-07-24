@@ -263,6 +263,34 @@ def test_entropy_regularization_training(sac_agent):
     assert "actor_loss" in metrics
     assert "alpha_loss" in metrics
 
+
+def test_entropy_regularization_changes_actor_objective():
+    """Le coefficient d'entropie doit affecter la perte de l'acteur SAC."""
+    states = [np.full(10, value, dtype=np.float32) for value in range(4)]
+
+    def actor_loss(entropy_regularization):
+        torch.manual_seed(91)
+        np.random.seed(91)
+        agent = OptimizedSACAgent(
+            state_dim=10,
+            action_dim=2,
+            d_model=32,
+            n_heads=4,
+            num_layers=1,
+            dim_feedforward=32,
+            sequence_length=4,
+            batch_size=4,
+            entropy_regularization=entropy_regularization,
+            device="cpu",
+        )
+        for state in states:
+            agent.remember(state, np.array([0.2, -0.1]), 0.1, state + 0.1, False)
+        torch.manual_seed(17)
+        np.random.seed(17)
+        return agent.train()["actor_loss"]
+
+    assert not np.isclose(actor_loss(0.05), actor_loss(0.25))
+
 def test_entropy_regularization_action_selection(sac_agent):
     state = np.random.randn(10)
     

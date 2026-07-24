@@ -1,9 +1,11 @@
 import numpy as np
 import pandas as pd
+import pytest
 
 from ai_trading.rl.agents.dqn_agent import DQNAgent
 from ai_trading.rl.agents.ppo_agent import PPOAgent
 from ai_trading.rl.agents.sac_agent import SACAgent
+from ai_trading.rl.multi_asset_trading_environment import MultiAssetTradingEnvironment
 from ai_trading.rl.trading_environment import TradingEnvironment
 
 
@@ -60,3 +62,61 @@ def test_low_fusion_confidence_blocks_buys_but_keeps_a_realizable_sell():
     assert not env.get_action_mask()[1 : env.n_discrete_actions + 1].any()
     env.crypto_held = 1.0
     assert env.get_action_mask()[env.n_discrete_actions + 1 :].any()
+
+
+def test_strict_multi_asset_short_requires_confirmed_bear_regime_but_keeps_long_exit_open():
+    frame = _ohlcv(100)
+    env = MultiAssetTradingEnvironment(
+        {"BTC": frame, "ETH": frame.copy(), "XAU": frame.copy()},
+        window_size=10, allow_short=True, strict_short_entry=True,
+        regime_action_guard=True, risk_management=False,
+    )
+    env.reset()
+    for features in env.technical_feature_data.values():
+        features.loc[:, ["signal_confidence", "signal_direction", "regime_trend"]] = 0.0
+
+    assert np.all(env.get_action_mask()["low"] == 0.0)
+    env.crypto_holdings["BTC"] = 1.0
+    assert env.get_action_mask()["low"][0] == -1.0
+
+
+def test_unconfirmed_bear_short_does_not_force_cash_when_buying_is_feasible():
+    frame = _ohlcv(100)
+    env = MultiAssetTradingEnvironment(
+        {"BTC": frame, "ETH": frame.copy(), "XAU": frame.copy()},
+        window_size=10, allow_short=True, strict_short_entry=True,
+        regime_action_guard=True, risk_management=False,
+    )
+    env.reset()
+    for features in env.technical_feature_data.values():
+        features.loc[:, "signal_confidence"] = 0.20
+        features.loc[:, "signal_direction"] = -1.0
+        features.loc[:, "regime_trend"] = -1.0
+
+    mask = env.get_action_mask()
+    assert env._available_cash() > 0
+    assert np.all(mask["low"] == 0.0)
+    assert np.all(mask["high"] == 1.0)
+
+
+def test_signal_blend_adds_only_the_current_causal_indicator_prior():
+    frame = _ohlcv(100)
+    env = MultiAssetTradingEnvironment(
+        {"BTC": frame, "ETH": frame.copy(), "XAU": frame.copy()},
+        window_size=10, signal_action_blend=1.0, risk_management=False,
+    )
+    env.reset()
+    for features in env.technical_feature_data.values():
+        features.loc[:, "signal_direction"] = 0.6
+        features.loc[:, "signal_confidence"] = 0.4
+
+    projected = env.project_action(np.zeros(3, dtype=np.float32))
+    assert np.allclose(projected, 1.0 / 3.0)
+
+
+def test_leading_missing_close_is_rejected_instead_of_backfilled_from_the_future():
+    frame = _ohlcv(100)
+    frame.iloc[0, frame.columns.get_loc("close")] = np.nan
+
+    with pytest.raises(ValueError, match="remplissage futur est interdit"):
+        MultiAssetTradingEnvironment({"BTC": frame}, window_size=10)

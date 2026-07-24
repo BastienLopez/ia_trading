@@ -23,3 +23,15 @@ def test_fifo_ledger_exposes_remaining_open_lots():
     open_lots = ledger.open_lots_dataframe()
     assert len(open_lots) == 1
     assert open_lots.iloc[0]["quantity"] == 1.5
+
+
+def test_fifo_ledger_calculates_short_pnl_and_exposes_side():
+    ledger = FifoTradeLedger()
+    ledger.short_sell(pd.Timestamp("2026-01-01"), 2, 100, 2)
+    ledger.cover(pd.Timestamp("2026-01-02"), 1, 80, 1, "take_profit")
+    ledger.cover(pd.Timestamp("2026-01-03"), 1, 120, 1, "short_stop_loss")
+
+    trades = ledger.dataframe()
+    assert trades["position_side"].tolist() == ["short", "short"]
+    assert trades["pnl_net"].tolist() == [18, -22]
+    assert trades["outcome"].tolist() == ["win", "loss"]
