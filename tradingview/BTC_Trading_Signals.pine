@@ -1,0 +1,1016 @@
+//@version=6
+// BTC Trading Signals V4.2 AUDITED PAPER READY — 1D / 1W / 4H
+// - ZERO-CONFIG : le mode est détecté automatiquement depuis le timeframe du graphique
+//   * graphique 1W => Position Weekly (semaines / mois)
+//   * graphique 1D => Swing Daily (décisions à la clôture, positions de quelques jours)
+//   * graphique 4H => Swing 4H (décisions toutes les 4H, positions typiquement 1–3 jours)
+// - MACD normalisé en % du prix + percentile historique
+// - signaux confirmés à la clôture par défaut
+// - dashboard compact, EMA ribbon simplifié, Ichimoku corrigé
+// - S/R : bug résistance pivotHigh corrigé, cassure volume 1.3x, lignes non backdatées
+// - V3.2 : fallback automatique si volume indisponible
+// - V3.3 : le Daily devient un mode principal ; le 4H reste disponible en option
+// - V3.4 : Daily = 2 moteurs d’entrée (retournement + breakout), dashboard anti-chase, visuels allégés
+// - V3.5 : breakout Daily moins fragile (RSI + extension EMA), dashboard 100% dernière clôture confirmée, status line nettoyée
+// - V3.6 : le contexte Weekly reste un garde-fou pour les reversals, mais ne bloque plus une vraie cassure Daily de changement de régime
+// - V4.0 AUDIT : 3 familles BUY Daily (reversal / breakout / continuation), breakout follow-through, sorties renforcées.
+// - V4.1 PAPER READY : 4H complet (R/B/C), TP1 unique par trade, TP WATCH profit-aware,
+//                      distinction stricte entre GESTION POSITION et NOUVELLE ENTRÉE, sécurité LIVE qui peut bloquer une entrée.
+// - V4.2 AUDIT : anti-chase strict (pct ET ATR), Daily percentile = 365 jours crypto,
+//                S/R 4H + Daily + Weekly, garde-fou prix raté/chase après un signal, alertes BUY/TP/SELL.
+//           S/R auto : 1W => Weekly ; 1D => Daily + Weekly ; 4H => 4H + Daily
+// IMPORTANT : indicateur d'aide à la décision, pas une garantie de performance. Backtester avant usage réel.
+indicator("BTC Trading Signals V4.2 — AUDITED PAPER READY 1D / 1W / 4H", overlay=true, max_lines_count=500, max_boxes_count=500, max_labels_count=500)
+
+// === TYPES ===
+type srInfo
+    int startTime
+    float price
+    string srType
+    int strength
+    string timeframeStr
+    float sourceAtr
+    bool ephemeral = false
+
+    int breakTime
+    array<int> retestTimes
+
+type srObj
+    srInfo info
+    
+    bool startFixed
+    bool breakFixed
+
+    bool rendered
+    string combinedTimeframeStr
+
+    line srLine
+    box srBox
+    label srLabel
+    label breakLabel
+    array<label> retestLabels
+
+type barInfo
+    int t
+    int tc
+    float c
+    float h
+    float l
+
+// === SUPPORT & RESISTANCE MTF ===
+const bool DEBUG = false
+const bool fixSRs = true
+const bool fixRetests = false
+
+const int maxSRInfoListSize = 10
+const int maxSRObjListSize = 80
+const int maxVisibleSRPerSide = 4
+const int maxBarInfoListSize = 3000
+const int maxDistanceToLastBar = 500
+const int minSRSize = 5
+const int retestLabelCooldown = 3
+const float tooCloseATR = 0.25
+const int labelOffsetBars = 20
+
+const int atrLen = 20
+atr = ta.atr(atrLen)
+avgVolume = ta.sma(volume, atrLen)
+
+var int curTFMS = timeframe.in_seconds(timeframe.period) * 1000
+var map<string, bool> alerts = map.new<string, bool>()
+alerts.put("Retest", false)
+alerts.put("Break", false)
+
+// Variables globales
+var allSRInfoList = array.new<srInfo>()
+var barInfoList = array.new<barInfo>()
+var allSRList = array.new<srObj>()
+insideBounds = (bar_index > last_bar_index - maxDistanceToLastBar)
+
+// === MODE & EXÉCUTION — AUTO ===
+// Aucun mode à sélectionner dans les settings :
+// 1W => Position Weekly ; 1D => Swing Daily ; 4H => Swing 4H optionnel.
+// Les signaux sont confirmés à la clôture : en Daily, il ne peut donc pas y avoir
+// plusieurs décisions intraday provenant de cet indicateur.
+const string MODE_WEEKLY = "Position Weekly"
+const string MODE_DAILY = "Swing Daily"
+const string MODE_4H = "Swing 4H"
+confirmSignals = input.bool(true, "Signaux uniquement à la clôture", group="01 — Mode & Exécution", tooltip="Recommandé. En 4H les calls sont validés toutes les 4 heures ; en 1D à la clôture journalière ; en 1W à la clôture hebdomadaire.", display=display.none)
+showDashboard = input.bool(true, "Afficher le dashboard", group="01 — Mode & Exécution", display=display.none)
+showTfWarning = input.bool(true, "Avertir si le timeframe du graphique est incorrect", group="01 — Mode & Exécution", display=display.none)
+
+chartSeconds = timeframe.in_seconds(timeframe.period)
+isWeeklyChart = chartSeconds == timeframe.in_seconds("W")
+isDailyChart = chartSeconds == timeframe.in_seconds("D")
+is4HChart = chartSeconds == timeframe.in_seconds("240")
+chartOK = isWeeklyChart or isDailyChart or is4HChart
+// Fallback Weekly uniquement pour garder les calculs définis hors timeframe supporté.
+// chartOK=false bloque alors les signaux et les visuels stratégiques.
+tradeMode = isWeeklyChart ? MODE_WEEKLY : isDailyChart ? MODE_DAILY : is4HChart ? MODE_4H : MODE_WEEKLY
+modeDisplay = isWeeklyChart ? "AUTO · Position Weekly" : isDailyChart ? "AUTO · Swing Daily" : is4HChart ? "AUTO · Swing 4H" : "AUTO · Utiliser 1W / 1D / 4H"
+
+// === STRUCTURE — SUPPORTS & RÉSISTANCES ===
+srEnabled = input.bool(true, "Afficher Supports / Résistances", group="02 — Structure S/R", display=display.none)
+// Sur un timeframe non supporté, aucun S/R n’est calculé/affiché : seul l’avertissement reste visible.
+srRuntimeEnabled = srEnabled and chartOK
+srPivotWeekly = input.int(8, "Pivot Weekly", minval=3, maxval=30, group="02 — Structure S/R", tooltip="Un pivot est confirmé après ce nombre de bougies à droite. 8 en Weekly est volontairement plus réactif que l'ancien réglage 15.", display=display.none)
+srPivotDaily = input.int(5, "Pivot Daily", minval=3, maxval=20, group="02 — Structure S/R", tooltip="5 jours à gauche + 5 à droite : compromis réactivité / bruit pour les trades de quelques jours.", display=display.none)
+srPivot4H = input.int(5, "Pivot 4H (optionnel)", minval=3, maxval=20, group="02 — Structure S/R", display=display.none)
+srPivotLength = tradeMode == MODE_WEEKLY ? srPivotWeekly : tradeMode == MODE_DAILY ? srPivotDaily : srPivot4H
+srStrength = input.int(1, "Force minimale", options=[1, 2, 3], group="02 — Structure S/R", display=display.none)
+srInvalidation = input.string("Close", "Invalidation", options=["Wick", "Close"], group="02 — Structure S/R", display=display.none)
+expandZones = input.string("Only Valid", "Extension des lignes", options=["All", "Only Valid", "None"], group="02 — Structure S/R", tooltip="Les lignes sont étendues uniquement vers la droite pour éviter le hindsight visuel.", display=display.none)
+showInvalidated = input.bool(false, "Afficher niveaux invalidés", group="02 — Structure S/R", display=display.none)
+
+// Timeframes S/R automatiques :
+// - Weekly : structure du graphique 1W uniquement.
+// - Daily : structure Daily + niveaux Weekly majeurs.
+// - 4H : structure 4H + niveaux Daily + niveaux Weekly majeurs (les plus proches seulement).
+timeframe1Enabled = chartOK
+timeframe1 = ""
+timeframe2Enabled = is4HChart
+timeframe2 = "D"
+timeframe3Enabled = isDailyChart or is4HChart
+timeframe3 = "W"
+
+showBreaks = input.bool(false, "Afficher cassures", group="03 — Cassures & Retests", inline="ShowBR", display=display.none)
+showRetests = input.bool(false, "Afficher retests", group="03 — Cassures & Retests", inline="ShowBR", display=display.none)
+avoidFalseBreaks = input.bool(true, "Filtrer les fausses cassures par volume", group="03 — Cassures & Retests", display=display.none)
+breakVolumeThreshold = input.float(1.3, "Volume minimum cassure (x moyenne)", minval=0.5, maxval=3.0, step=0.1, group="03 — Cassures & Retests", tooltip="1.3 = volume au moins 30% au-dessus de la moyenne. L’ancien 0.3 ne filtrait presque rien.", display=display.none)
+volumeDataAvailable = not na(volume) and not na(avgVolume) and avgVolume > 0
+// Fallback zéro-config : si le symbole n’a pas de volume (ex. certains indices crypto agrégés),
+// le filtre volume est automatiquement contourné au lieu de bloquer toutes les cassures S/R.
+breakVolumeOK = (not avoidFalseBreaks) or (not volumeDataAvailable) or (volume > avgVolume * breakVolumeThreshold)
+inverseBrokenLineColor = input.bool(false, "Inverser Support/Résistance après cassure", group="03 — Cassures & Retests", display=display.none)
+
+styleMode = input.string("Lines", "Style", ["Lines", "Zones"], group = "Style", display=display.none)
+lineStyle = input.string("____", "Line Style", ["____", "----", "...."], group = "Style", display=display.none)
+lineWidth = input.int(2, "Line Width", minval = 1, group = "Style", display=display.none)
+zoneSize = input.float(1.0, "Zone Width", minval = 0.1, maxval = 10, step = 0.1, group = "Style", display=display.none)
+zoneSizeATR = zoneSize * 0.075
+supportColor = input.color(#08998180, "Support Color", group = "Style", inline = "RScolors", display=display.none)
+resistanceColor = input.color(#f2364580, "Resistance Color", group = "Style", inline = "RScolors", display=display.none)
+breakColor = input.color(color.blue, "Break Color", group = "Style", inline = "RScolors2", display=display.none)
+textColor = input.color(#ffffff80, "Text Color", group = "Style", inline = "RScolors2", display=display.none)
+
+enableRetestAlerts = input.bool(false, "Enable Retest Alerts", tooltip = "Needs Show Retests option enabled.", group = "Alerts", display=display.none)
+enableBreakAlerts = input.bool(false, "Enable Break Alerts", tooltip = "Needs Show Breaks option enabled.", group = "Alerts", display=display.none)
+
+// === PARAMÈTRES INDICATEURS ===
+// Momentum
+rsi_length = input.int(14, "RSI Length", minval=1, group="04 — Momentum", display=display.none)
+macd_fast = input.int(12, "MACD Fast", minval=1, group="04 — Momentum", inline="macd", display=display.none)
+macd_slow = input.int(26, "Slow", minval=2, group="04 — Momentum", inline="macd", display=display.none)
+macd_signal = input.int(9, "Signal", minval=1, group="04 — Momentum", inline="macd", display=display.none)
+macdRankLookbackWeekly = input.int(156, "Lookback percentile Weekly", minval=52, maxval=520, group="04 — Momentum", tooltip="156 semaines ≈ 3 ans. Le MACD est normalisé en % du prix avant calcul du percentile.", display=display.none)
+macdRankLookbackDaily = input.int(365, "Lookback percentile Daily", minval=100, maxval=1000, group="04 — Momentum", tooltip="365 bougies Daily ≈ 1 année complète de marché crypto 24/7.", display=display.none)
+macdRankLookback4H = input.int(252, "Lookback percentile 4H (optionnel)", minval=100, maxval=1000, group="04 — Momentum", tooltip="252 bougies de 4H ≈ 42 jours.", display=display.none)
+weeklyLowRank = input.float(15.0, "Extrême bas Weekly (%)", minval=1, maxval=40, step=1, group="04 — Momentum", inline="wkext", display=display.none)
+weeklyHighRank = input.float(85.0, "Extrême haut (%)", minval=60, maxval=99, step=1, group="04 — Momentum", inline="wkext", display=display.none)
+dailyLowRank = input.float(25.0, "Zone basse Daily (%)", minval=1, maxval=50, step=1, group="04 — Momentum", inline="dext", display=display.none)
+dailyHighRank = input.float(75.0, "Zone haute Daily (%)", minval=50, maxval=99, step=1, group="04 — Momentum", inline="dext", display=display.none)
+fourHLowRank = input.float(25.0, "Zone basse 4H (%)", minval=1, maxval=50, step=1, group="04 — Momentum", inline="4hext", display=display.none)
+fourHHighRank = input.float(75.0, "Zone haute 4H (%)", minval=50, maxval=99, step=1, group="04 — Momentum", inline="4hext", display=display.none)
+showMacdExtremeBg = input.bool(false, "Colorer légèrement les extrêmes MACD", group="04 — Momentum", display=display.none)
+
+// Tendance
+emaFastLen = input.int(20, "EMA rapide", minval=1, group="05 — Tendance", inline="emas", display=display.none)
+emaSlowLen = input.int(50, "EMA lente", minval=2, group="05 — Tendance", inline="emas", display=display.none)
+showEmaRibbon = input.bool(true, "Afficher EMA 20/50 + ribbon", group="05 — Tendance", display=display.none)
+
+// Volatilité / volume
+bb_length = input.int(20, "BB Length", minval=1, group="06 — Volatilité & Volume", inline="bb", display=display.none)
+bb_mult = input.float(2.0, "StdDev", minval=0.1, maxval=5, step=0.1, group="06 — Volatilité & Volume", inline="bb", display=display.none)
+bbRankLookback = input.int(100, "Lookback BB Width percentile", minval=30, maxval=500, group="06 — Volatilité & Volume", display=display.none)
+volumeLookback = input.int(20, "Volume SMA", minval=5, maxval=100, group="06 — Volatilité & Volume", display=display.none)
+
+// Visuels avancés
+showBB = input.bool(false, "Afficher Bollinger Bands", group="07 — Affichage avancé", display=display.none)
+showIchimoku = input.bool(false, "Afficher Ichimoku Cloud", group="07 — Affichage avancé", display=display.none)
+showIchimokuLines = input.bool(false, "Afficher Tenkan / Kijun", group="07 — Affichage avancé", display=display.none)
+showWatchMarkers = input.bool(false, "Afficher marqueurs WATCH", group="07 — Affichage avancé", display=display.none)
+showTpMarkers = input.bool(true, "Afficher marqueurs TP1", group="07 — Affichage avancé", display=display.none)
+showPositionBg = input.bool(true, "Colorer légèrement les périodes HOLD", group="07 — Affichage avancé", display=display.none)
+showMinorSignals = input.bool(false, "Afficher croisements MACD mineurs", group="07 — Affichage avancé", display=display.none)
+enableTradeAlerts = input.bool(true, "Activer alertes BUY / TP1 / SELL", group="07 — Affichage avancé", display=display.none)
+
+// Ichimoku uniquement visuel
+ichTenkanLen = input.int(9, "Tenkan", minval=1, group="07 — Affichage avancé", inline="ichi", display=display.none)
+ichKijunLen = input.int(26, "Kijun", minval=1, group="07 — Affichage avancé", inline="ichi", display=display.none)
+ichSpanBLen = input.int(52, "Span B", minval=1, group="07 — Affichage avancé", inline="ichi", display=display.none)
+ichDisplacement = input.int(26, "Décalage", minval=1, group="07 — Affichage avancé", inline="ichi", display=display.none)
+
+// === CALCULS ===
+rsi = ta.rsi(close, rsi_length)
+[macdLine, macdSignalLine, macdHist] = ta.macd(close, macd_fast, macd_slow, macd_signal)
+emaFast = ta.ema(close, emaFastLen)
+emaSlow = ta.ema(close, emaSlowLen)
+
+// MACD normalisé : comparable dans le temps même si le prix de BTC change fortement.
+macdPct = close != 0 ? (macdLine / close) * 100.0 : na
+macdRankLookback = tradeMode == MODE_WEEKLY ? macdRankLookbackWeekly : tradeMode == MODE_DAILY ? macdRankLookbackDaily : macdRankLookback4H
+macdRank = ta.percentrank(macdPct, macdRankLookback)
+lowRankThreshold = tradeMode == MODE_WEEKLY ? weeklyLowRank : tradeMode == MODE_DAILY ? dailyLowRank : fourHLowRank
+highRankThreshold = tradeMode == MODE_WEEKLY ? weeklyHighRank : tradeMode == MODE_DAILY ? dailyHighRank : fourHHighRank
+recentExtremeBars = tradeMode == MODE_WEEKLY ? 10 : tradeMode == MODE_DAILY ? 20 : 12
+recentMacdLow = ta.lowest(macdRank, recentExtremeBars) <= lowRankThreshold
+recentMacdHigh = ta.highest(macdRank, recentExtremeBars) >= highRankThreshold
+histRising = macdHist > macdHist[1]
+histFalling = macdHist < macdHist[1]
+macdBullCrossRaw = ta.crossover(macdLine, macdSignalLine)
+macdBearCrossRaw = ta.crossunder(macdLine, macdSignalLine)
+
+// Bollinger : squeeze relatif, pas seuil fixe arbitraire.
+[bbMiddle, bbUpper, bbLower] = ta.bb(close, bb_length, bb_mult)
+bbWidthPct = bbMiddle != 0 ? ((bbUpper - bbLower) / bbMiddle) * 100.0 : na
+bbWidthRank = ta.percentrank(bbWidthPct, bbRankLookback)
+
+// Volume : ratio lisible (1.0x = moyenne).
+volumeAvg = ta.sma(volume, volumeLookback)
+volumeRatio = volumeAvg > 0 ? volume / volumeAvg : na
+
+// Contextes de timeframe supérieur confirmés.
+// 4H : on utilise la dernière journée clôturée.
+[dailyCloseConfirmed, dailyEmaFastConfirmed, dailyEmaSlowConfirmed] = request.security(
+    syminfo.tickerid,
+    "D",
+    [close[1], ta.ema(close, emaFastLen)[1], ta.ema(close, emaSlowLen)[1]],
+    lookahead=barmerge.lookahead_on)
+
+// Daily : le Weekly confirmé sert uniquement de contexte macro, pas de trigger.
+[weeklyCloseConfirmed, weeklyEmaFastConfirmed, weeklyEmaSlowConfirmed] = request.security(
+    syminfo.tickerid,
+    "W",
+    [close[1], ta.ema(close, emaFastLen)[1], ta.ema(close, emaSlowLen)[1]],
+    lookahead=barmerge.lookahead_on)
+
+dailyContextBull = dailyCloseConfirmed > dailyEmaFastConfirmed and dailyEmaFastConfirmed > dailyEmaSlowConfirmed
+dailyContextBear = dailyCloseConfirmed < dailyEmaFastConfirmed and dailyEmaFastConfirmed < dailyEmaSlowConfirmed
+weeklyContextBull = weeklyCloseConfirmed > weeklyEmaFastConfirmed and weeklyEmaFastConfirmed > weeklyEmaSlowConfirmed
+weeklyContextBear = weeklyCloseConfirmed < weeklyEmaFastConfirmed and weeklyEmaFastConfirmed < weeklyEmaSlowConfirmed
+chartBull = close > emaFast and emaFast > emaSlow
+chartBear = close < emaFast and emaFast < emaSlow
+regimeBull = chartBull
+regimeBear = chartBear
+
+// Gate d'exécution : en mode recommandé, les événements n'existent qu'une fois la bougie clôturée.
+signalGate = chartOK and (not confirmSignals or barstate.isconfirmed)
+macdBullCross = signalGate and macdBullCrossRaw
+macdBearCross = signalGate and macdBearCrossRaw
+
+// === MOTEUR DE SIGNAL V4.0 ===
+// Principe : un BUY n'est émis que si le modèle est OUT ; un SELL seulement s'il est IN.
+// Cela évite les doublons artificiels. Pour augmenter la couverture sans sur-trader, le Daily
+// possède désormais 3 familles d'entrée : REVERSAL, BREAKOUT et CONTINUATION/PULLBACK.
+
+emaFastRising = emaFast > emaFast[1]
+priceCrossAboveEmaFastRaw = ta.crossover(close, emaFast)
+
+// --- WEEKLY : position de plusieurs semaines / mois ---
+weeklyReversalSetup = chartOK and recentMacdLow and histRising and rsi < 58
+weeklyReversalEntryRaw = macdBullCross and recentMacdLow and histRising and close >= emaSlow and rsi <= 68
+// Re-entry de tendance : utile après une sortie intermédiaire sans exiger un nouvel extrême MACD.
+weeklyContinuationSetup = chartOK and close >= emaSlow and emaFastRising and macdRank <= 65 and histRising and rsi <= 68
+weeklyContinuationEntryRaw = macdBullCross and close >= emaSlow and emaFastRising and macdRank <= 70 and rsi <= 70
+weeklySetup = weeklyReversalSetup or weeklyContinuationSetup
+weeklyEntryRaw = weeklyReversalEntryRaw or weeklyContinuationEntryRaw
+weeklyTpRaw = (macdRank >= weeklyHighRank and histFalling) or (rsi >= 74 and histFalling)
+weeklyMomentumExitRaw = macdBearCross and (recentMacdHigh or macdPct > 0 or rsi >= 55)
+weeklyTrendExitRaw = signalGate and (((close < emaFast and close[1] < emaFast[1]) and histFalling and emaFast < emaFast[1]) or (close < emaSlow and emaFast < emaSlow))
+weeklyExitRaw = weeklyMomentumExitRaw or weeklyTrendExitRaw
+
+// --- DAILY : swing de quelques jours ---
+const int dailyBreakoutLen = 20
+const int dailyBreakoutFollowBars = 3
+const float dailyBreakoutMaxRsi = 88.0
+const float dailyBreakoutMaxEmaExtensionPct = 15.0
+const float dailyBreakoutMaxEmaExtensionATR = 3.5
+
+dailyPriorHigh = ta.highest(high[1], dailyBreakoutLen)
+dailyBreakoutRawEvent = not na(dailyPriorHigh) and close > dailyPriorHigh and close[1] <= dailyPriorHigh[1]
+dailyBreakoutEvent = signalGate and dailyBreakoutRawEvent
+dailyBreakoutBarsSince = ta.barssince(dailyBreakoutRawEvent)
+dailyBreakoutLevel = ta.valuewhen(dailyBreakoutRawEvent, dailyPriorHigh, 0)
+dailyRecentBreakout = not na(dailyBreakoutBarsSince) and dailyBreakoutBarsSince <= dailyBreakoutFollowBars
+
+dailyEmaExtensionPct = emaFast > 0 ? ((close / emaFast) - 1.0) * 100.0 : na
+dailyEmaExtensionATR = atr > 0 ? (close - emaFast) / atr : na
+dailyAntiChaseOK = not na(dailyEmaExtensionPct) and not na(dailyEmaExtensionATR) and dailyEmaExtensionPct <= dailyBreakoutMaxEmaExtensionPct and dailyEmaExtensionATR <= dailyBreakoutMaxEmaExtensionATR
+dailyNearBreakout = not na(dailyPriorHigh) and close <= dailyPriorHigh and close >= dailyPriorHigh * 0.985
+
+// Le Weekly est un garde-fou plus strict pour les reversals que pour les cassures/continuations.
+dailyReversalMacroOK = not weeklyContextBear or macdRank <= dailyLowRank
+dailyTrendMacroOK = not weeklyContextBear or (close > emaSlow and emaFastRising and macdLine > macdSignalLine and macdHist >= 0)
+
+// A) REVERSAL : retour du momentum après faiblesse / pullback.
+dailyReversalSetup = chartOK and dailyReversalMacroOK and macdRank <= 55 and histRising and rsi < 64 and close >= emaSlow
+dailyReversalEntryRaw = macdBullCross and dailyReversalMacroOK and close >= emaSlow and rsi <= 70 and macdRank <= 70
+
+// B) BREAKOUT : première clôture au-dessus du plus haut 20 jours.
+// On accepte une première bougie forte, puis on laisse 3 jours de follow-through pour ne pas rater
+// une cassure valide uniquement parce que la bougie initiale était trop étendue.
+dailyBreakoutSetup = chartOK and dailyTrendMacroOK and close > emaFast and emaFastRising and macdLine > macdSignalLine and macdHist > 0 and rsi <= 84 and (dailyNearBreakout or (close > dailyPriorHigh and dailyAntiChaseOK))
+dailyBreakoutDirectEntryRaw = dailyBreakoutEvent and dailyTrendMacroOK and close > emaFast and emaFastRising and macdLine > macdSignalLine and macdHist > 0 and rsi <= dailyBreakoutMaxRsi and dailyAntiChaseOK
+dailyBreakoutFollowEntryRaw = signalGate and dailyRecentBreakout and dailyBreakoutBarsSince > 0 and not na(dailyBreakoutLevel) and close > dailyBreakoutLevel and close > emaFast and emaFastRising and macdLine > macdSignalLine and macdHist >= 0 and rsi <= 86 and dailyAntiChaseOK
+dailyBreakoutEntryRaw = dailyBreakoutDirectEntryRaw or dailyBreakoutFollowEntryRaw
+
+// C) CONTINUATION : re-entry après un pullback dans une tendance Daily saine.
+// Cela couvre les marchés haussiers qui ne redonnent ni extrême MACD ni nouveau breakout 20j au bon moment.
+dailyTouchedFastRecently = ta.barssince(low <= emaFast * 1.01 and close >= emaSlow * 0.98) <= 5
+dailyContinuationSetup = chartOK and dailyTrendMacroOK and close >= emaSlow and emaFastRising and dailyTouchedFastRecently and macdLine > macdSignalLine and histRising and rsi >= 42 and rsi <= 72 and macdRank <= 80
+dailyContinuationTrigger = priceCrossAboveEmaFastRaw or (close > high[1] and close[1] <= emaFast[1] * 1.02)
+dailyContinuationEntryRaw = signalGate and dailyContinuationSetup and dailyContinuationTrigger and close > emaFast
+
+dailySetup = dailyReversalSetup or dailyBreakoutSetup or dailyContinuationSetup
+dailyEntryRaw = dailyReversalEntryRaw or dailyBreakoutEntryRaw or dailyContinuationEntryRaw
+
+// TP = avertissement de sécurisation, SELL = sortie du modèle.
+dailyTpRaw = (macdRank >= dailyHighRank and histFalling) or (rsi >= 78 and histFalling)
+dailyMomentumExitRaw = macdBearCross and (macdRank >= 55 or rsi >= 55 or macdPct > 0)
+dailyTrendExitRaw = signalGate and (((close < emaFast and close[1] < emaFast[1]) and histFalling) or close < emaSlow)
+dailyExitRaw = dailyMomentumExitRaw or dailyTrendExitRaw
+
+// --- 4H : swing court 1–3 jours, confirmé uniquement à chaque clôture 4H ---
+// Le Daily confirmé est le filtre macro principal. Même moteur R/B/C que le Daily, avec
+// des fenêtres plus rapides et un anti-chase plus strict.
+const int fourHBreakoutLen = 30          // ≈ 5 jours
+const int fourHBreakoutFollowBars = 2    // ≈ 8 heures de follow-through
+const float fourHBreakoutMaxRsi = 80.0
+const float fourHBreakoutMaxEmaExtensionPct = 8.0
+const float fourHBreakoutMaxEmaExtensionATR = 2.8
+
+fourHPriorHigh = ta.highest(high[1], fourHBreakoutLen)
+fourHBreakoutRawEvent = not na(fourHPriorHigh) and close > fourHPriorHigh and close[1] <= fourHPriorHigh[1]
+fourHBreakoutEvent = signalGate and fourHBreakoutRawEvent
+fourHBreakoutBarsSince = ta.barssince(fourHBreakoutRawEvent)
+fourHBreakoutLevel = ta.valuewhen(fourHBreakoutRawEvent, fourHPriorHigh, 0)
+fourHRecentBreakout = not na(fourHBreakoutBarsSince) and fourHBreakoutBarsSince <= fourHBreakoutFollowBars
+
+fourHEmaExtensionPct = emaFast > 0 ? ((close / emaFast) - 1.0) * 100.0 : na
+fourHEmaExtensionATR = atr > 0 ? (close - emaFast) / atr : na
+fourHAntiChaseOK = not na(fourHEmaExtensionPct) and not na(fourHEmaExtensionATR) and fourHEmaExtensionPct <= fourHBreakoutMaxEmaExtensionPct and fourHEmaExtensionATR <= fourHBreakoutMaxEmaExtensionATR
+fourHNearBreakout = not na(fourHPriorHigh) and close <= fourHPriorHigh and close >= fourHPriorHigh * 0.992
+
+fourHReversalMacroOK = not dailyContextBear or macdRank <= fourHLowRank
+fourHTrendMacroOK = dailyContextBull or (not dailyContextBear and close > emaSlow and emaFastRising and macdLine > macdSignalLine and macdHist >= 0)
+
+// A) REVERSAL 4H : reprise après faiblesse, sans essayer d'attraper un couteau qui tombe.
+fourHReversalSetup = chartOK and fourHReversalMacroOK and close >= emaSlow * 0.995 and macdRank <= 50 and histRising and rsi >= 35 and rsi < 62
+fourHReversalEntryRaw = signalGate and fourHReversalMacroOK and close >= emaSlow and rsi <= 66 and macdRank <= 65 and (macdBullCrossRaw or priceCrossAboveEmaFastRaw) and histRising
+
+// B) BREAKOUT 4H : cassure du plus haut ~5 jours + follow-through court.
+fourHBreakoutSetup = chartOK and fourHTrendMacroOK and close > emaFast and emaFastRising and macdLine > macdSignalLine and macdHist > 0 and rsi <= 76 and (fourHNearBreakout or (close > fourHPriorHigh and fourHAntiChaseOK))
+fourHBreakoutDirectEntryRaw = fourHBreakoutEvent and fourHTrendMacroOK and close > emaFast and emaFastRising and macdLine > macdSignalLine and macdHist > 0 and rsi <= fourHBreakoutMaxRsi and fourHAntiChaseOK
+fourHBreakoutFollowEntryRaw = signalGate and fourHRecentBreakout and fourHBreakoutBarsSince > 0 and not na(fourHBreakoutLevel) and close > fourHBreakoutLevel and close > emaFast and emaFastRising and macdLine > macdSignalLine and macdHist >= 0 and rsi <= 78 and fourHAntiChaseOK
+fourHBreakoutEntryRaw = fourHBreakoutDirectEntryRaw or fourHBreakoutFollowEntryRaw
+
+// C) CONTINUATION 4H : pullback EMA20 puis reprise dans un Daily sain.
+fourHTouchedFastRecently = ta.barssince(low <= emaFast * 1.008 and close >= emaSlow * 0.99) <= 4
+fourHContinuationSetup = chartOK and fourHTrendMacroOK and close >= emaSlow and emaFastRising and fourHTouchedFastRecently and macdLine > macdSignalLine and histRising and rsi >= 40 and rsi <= 68 and macdRank <= 78
+fourHContinuationTrigger = priceCrossAboveEmaFastRaw or (close > high[1] and close[1] <= emaFast[1] * 1.015)
+fourHContinuationEntryRaw = signalGate and fourHContinuationSetup and fourHContinuationTrigger and close > emaFast
+
+fourHSetup = fourHReversalSetup or fourHBreakoutSetup or fourHContinuationSetup
+fourHEntryRaw = fourHReversalEntryRaw or fourHBreakoutEntryRaw or fourHContinuationEntryRaw
+fourHTpRaw = (macdRank >= fourHHighRank and histFalling) or (rsi >= 74 and histFalling)
+fourHMomentumExitRaw = macdBearCross and (macdRank >= 55 or rsi >= 52 or macdPct > 0)
+fourHTrendExitRaw = signalGate and (((close < emaFast and close[1] < emaFast[1]) and histFalling) or close < emaSlow)
+fourHExitRaw = fourHMomentumExitRaw or fourHTrendExitRaw
+
+setupRaw = tradeMode == MODE_WEEKLY ? weeklySetup : tradeMode == MODE_DAILY ? dailySetup : fourHSetup
+entryRaw = tradeMode == MODE_WEEKLY ? weeklyEntryRaw : tradeMode == MODE_DAILY ? dailyEntryRaw : fourHEntryRaw
+tpRaw = tradeMode == MODE_WEEKLY ? weeklyTpRaw : tradeMode == MODE_DAILY ? dailyTpRaw : fourHTpRaw
+exitRaw = tradeMode == MODE_WEEKLY ? weeklyExitRaw : tradeMode == MODE_DAILY ? dailyExitRaw : fourHExitRaw
+
+// --- État modèle / historique des calls ---
+var bool modelInPosition = false
+var string modelEntryType = ""
+var float modelEntryPrice = na
+var int modelEntryBar = na
+var string lastTradeCall = "NONE"
+var string lastTradeType = ""
+var float lastTradePrice = na
+var bool modelTpIssued = false
+
+entrySignal = entryRaw and not modelInPosition
+exitSignal = exitRaw and modelInPosition
+
+entryTypeNow = tradeMode == MODE_WEEKLY ? (weeklyReversalEntryRaw ? "REVERSAL" : weeklyContinuationEntryRaw ? "CONTINUATION" : "") : tradeMode == MODE_DAILY ? (dailyBreakoutEntryRaw ? "BREAKOUT" : dailyReversalEntryRaw ? "REVERSAL" : dailyContinuationEntryRaw ? "CONTINUATION" : "") : (fourHBreakoutEntryRaw ? "BREAKOUT" : fourHReversalEntryRaw ? "REVERSAL" : fourHContinuationEntryRaw ? "CONTINUATION" : "")
+exitReasonNow = tradeMode == MODE_WEEKLY ? (weeklyTrendExitRaw ? "TREND" : "MOMENTUM") : tradeMode == MODE_DAILY ? (dailyTrendExitRaw ? "TREND" : "MOMENTUM") : (close < emaFast ? "TREND" : "MOMENTUM")
+
+// Gestion des profits : TP WATCH est informatif et peut apparaître tant que le momentum monte.
+// TP1 est un événement unique par trade, seulement quand une perte de momentum apparaît.
+modelPnlPctCurrent = modelInPosition and not na(modelEntryPrice) and modelEntryPrice > 0 ? ((close / modelEntryPrice) - 1.0) * 100.0 : na
+profitWatchMinPct = tradeMode == MODE_WEEKLY ? 20.0 : tradeMode == MODE_DAILY ? 8.0 : 3.0
+profitTpMinPct = tradeMode == MODE_WEEKLY ? 10.0 : tradeMode == MODE_DAILY ? 4.0 : 1.5
+profitExtreme = tradeMode == MODE_WEEKLY ? (macdRank >= 80 or rsi >= 70) : tradeMode == MODE_DAILY ? (macdRank >= 90 or rsi >= 75) : (macdRank >= 85 or rsi >= 70)
+profitProtectionWatch = modelInPosition and not na(modelPnlPctCurrent) and modelPnlPctCurrent >= profitWatchMinPct and profitExtreme
+tpWatch = modelInPosition and not modelTpIssued and not na(modelPnlPctCurrent) and modelPnlPctCurrent >= profitTpMinPct and tpRaw
+tpEvent = signalGate and tpWatch and not exitSignal
+setupEvent = signalGate and setupRaw and not setupRaw[1] and not modelInPosition and not entrySignal
+
+if signalGate
+    if entrySignal
+        modelInPosition := true
+        modelEntryType := entryTypeNow
+        modelEntryPrice := close
+        modelEntryBar := bar_index
+        modelTpIssued := false
+        lastTradeCall := "BUY"
+        lastTradeType := entryTypeNow
+        lastTradePrice := close
+    else if modelInPosition
+        if exitSignal
+            lastTradeCall := "SELL"
+            lastTradeType := exitReasonNow
+            lastTradePrice := close
+            modelInPosition := false
+            modelEntryType := ""
+            modelEntryPrice := na
+            modelEntryBar := na
+            modelTpIssued := false
+        else if tpEvent
+            modelTpIssued := true
+            lastTradeCall := "TP1"
+            lastTradeType := "SECURE"
+            lastTradePrice := close
+
+modelBarsHeld = modelInPosition and not na(modelEntryBar) ? bar_index - modelEntryBar : na
+// === VUE DASHBOARD CONFIRMÉE ===
+// Quand "Close only" est ON, le dashboard ne doit pas donner l'impression qu'une bougie ouverte
+// a déjà validé son RSI/MACD/régime. Sur la dernière bougie encore ouverte, on affiche donc les
+// métriques de la dernière clôture confirmée. Les marqueurs BUY/EXIT étaient déjà gated à la clôture.
+dashUsePrevClose = confirmSignals and barstate.islast and not barstate.isconfirmed
+dashClose = dashUsePrevClose ? close[1] : close
+dashEmaFast = dashUsePrevClose ? emaFast[1] : emaFast
+dashEmaSlow = dashUsePrevClose ? emaSlow[1] : emaSlow
+dashMacdRank = dashUsePrevClose ? macdRank[1] : macdRank
+dashRsi = dashUsePrevClose ? rsi[1] : rsi
+dashVolumeRatio = dashUsePrevClose ? volumeRatio[1] : volumeRatio
+dashAtr = dashUsePrevClose ? atr[1] : atr
+dashEntryRaw = dashUsePrevClose ? entryRaw[1] : entryRaw
+dashEntryType = dashUsePrevClose ? entryTypeNow[1] : entryTypeNow
+dashHistRising = dashUsePrevClose ? (macdHist[1] > macdHist[2]) : histRising
+dashHistFalling = dashUsePrevClose ? (macdHist[1] < macdHist[2]) : histFalling
+dashSetupRaw = dashUsePrevClose ? setupRaw[1] : setupRaw
+dashTpRaw = dashUsePrevClose ? tpRaw[1] : tpRaw
+dashChartBull = dashClose > dashEmaFast and dashEmaFast > dashEmaSlow
+dashChartBear = dashClose < dashEmaFast and dashEmaFast < dashEmaSlow
+dashRegimeBull = dashChartBull
+dashRegimeBear = dashChartBear
+dashModelPnlPct = modelInPosition and not na(modelEntryPrice) and modelEntryPrice > 0 ? ((dashClose / modelEntryPrice) - 1.0) * 100.0 : na
+dashModelBarsHeld = modelInPosition and not na(modelBarsHeld) ? math.max(modelBarsHeld - (dashUsePrevClose ? 1 : 0), 0) : na
+
+// === ICHIMOKU VISUEL CORRIGÉ ===
+donchian(len) => math.avg(ta.lowest(len), ta.highest(len))
+tenkan = donchian(ichTenkanLen)
+kijun = donchian(ichKijunLen)
+senkouA = math.avg(tenkan, kijun)
+senkouB = donchian(ichSpanBLen)
+
+// === AFFICHAGE PRINCIPAL ===
+emaFastPlot = plot(showEmaRibbon and chartOK ? emaFast : na, "EMA rapide", color=regimeBull ? color.new(color.lime, 5) : regimeBear ? color.new(color.red, 5) : color.new(color.orange, 10), linewidth=2, display=display.all - display.status_line)
+emaSlowPlot = plot(showEmaRibbon and chartOK ? emaSlow : na, "EMA lente", color=regimeBull ? color.new(color.green, 10) : regimeBear ? color.new(color.maroon, 5) : color.new(color.gray, 10), linewidth=2, display=display.all - display.status_line)
+fill(emaFastPlot, emaSlowPlot, color=showEmaRibbon and chartOK ? (emaFast >= emaSlow ? color.new(color.green, 91) : color.new(color.red, 91)) : na, title="EMA Ribbon")
+
+plot(showBB and chartOK ? bbUpper : na, "BB Upper", color=color.new(color.blue, 55), display=display.all - display.status_line)
+plot(showBB and chartOK ? bbLower : na, "BB Lower", color=color.new(color.blue, 55), display=display.all - display.status_line)
+
+spanAPlot = plot(showIchimoku and chartOK ? senkouA : na, "Senkou Span A", color=color.new(color.green, 75), offset=ichDisplacement, display=display.all - display.status_line)
+spanBPlot = plot(showIchimoku and chartOK ? senkouB : na, "Senkou Span B", color=color.new(color.red, 75), offset=ichDisplacement, display=display.all - display.status_line)
+fill(spanAPlot, spanBPlot, color=showIchimoku and chartOK ? (senkouA >= senkouB ? color.new(color.green, 92) : color.new(color.red, 92)) : na, title="Ichimoku Cloud")
+plot(showIchimoku and showIchimokuLines and chartOK ? tenkan : na, "Tenkan", color=color.new(color.blue, 20), display=display.all - display.status_line)
+plot(showIchimoku and showIchimokuLines and chartOK ? kijun : na, "Kijun", color=color.new(color.orange, 20), display=display.all - display.status_line)
+
+// Extrêmes MACD très légers : information de contexte, pas signal d'entrée à elle seule.
+extremeBg = macdRank <= lowRankThreshold ? color.new(color.green, 94) : macdRank >= highRankThreshold ? color.new(color.red, 94) : na
+bgcolor(showMacdExtremeBg and chartOK ? extremeBg : na, title="Zones MACD extrêmes")
+
+// Marqueurs historiques explicites : BUY (type), TP, SELL.
+// HOLD n'est pas imprimé sur chaque bougie pour éviter le bruit ; une teinte très légère matérialise
+// la période pendant laquelle le modèle reste en position.
+dailyBreakoutBuySignal = entrySignal and isDailyChart and dailyBreakoutEntryRaw
+dailyReversalBuySignal = entrySignal and isDailyChart and dailyReversalEntryRaw and not dailyBreakoutEntryRaw
+dailyContinuationBuySignal = entrySignal and isDailyChart and dailyContinuationEntryRaw and not dailyBreakoutEntryRaw and not dailyReversalEntryRaw
+weeklyReversalBuySignal = entrySignal and isWeeklyChart and weeklyReversalEntryRaw
+weeklyContinuationBuySignal = entrySignal and isWeeklyChart and weeklyContinuationEntryRaw and not weeklyReversalEntryRaw
+fourHBreakoutBuySignal = entrySignal and is4HChart and fourHBreakoutEntryRaw
+fourHReversalBuySignal = entrySignal and is4HChart and fourHReversalEntryRaw and not fourHBreakoutEntryRaw
+fourHContinuationBuySignal = entrySignal and is4HChart and fourHContinuationEntryRaw and not fourHBreakoutEntryRaw and not fourHReversalEntryRaw
+
+plotshape(dailyBreakoutBuySignal, title="BUY Daily Breakout", location=location.belowbar, style=shape.labelup, text="BUY B", color=color.new(color.green, 0), textcolor=color.white, size=size.small, display=display.all - display.status_line)
+plotshape(dailyReversalBuySignal, title="BUY Daily Reversal", location=location.belowbar, style=shape.labelup, text="BUY R", color=color.new(color.green, 0), textcolor=color.white, size=size.small, display=display.all - display.status_line)
+plotshape(dailyContinuationBuySignal, title="BUY Daily Continuation", location=location.belowbar, style=shape.labelup, text="BUY C", color=color.new(color.teal, 0), textcolor=color.white, size=size.small, display=display.all - display.status_line)
+plotshape(weeklyReversalBuySignal, title="BUY Weekly Reversal", location=location.belowbar, style=shape.labelup, text="BUY R", color=color.new(color.green, 0), textcolor=color.white, size=size.small, display=display.all - display.status_line)
+plotshape(weeklyContinuationBuySignal, title="BUY Weekly Continuation", location=location.belowbar, style=shape.labelup, text="BUY C", color=color.new(color.teal, 0), textcolor=color.white, size=size.small, display=display.all - display.status_line)
+plotshape(fourHBreakoutBuySignal, title="BUY 4H Breakout", location=location.belowbar, style=shape.labelup, text="BUY B", color=color.new(color.green, 0), textcolor=color.white, size=size.small, display=display.all - display.status_line)
+plotshape(fourHReversalBuySignal, title="BUY 4H Reversal", location=location.belowbar, style=shape.labelup, text="BUY R", color=color.new(color.green, 0), textcolor=color.white, size=size.small, display=display.all - display.status_line)
+plotshape(fourHContinuationBuySignal, title="BUY 4H Continuation", location=location.belowbar, style=shape.labelup, text="BUY C", color=color.new(color.teal, 0), textcolor=color.white, size=size.small, display=display.all - display.status_line)
+plotshape(showWatchMarkers and setupEvent, title="WATCH", location=location.belowbar, style=shape.labelup, text="W", color=color.new(color.orange, 15), textcolor=color.white, size=size.tiny, display=display.all - display.status_line)
+plotshape(showTpMarkers and tpEvent, title="TAKE PROFIT 1", location=location.abovebar, style=shape.labeldown, text="TP1", color=color.new(color.orange, 0), textcolor=color.white, size=size.tiny, display=display.all - display.status_line)
+plotshape(exitSignal, title="SELL", location=location.abovebar, style=shape.labeldown, text="SELL", color=color.new(color.red, 0), textcolor=color.white, size=size.small, display=display.all - display.status_line)
+plotshape(showMinorSignals and macdBullCrossRaw and (not confirmSignals or barstate.isconfirmed), title="MACD Bull Cross", location=location.belowbar, style=shape.diamond, color=color.new(color.green, 35), size=size.tiny, display=display.all - display.status_line)
+plotshape(showMinorSignals and macdBearCrossRaw and (not confirmSignals or barstate.isconfirmed), title="MACD Bear Cross", location=location.abovebar, style=shape.diamond, color=color.new(color.red, 35), size=size.tiny, display=display.all - display.status_line)
+
+bgcolor(showPositionBg and chartOK and modelInPosition ? color.new(color.blue, 96) : na, title="HOLD / position active")
+// Avertissement visuel si le timeframe TradingView n'est pas supporté.
+bgcolor(showTfWarning and not chartOK ? color.new(color.orange, 92) : na, title="Mauvais timeframe pour le mode")
+
+// Valeurs cachées disponibles dans la Data Window / alertes.
+plot(macdPct, "MACD normalisé (%)", display=display.none)
+plot(macdRank, "MACD Percentile", display=display.none)
+plot(bbWidthRank, "BB Width Percentile", display=display.none)
+plot(volumeRatio, "Volume Ratio", display=display.none)
+
+// === DASHBOARD ===
+// IMPORTANT :
+// - "Gestion position" répond : que faire SI le trade modèle a déjà été pris ?
+// - "Nouvelle entrée" répond : si je suis actuellement OUT, est-ce une bonne entrée fraîche ?
+// HOLD n'est donc JAMAIS un nouveau call BUY.
+var table dashboard = table.new(position.top_right, 2, 20, bgcolor=color.new(color.black, 12), frame_color=color.new(color.gray, 55), frame_width=1, border_color=color.new(color.gray, 82), border_width=1)
+
+if barstate.islast and showDashboard
+    regimeText = not chartOK ? "—" : dashRegimeBull ? "BULL" : dashRegimeBear ? "BEAR" : "NEUTRAL"
+    regimeColor = not chartOK ? color.new(color.gray, 78) : dashRegimeBull ? color.new(color.green, 45) : dashRegimeBear ? color.new(color.red, 45) : color.new(color.orange, 55)
+    macdZoneText = not chartOK ? "—" : na(dashMacdRank) ? "n/a" : dashMacdRank <= lowRankThreshold ? "EXTREME LOW" : dashMacdRank >= highRankThreshold ? "EXTREME HIGH" : dashMacdRank < 40 ? "LOW" : dashMacdRank > 60 ? "HIGH" : "NORMAL"
+    macdZoneColor = (not chartOK or na(dashMacdRank)) ? color.new(color.gray, 70) : dashMacdRank <= lowRankThreshold ? color.new(color.green, 45) : dashMacdRank >= highRankThreshold ? color.new(color.red, 45) : color.new(color.gray, 72)
+    momentumText = not chartOK ? "—" : dashHistRising ? "RISING" : dashHistFalling ? "FALLING" : "FLAT"
+    momentumColor = not chartOK ? color.new(color.gray, 70) : dashHistRising ? color.new(color.green, 60) : dashHistFalling ? color.new(color.red, 60) : color.new(color.gray, 70)
+    tfText = chartOK ? (isWeeklyChart ? "1W ✓" : isDailyChart ? "1D ✓" : "4H ✓") : "UTILISER 1W / 1D / 4H"
+    tfColor = chartOK ? color.new(color.green, 65) : color.new(color.orange, 30)
+
+    contextLabel = isDailyChart ? "Contexte Weekly" : is4HChart ? "Contexte Daily" : "Contexte HTF"
+    contextBull = isDailyChart ? weeklyContextBull : is4HChart ? dailyContextBull : false
+    contextBear = isDailyChart ? weeklyContextBear : is4HChart ? dailyContextBear : false
+    contextText = not chartOK ? "—" : isWeeklyChart ? "—" : contextBull ? "BULL" : contextBear ? "BEAR" : "NEUTRAL"
+    contextColor = (not chartOK or isWeeklyChart) ? color.new(color.gray, 78) : contextBull ? color.new(color.green, 55) : contextBear ? color.new(color.red, 55) : color.new(color.orange, 60)
+
+    positionText = not chartOK ? "—" : modelInPosition ? "IN · " + modelEntryType : "OUT"
+    entryText = modelInPosition and not na(modelEntryPrice) ? str.tostring(modelEntryPrice, format.mintick) : "—"
+    pnlText = modelInPosition and not na(dashModelPnlPct) ? str.tostring(dashModelPnlPct, "#.##") + "%" : "—"
+    pnlColor = not modelInPosition or na(dashModelPnlPct) ? color.new(color.gray, 78) : dashModelPnlPct >= 0 ? color.new(color.green, 60) : color.new(color.red, 60)
+    heldText = modelInPosition and not na(dashModelBarsHeld) ? str.tostring(dashModelBarsHeld) + " bougies" : "—"
+    lastCallText = lastTradeCall == "NONE" or na(lastTradePrice) ? "—" : lastTradeCall + (lastTradeType == "" ? "" : " · " + lastTradeType) + " @ " + str.tostring(lastTradePrice, format.mintick)
+
+    // --- Protection du trade modèle ---
+    dashProfitWatchMinPct = tradeMode == MODE_WEEKLY ? 20.0 : tradeMode == MODE_DAILY ? 8.0 : 3.0
+    dashProfitExtreme = tradeMode == MODE_WEEKLY ? (dashMacdRank >= 80 or dashRsi >= 70) : tradeMode == MODE_DAILY ? (dashMacdRank >= 90 or dashRsi >= 75) : (dashMacdRank >= 85 or dashRsi >= 70)
+    dashProfitProtectionWatch = modelInPosition and not na(dashModelPnlPct) and dashModelPnlPct >= dashProfitWatchMinPct and dashProfitExtreme
+    positionActionText = not chartOK ? "WAIT" : entrySignal ? "BUY · " + entryTypeNow : exitSignal ? "SELL" : tpEvent ? "TP1 · SECURE" : modelInPosition and dashProfitProtectionWatch ? "HOLD · TP WATCH" : modelInPosition ? "HOLD" : "OUT"
+    positionActionColor = not chartOK ? color.new(color.gray, 68) : entrySignal ? color.new(color.green, 15) : exitSignal ? color.new(color.red, 15) : tpEvent ? color.new(color.orange, 20) : modelInPosition and dashProfitProtectionWatch ? color.new(color.orange, 45) : modelInPosition ? color.new(color.blue, 55) : color.new(color.gray, 68)
+
+    // --- Guide de NOUVELLE entrée, indépendant de Position modèle ---
+    dashEmaExtensionPct = dashEmaFast > 0 ? ((dashClose / dashEmaFast) - 1.0) * 100.0 : na
+    dashEmaExtensionATR = dashAtr > 0 ? (dashClose - dashEmaFast) / dashAtr : na
+    dashFreshExtended = tradeMode == MODE_WEEKLY ? (dashRsi >= 72 or dashMacdRank >= 88 or dashEmaExtensionATR >= 3.0) : tradeMode == MODE_DAILY ? (dashRsi >= 76 or dashMacdRank >= 90 or dashEmaExtensionPct >= 10 or dashEmaExtensionATR >= 3.0) : (dashRsi >= 72 or dashMacdRank >= 85 or dashEmaExtensionPct >= 5 or dashEmaExtensionATR >= 2.5)
+    dashFreshFalling = dashRegimeBear or (dashClose < dashEmaFast and dashHistFalling) or (is4HChart and dailyContextBear and dashHistFalling)
+    dashFreshTrendOK = dashRegimeBull or (not dashRegimeBear and dashClose >= dashEmaSlow and not dashHistFalling)
+
+    // Safety LIVE : ne crée JAMAIS un BUY. Il peut seulement bloquer une entrée confirmée
+    // si le marché chute pendant la bougie ouverte, devient trop étendu, ou si le prix du signal a déjà été raté.
+    liveDropPct = close[1] != 0 ? ((close / close[1]) - 1.0) * 100.0 : 0.0
+    liveDropLimit = isWeeklyChart ? -4.0 : isDailyChart ? -2.0 : -1.0
+    liveEmaExtensionPct = emaFast > 0 ? ((close / emaFast) - 1.0) * 100.0 : na
+    liveEmaExtensionATR = atr > 0 ? (close - emaFast) / atr : na
+    entryReferencePrice = dashEntryRaw ? dashClose : na
+    liveFromEntryPct = not na(entryReferencePrice) and entryReferencePrice != 0 ? ((close / entryReferencePrice) - 1.0) * 100.0 : na
+    liveMaxChasePct = isWeeklyChart ? 5.0 : isDailyChart ? 2.5 : 1.25
+    liveFalling = not barstate.isconfirmed and close < open and liveDropPct <= liveDropLimit and (close < emaFast or macdHist < macdHist[1])
+    liveExtended = not barstate.isconfirmed and (tradeMode == MODE_WEEKLY ? (rsi >= 75 or liveEmaExtensionATR >= 3.5) : tradeMode == MODE_DAILY ? (rsi >= 80 or liveEmaExtensionPct >= 12 or liveEmaExtensionATR >= 3.5) : (rsi >= 76 or liveEmaExtensionPct >= 6 or liveEmaExtensionATR >= 3.0))
+    liveMissedEntry = not barstate.isconfirmed and dashEntryRaw and not na(liveFromEntryPct) and liveFromEntryPct > liveMaxChasePct
+    liveSafetyBlock = liveFalling or liveExtended or liveMissedEntry
+    liveSafetyText = barstate.isconfirmed ? "CLOSE CONFIRMED" : liveFalling ? "WAIT · LIVE FALLING" : liveMissedEntry ? "WAIT · MISSED / CHASE" : liveExtended ? "WAIT · LIVE EXTENDED" : "OK · LIVE"
+    liveSafetyColor = barstate.isconfirmed ? color.new(color.green, 70) : liveSafetyBlock ? color.new(color.red, 45) : color.new(color.green, 65)
+
+    freshEntryTypeShort = dashEntryType == "BREAKOUT" ? "BREAKOUT" : dashEntryType == "CONTINUATION" ? "CONT" : dashEntryType == "REVERSAL" ? "REVERSAL" : ""
+    freshEntryText = not chartOK ? "WAIT" : dashEntryRaw and liveFalling ? "WAIT · FALLING" : dashEntryRaw and liveMissedEntry ? "WAIT · MISSED / CHASE" : dashEntryRaw and liveExtended ? "WAIT · EXTENDED" : dashEntryRaw ? "BUY NOW · " + freshEntryTypeShort : dashFreshFalling ? "AVOID · FALLING" : dashFreshExtended ? "WAIT · PULLBACK" : dashSetupRaw ? "WATCH · SETUP" : dashFreshTrendOK ? "WAIT · NO TRIGGER" : "WAIT"
+    freshEntryColor = not chartOK ? color.new(color.gray, 68) : str.startswith(freshEntryText, "BUY NOW") ? color.new(color.green, 15) : str.startswith(freshEntryText, "AVOID") or str.startswith(freshEntryText, "WAIT · FALL") or str.startswith(freshEntryText, "WAIT · MISSED") ? color.new(color.red, 45) : str.startswith(freshEntryText, "WATCH") ? color.new(color.orange, 45) : color.new(color.gray, 68)
+    entryReferenceText = dashEntryRaw ? str.tostring(dashClose, format.mintick) : "—"
+    liveDeltaText = dashEntryRaw and not na(liveFromEntryPct) ? str.tostring(liveFromEntryPct, "#.##") + "%" : "—"
+
+    table.cell(dashboard, 0, 0, "BTC SIGNALS V4.2", text_color=color.white, bgcolor=color.new(color.blue, 65), text_size=size.small)
+    table.cell(dashboard, 1, 0, modeDisplay, text_color=color.white, bgcolor=color.new(color.blue, 65), text_size=size.small)
+    table.cell(dashboard, 0, 1, "Timeframe", text_color=color.silver, text_size=size.small)
+    table.cell(dashboard, 1, 1, tfText, text_color=color.white, bgcolor=tfColor, text_size=size.small)
+    table.cell(dashboard, 0, 2, "Regime", text_color=color.silver, text_size=size.small)
+    table.cell(dashboard, 1, 2, regimeText, text_color=color.white, bgcolor=regimeColor, text_size=size.small)
+    table.cell(dashboard, 0, 3, contextLabel, text_color=color.silver, text_size=size.small)
+    table.cell(dashboard, 1, 3, contextText, text_color=color.white, bgcolor=contextColor, text_size=size.small)
+    table.cell(dashboard, 0, 4, "MACD rank", text_color=color.silver, text_size=size.small)
+    table.cell(dashboard, 1, 4, (not chartOK ? "—" : (na(dashMacdRank) ? "n/a" : str.tostring(dashMacdRank, "#.0") + "%") + " · " + macdZoneText), text_color=color.white, bgcolor=macdZoneColor, text_size=size.small)
+    table.cell(dashboard, 0, 5, "Momentum", text_color=color.silver, text_size=size.small)
+    table.cell(dashboard, 1, 5, momentumText, text_color=color.white, bgcolor=momentumColor, text_size=size.small)
+    table.cell(dashboard, 0, 6, "RSI", text_color=color.silver, text_size=size.small)
+    table.cell(dashboard, 1, 6, chartOK ? str.tostring(dashRsi, "#.0") : "—", text_color=color.white, text_size=size.small)
+    table.cell(dashboard, 0, 7, "Volume", text_color=color.silver, text_size=size.small)
+    table.cell(dashboard, 1, 7, not chartOK ? "—" : na(dashVolumeRatio) ? "n/a · sans filtre" : str.tostring(dashVolumeRatio, "#.00") + "x", text_color=color.white, text_size=size.small)
+    table.cell(dashboard, 0, 8, "Position modèle", text_color=color.silver, text_size=size.small)
+    table.cell(dashboard, 1, 8, positionText, text_color=color.white, bgcolor=(chartOK and modelInPosition) ? color.new(color.green, 60) : color.new(color.gray, 78), text_size=size.small)
+    table.cell(dashboard, 0, 9, "Entrée modèle", text_color=color.silver, text_size=size.small)
+    table.cell(dashboard, 1, 9, entryText, text_color=color.white, text_size=size.small)
+    table.cell(dashboard, 0, 10, "P&L modèle", text_color=color.silver, text_size=size.small)
+    table.cell(dashboard, 1, 10, pnlText, text_color=color.white, bgcolor=pnlColor, text_size=size.small)
+    table.cell(dashboard, 0, 11, "Durée", text_color=color.silver, text_size=size.small)
+    table.cell(dashboard, 1, 11, heldText, text_color=color.white, text_size=size.small)
+    table.cell(dashboard, 0, 12, "Gestion position", text_color=color.silver, text_size=size.small)
+    table.cell(dashboard, 1, 12, positionActionText, text_color=color.white, bgcolor=positionActionColor, text_size=size.small)
+    table.cell(dashboard, 0, 13, "Nouvelle entrée", text_color=color.silver, text_size=size.small)
+    table.cell(dashboard, 1, 13, freshEntryText, text_color=color.white, bgcolor=freshEntryColor, text_size=size.small)
+    table.cell(dashboard, 0, 14, "Sécurité live", text_color=color.silver, text_size=size.small)
+    table.cell(dashboard, 1, 14, liveSafetyText, text_color=color.white, bgcolor=liveSafetyColor, text_size=size.small)
+    table.cell(dashboard, 0, 15, "Prix signal entrée", text_color=color.silver, text_size=size.small)
+    table.cell(dashboard, 1, 15, entryReferenceText, text_color=color.white, text_size=size.small)
+    table.cell(dashboard, 0, 16, "Écart live / signal", text_color=color.silver, text_size=size.small)
+    table.cell(dashboard, 1, 16, liveDeltaText, text_color=color.white, bgcolor=(dashEntryRaw and not na(liveFromEntryPct) and liveFromEntryPct > liveMaxChasePct) ? color.new(color.red, 45) : color.new(color.gray, 78), text_size=size.small)
+    table.cell(dashboard, 0, 17, "Dernier call", text_color=color.silver, text_size=size.small)
+    table.cell(dashboard, 1, 17, lastCallText, text_color=color.white, text_size=size.small)
+    table.cell(dashboard, 0, 18, "TP1 émis", text_color=color.silver, text_size=size.small)
+    table.cell(dashboard, 1, 18, modelInPosition ? (modelTpIssued ? "OUI" : "NON") : "—", text_color=color.white, bgcolor=modelInPosition and modelTpIssued ? color.new(color.orange, 45) : color.new(color.gray, 78), text_size=size.small)
+    closeOnlyText = confirmSignals ? (dashUsePrevClose ? "ON · LAST CLOSE" : "ON ✓") : "OFF / repaint possible"
+    table.cell(dashboard, 0, 19, "Close only", text_color=color.silver, text_size=size.small)
+    table.cell(dashboard, 1, 19, closeOnlyText, text_color=color.white, bgcolor=confirmSignals ? color.new(color.green, 70) : color.new(color.red, 45), text_size=size.small)
+
+if barstate.islast and not showDashboard
+    table.clear(dashboard, 0, 0, 1, 19)
+
+// === ALERTES TRADING ===
+alertcondition(entrySignal, title="BUY confirmé", message="BUY confirmé sur {{ticker}} — {{interval}}")
+alertcondition(tpEvent, title="TP1 confirmé", message="TP1 / sécurisation confirmé sur {{ticker}} — {{interval}}")
+alertcondition(exitSignal, title="SELL confirmé", message="SELL confirmé sur {{ticker}} — {{interval}}")
+
+// === ALERTES DE TRADING — PAPER TEST ===
+// Les alertcondition BUY / TP1 / SELL ci-dessus restent disponibles individuellement.
+// Pour recevoir un message dynamique avec mode/type/prix, créer une alerte sur "Any alert() function call".
+alertcondition(setupEvent, "WATCH setup confirmé", "Nouveau setup WATCH confirmé à la clôture")
+
+profitProtectionWatchStart = signalGate and profitProtectionWatch and not profitProtectionWatch[1]
+alertcondition(profitProtectionWatchStart, "TP WATCH", "TP WATCH : trade fortement bénéficiaire / étendu")
+
+if enableTradeAlerts and signalGate
+    if entrySignal
+        alert("BTC " + tradeMode + " | BUY " + entryTypeNow + " @ " + str.tostring(close, format.mintick), alert.freq_once_per_bar_close)
+    else if exitSignal
+        alert("BTC " + tradeMode + " | SELL " + exitReasonNow + " @ " + str.tostring(close, format.mintick), alert.freq_once_per_bar_close)
+    else if tpEvent
+        alert("BTC " + tradeMode + " | TP1 @ " + str.tostring(close, format.mintick), alert.freq_once_per_bar_close)
+    else if profitProtectionWatchStart
+        alert("BTC " + tradeMode + " | TP WATCH @ " + str.tostring(close, format.mintick), alert.freq_once_per_bar_close)
+
+// === TYPES ET FONCTIONS SUPPORT & RESISTANCE ===
+// Fonctions utilitaires
+findValRtnTime (barInfo[] biList, valToFind, toSearch, searchMode, minTime, maxTime, int defVal = na) =>
+    int rtnTime = defVal
+    float minDiff = na
+    if biList.size() > 0
+        for i = biList.size() - 1 to 0
+            curBI = biList.get(i)
+            if curBI.t >= minTime and curBI.t < maxTime
+                toLook = (toSearch == "Low" ? curBI.l : toSearch == "High" ? curBI.h : curBI.c)
+                if searchMode == "Nearest"
+                    curDiff = math.abs(valToFind - toLook)
+                    if na(minDiff)
+                        rtnTime := curBI.t
+                        minDiff := curDiff
+                    else
+                        if curDiff <= minDiff
+                            minDiff := curDiff
+                            rtnTime := curBI.t
+                if searchMode == "Higher"
+                    if toLook >= valToFind
+                        rtnTime := curBI.t
+                        break
+                if searchMode == "Lower"
+                    if toLook <= valToFind
+                        rtnTime := curBI.t
+                        break
+    rtnTime
+
+formatTimeframeString (string formatTimeframe, bool short = false) =>
+    timeframeF = (formatTimeframe == "" ? timeframe.period : formatTimeframe)
+    if str.contains(timeframeF, "D") or str.contains(timeframeF, "W") or str.contains(timeframeF, "S") or str.contains(timeframeF, "M")
+        timeframe.from_seconds(timeframe.in_seconds(timeframeF))
+    else
+        seconds = timeframe.in_seconds(timeframeF)
+        if seconds >= 3600
+            hourCount = int(seconds / 3600)
+            if short
+                str.tostring(hourCount) + "h"
+            else
+                str.tostring(hourCount) + " Hour" + (hourCount > 1 ? "s" : "")
+        else
+            if short
+                timeframeF + "m"
+            else
+                timeframeF + " Min"
+
+// Fonctions de rendu et gestion SR
+renderSRObj (srObj sr) =>
+    // La structure invalidée peut être masquée tout en conservant son marqueur BRK et son alerte.
+    shouldRenderStructure = na(sr.info.breakTime) or showInvalidated
+    if shouldRenderStructure
+        sr.rendered := true
+        sourceTFMS = timeframe.in_seconds(sr.info.timeframeStr == "" ? timeframe.period : sr.info.timeframeStr) * 1000
+        endTime = nz(sr.info.breakTime, time + sourceTFMS * labelOffsetBars)
+        extendType = expandZones == "All" ? extend.right : expandZones == "Only Valid" and na(sr.info.breakTime) ? extend.right : extend.none
+        if expandZones == "All"
+            endTime := time + sourceTFMS * labelOffsetBars
+        labelTitle = formatTimeframeString(sr.info.timeframeStr)
+        if not na(sr.combinedTimeframeStr)
+            labelTitle := sr.combinedTimeframeStr
+        labelTitle += " | " + str.tostring(math.round_to_mintick(sr.info.price)) + ((sr.info.ephemeral and DEBUG) ? " [E]" : "")
+        if styleMode == "Lines"
+            sr.srLine := line.new(sr.info.startTime, sr.info.price, endTime, sr.info.price, xloc=xloc.bar_time, color=sr.info.srType == "Resistance" ? resistanceColor : supportColor, width=lineWidth, style=lineStyle == "----" ? line.style_dashed : lineStyle == "...." ? line.style_dotted : line.style_solid, extend=extendType)
+            sr.srLabel := label.new(extendType == extend.none ? ((sr.info.startTime + endTime) / 2) : endTime, sr.info.price, xloc=xloc.bar_time, text=labelTitle, textcolor=textColor, style=label.style_none)
+        else
+            zoneAtr = na(sr.info.sourceAtr) ? atr : sr.info.sourceAtr
+            sr.srBox := box.new(sr.info.startTime, sr.info.price + zoneAtr * zoneSizeATR, endTime, sr.info.price - zoneAtr * zoneSizeATR, xloc=xloc.bar_time, bgcolor=sr.info.srType == "Resistance" ? resistanceColor : supportColor, border_color=na, text=labelTitle, text_color=textColor, extend=extendType, text_size=size.normal, text_halign=(extendType != extend.none) ? text.align_right : text.align_center)
+
+    // Break indépendant de l'affichage du niveau invalidé.
+    if showBreaks and not na(sr.info.breakTime)
+        sr.rendered := true
+        sr.breakLabel := label.new(sr.info.breakTime, sr.info.price, "BRK", yloc=sr.info.srType == "Resistance" ? yloc.belowbar : yloc.abovebar, style=sr.info.srType == "Resistance" ? label.style_label_up : label.style_label_down, color=breakColor, textcolor=color.new(textColor, 0), xloc=xloc.bar_time, size=size.tiny)
+        if sr.info.breakTime >= time and sr.info.breakTime < time_close
+            alerts.put("Break", true)
+
+    if showRetests and sr.info.retestTimes.size() > 0
+        sr.rendered := true
+        for i = sr.info.retestTimes.size() - 1 to 0
+            curRetestTime = sr.info.retestTimes.get(i)
+            cooldownOK = true
+            if sr.retestLabels.size() > 0
+                lastLabel = sr.retestLabels.get(0)
+                if math.abs(lastLabel.get_x() - curRetestTime) < curTFMS * retestLabelCooldown
+                    cooldownOK := false
+            if cooldownOK and (curRetestTime >= sr.info.startTime) and (na(sr.info.breakTime) or curRetestTime < sr.info.breakTime)
+                if curRetestTime >= time and curRetestTime < time_close
+                    alerts.put("Retest", true)
+                sr.retestLabels.unshift(label.new(curRetestTime, sr.info.price, "R", yloc=sr.info.srType == "Resistance" ? yloc.abovebar : yloc.belowbar, style=sr.info.srType == "Resistance" ? label.style_label_down : label.style_label_up, color=sr.info.srType == "Resistance" ? resistanceColor : supportColor, textcolor=color.new(textColor, 0), xloc=xloc.bar_time, size=size.tiny))
+
+safeDeleteSRObj (srObj sr) =>
+    if sr.rendered
+        line.delete(sr.srLine)
+        box.delete(sr.srBox)
+        label.delete(sr.srLabel)
+        label.delete(sr.breakLabel)
+        if sr.retestLabels.size() > 0
+            for i = 0 to sr.retestLabels.size() - 1
+                curRetestLabel = sr.retestLabels.get(i)
+                label.delete(curRetestLabel)
+        sr.rendered := false
+
+// Fonctions de gestion des timeframes
+fixSRToTimeframe (srObj sr) =>
+    srMS = math.max(timeframe.in_seconds(sr.info.timeframeStr), timeframe.in_seconds()) * 1000
+    if (not sr.startFixed)
+        if not sr.info.ephemeral
+            if sr.info.srType == "Resistance"
+                sr.info.startTime := findValRtnTime(barInfoList, sr.info.price, "High", "Nearest", sr.info.startTime - srMS, sr.info.startTime + srMS, sr.info.startTime)
+            else
+                sr.info.startTime := findValRtnTime(barInfoList, sr.info.price, "Low", "Nearest", sr.info.startTime - srMS, sr.info.startTime + srMS, sr.info.startTime)
+            sr.startFixed := true
+        else
+            if allSRList.size() > 0
+                for i = 0 to allSRList.size() - 1
+                    curSR = allSRList.get(i)
+                    if (not curSR.info.ephemeral) and (not na(curSR.info.breakTime)) and curSR.info.price == sr.info.price and ((sr.info.srType == "Resistance" and curSR.info.srType == "Support") or (sr.info.srType == "Support" and curSR.info.srType == "Resistance"))
+                        if curSR.breakFixed
+                            sr.info.startTime := curSR.info.breakTime
+                            sr.startFixed := true
+                        break
+
+    if not na(sr.info.breakTime)
+        if (not sr.breakFixed)
+            if sr.info.srType == "Resistance"
+                sr.info.breakTime := findValRtnTime(barInfoList, sr.info.price, srInvalidation == "Wick" ? "High" : "Close", "Higher", sr.info.breakTime - srMS, sr.info.breakTime + srMS, sr.info.breakTime)
+            else
+                sr.info.breakTime := findValRtnTime(barInfoList, sr.info.price, srInvalidation == "Wick" ? "Low" : "Close", "Lower", sr.info.breakTime - srMS, sr.info.breakTime + srMS, sr.info.breakTime)
+            sr.breakFixed := true
+    
+    if sr.info.retestTimes.size() > 0 and fixRetests
+        for i = 0 to sr.info.retestTimes.size() - 1
+            curRetestTime = sr.info.retestTimes.get(i)
+
+            retestStartTime = curRetestTime - srMS
+            retestStartTime := math.max(retestStartTime, sr.info.startTime + 1)
+            
+            retestEndTime = curRetestTime + srMS
+            if not na(sr.info.breakTime)
+                retestEndTime := math.min(retestEndTime, sr.info.breakTime - 1)
+            
+            if sr.info.srType == "Resistance"
+                sr.info.retestTimes.set(i, findValRtnTime(barInfoList, sr.info.price, "High", "Higher", retestStartTime, retestEndTime, sr.info.retestTimes.get(i)))
+            else
+                sr.info.retestTimes.set(i, findValRtnTime(barInfoList, sr.info.price, "Low", "Lower", retestStartTime, retestEndTime, sr.info.retestTimes.get(i)))
+
+getSR (srObj[] list, srPrice, eph, srType, timeframeStr) =>
+    srObj rtnSR = na
+    if list.size() > 0
+        for i = 0 to list.size() - 1
+            curSR = list.get(i)
+            if curSR.info.price == srPrice and curSR.info.ephemeral == eph and curSR.info.srType == srType and curSR.info.timeframeStr == timeframeStr
+                rtnSR := curSR
+                break
+    rtnSR
+
+handleTF (tfStr, tfEnabled) =>
+    requestedTF = tfStr == "" ? timeframe.period : tfStr
+    compatibleTF = timeframe.in_seconds(requestedTF) >= timeframe.in_seconds(timeframe.period)
+    if tfEnabled and compatibleTF
+        tfSRInfoList = request.security(syminfo.tickerid, requestedTF, allSRInfoList)
+        if not na(tfSRInfoList) and tfSRInfoList.size() > 0
+            for i = 0 to tfSRInfoList.size() - 1
+                srInfo curSRInfo = tfSRInfoList.get(i)
+                if fixSRs
+                    currentSameSR = getSR(allSRList, curSRInfo.price, curSRInfo.ephemeral, curSRInfo.srType, curSRInfo.timeframeStr)
+                    if not na(currentSameSR)
+                        if currentSameSR.startFixed
+                            curSRInfo.startTime := currentSameSR.info.startTime
+                        if currentSameSR.breakFixed
+                            curSRInfo.breakTime := currentSameSR.info.breakTime
+                        curSRInfo.retestTimes := currentSameSR.info.retestTimes
+                        // All other info should be replaced except fixed start, break and all retests.
+                        currentSameSR.info := curSRInfo
+                        if not currentSameSR.breakFixed
+                            fixSRToTimeframe(currentSameSR)
+                    else
+                        srObj newSRObj = srObj.new(curSRInfo)
+                        // We handle retests in current timeframe so no need to get them from upper.
+                        newSRObj.info.retestTimes := array.new<int>()
+                        newSRObj.retestLabels := array.new<label>()
+                        fixSRToTimeframe(newSRObj)
+                        allSRList.unshift(newSRObj)
+                else
+                    srObj newSRObj = srObj.new(curSRInfo)
+                    newSRObj.retestLabels := array.new<label>()
+                    allSRList.unshift(newSRObj)
+    true
+
+// Logique principale
+pivotHigh = ta.pivothigh(srPivotLength, srPivotLength)
+pivotLow = ta.pivotlow(srPivotLength, srPivotLength)
+
+barInfoList.unshift(barInfo.new(time, time_close, close, high, low))
+if barInfoList.size() > maxBarInfoListSize
+    barInfoList.pop()
+
+if srRuntimeEnabled and insideBounds and barstate.isconfirmed
+    // Find Supports
+    if not na(pivotLow)
+        validSR = true
+        if allSRInfoList.size() > 0
+            for i = 0 to allSRInfoList.size() - 1
+                curRSInfo = allSRInfoList.get(i)
+                if (math.abs(curRSInfo.price - pivotLow) < atr * tooCloseATR) and na(curRSInfo.breakTime)
+                    validSR := false
+                    break
+        
+        if validSR
+            newSRInfo = srInfo.new(time, pivotLow, "Support", 1, timeframe.period, atr)
+            newSRInfo.retestTimes := array.new<int>()
+            allSRInfoList.unshift(newSRInfo)
+            while allSRInfoList.size() > maxSRInfoListSize
+                allSRInfoList.pop()
+    
+    // Find Resistances
+    if not na(pivotHigh)
+        validSR = true
+        if allSRInfoList.size() > 0
+            for i = 0 to allSRInfoList.size() - 1
+                curRSInfo = allSRInfoList.get(i)
+                if (math.abs(curRSInfo.price - pivotHigh) < atr * tooCloseATR) and na(curRSInfo.breakTime)
+                    validSR := false
+                    break
+        if validSR
+            newSRInfo = srInfo.new(time, pivotHigh, "Resistance", 1, timeframe.period, atr)
+            newSRInfo.retestTimes := array.new<int>()
+            allSRInfoList.unshift(newSRInfo)
+            if allSRInfoList.size() > maxSRInfoListSize
+                allSRInfoList.pop()
+
+// Handle SR Infos
+if srRuntimeEnabled and insideBounds and (srInvalidation == "Wick" or barstate.isconfirmed)
+    if allSRInfoList.size() > 0
+        for i = 0 to allSRInfoList.size() - 1
+            srInfo curSRInfo = allSRInfoList.get(i)
+            
+            // Breaks
+            invHigh = (srInvalidation == "Close" ? close : high)
+            invLow = (srInvalidation == "Close" ? close : low)
+            closeTime = time
+            if na(curSRInfo.breakTime)
+                if curSRInfo.srType == "Resistance" and invHigh > curSRInfo.price
+                    if breakVolumeOK
+                        curSRInfo.breakTime := closeTime
+                        if inverseBrokenLineColor and (not curSRInfo.ephemeral) and curSRInfo.strength >= srStrength
+                            ephSR = srInfo.new(closeTime, curSRInfo.price, "Support", curSRInfo.strength, curSRInfo.timeframeStr, curSRInfo.sourceAtr, true)
+                            ephSR.retestTimes := array.new<int>()
+                            allSRInfoList.unshift(ephSR)
+                else if curSRInfo.srType == "Support" and invLow < curSRInfo.price
+                    if breakVolumeOK
+                        curSRInfo.breakTime := closeTime
+                        if inverseBrokenLineColor and (not curSRInfo.ephemeral) and curSRInfo.strength >= srStrength
+                            ephSR = srInfo.new(closeTime, curSRInfo.price, "Resistance", curSRInfo.strength, curSRInfo.timeframeStr, curSRInfo.sourceAtr, true)
+                            ephSR.retestTimes := array.new<int>()
+                            allSRInfoList.unshift(ephSR)
+                
+            // Strength & Retests
+            if na(curSRInfo.breakTime) and time > curSRInfo.startTime and barstate.isconfirmed
+                if curSRInfo.srType == "Resistance" and high >= curSRInfo.price and close <= curSRInfo.price
+                    int lastRetestTime = 0
+                    if curSRInfo.retestTimes.size() > 0
+                        lastRetestTime := curSRInfo.retestTimes.get(0)
+                    
+                    if lastRetestTime != time
+                        if not curSRInfo.ephemeral
+                            curSRInfo.strength += 1
+                        curSRInfo.retestTimes.unshift(time)
+                
+                else if curSRInfo.srType == "Support" and low <= curSRInfo.price and close >= curSRInfo.price
+                    int lastRetestTime = 0
+                    if curSRInfo.retestTimes.size() > 0
+                        lastRetestTime := curSRInfo.retestTimes.get(0)
+                    
+                    if lastRetestTime != time
+                        if not curSRInfo.ephemeral
+                            curSRInfo.strength += 1
+                        curSRInfo.retestTimes.unshift(time)
+
+// Handle SR
+if srRuntimeEnabled and (bar_index > last_bar_index - maxDistanceToLastBar * 8) and barstate.isconfirmed
+    if not fixSRs
+        if allSRList.size() > 0
+            for i = 0 to allSRList.size() - 1
+                srObj curSRObj = allSRList.get(i)
+                safeDeleteSRObj(curSRObj)
+        allSRList.clear()
+        
+    handleTF(timeframe1, timeframe1Enabled)
+    handleTF(timeframe2, timeframe2Enabled)
+    handleTF(timeframe3, timeframe3Enabled)
+
+    while allSRList.size() > maxSRObjListSize
+        oldSR = allSRList.get(allSRList.size() - 1)
+        safeDeleteSRObj(oldSR)
+        allSRList.pop()
+    
+    if allSRList.size() > 0
+        for i = 0 to allSRList.size() - 1
+            srObj curSRObj = allSRList.get(i)
+            safeDeleteSRObj(curSRObj)
+            curSRObj.combinedTimeframeStr := na
+            tooClose = false
+            for j = 0 to allSRList.size() - 1
+                closeSR = allSRList.get(j)
+                mergeAtr = math.max(nz(closeSR.info.sourceAtr, atr), nz(curSRObj.info.sourceAtr, atr))
+                if closeSR.rendered and math.abs(closeSR.info.price - curSRObj.info.price) <= tooCloseATR * mergeAtr and closeSR.info.srType == curSRObj.info.srType and closeSR.info.ephemeral == curSRObj.info.ephemeral
+                    tooClose := true
+                    if not str.contains((na(closeSR.combinedTimeframeStr) ? formatTimeframeString(closeSR.info.timeframeStr) : closeSR.combinedTimeframeStr), formatTimeframeString(curSRObj.info.timeframeStr))
+                        if na(closeSR.combinedTimeframeStr)
+                            closeSR.combinedTimeframeStr := formatTimeframeString(closeSR.info.timeframeStr) + " & " + formatTimeframeString(curSRObj.info.timeframeStr)
+                        else
+                            closeSR.combinedTimeframeStr += " & " + formatTimeframeString(curSRObj.info.timeframeStr)
+                    break
+
+            // Lisibilité : garder au maximum les niveaux actifs les plus proches de chaque côté du prix.
+            closerCount = 0
+            if na(curSRObj.info.breakTime)
+                for j = 0 to allSRList.size() - 1
+                    otherSR = allSRList.get(j)
+                    sameSideType = otherSR.info.srType == curSRObj.info.srType and na(otherSR.info.breakTime)
+                    if sameSideType and math.abs(otherSR.info.price - close) < math.abs(curSRObj.info.price - close)
+                        closerCount += 1
+            visibleByDistance = not na(curSRObj.info.breakTime) or closerCount < maxVisibleSRPerSide
+            validDuration = na(curSRObj.info.breakTime) or (curSRObj.info.breakTime - curSRObj.info.startTime) >= minSRSize * (timeframe.in_seconds(curSRObj.info.timeframeStr == "" ? timeframe.period : curSRObj.info.timeframeStr) * 1000)
+            if (curSRObj.info.strength >= srStrength) and validDuration and visibleByDistance and (not tooClose)
+                renderSRObj(curSRObj)
+
+// Current Timeframe Retests
+if srRuntimeEnabled and allSRList.size() > 0 and barstate.isconfirmed
+    for i = 0 to allSRList.size() - 1
+        srObj curSR = allSRList.get(i)
+        if na(curSR.info.breakTime) and time > curSR.info.startTime
+            if curSR.info.srType == "Resistance" and high >= curSR.info.price and close <= curSR.info.price
+                int lastRetestTime = 0
+                if curSR.info.retestTimes.size() > 0
+                    lastRetestTime := curSR.info.retestTimes.get(0)
+                
+                if lastRetestTime != time
+                    curSR.info.retestTimes.unshift(time)
+            
+            else if curSR.info.srType == "Support" and low <= curSR.info.price and close >= curSR.info.price
+                int lastRetestTime = 0
+                if curSR.info.retestTimes.size() > 0
+                    lastRetestTime := curSR.info.retestTimes.get(0)
+                
+                if lastRetestTime != time
+                    curSR.info.retestTimes.unshift(time)
+
+// Alertes
+alertcondition(alerts.get("Retest"), "New Retest", "")
+alertcondition(alerts.get("Break"), "New Break", "")
+
+if enableRetestAlerts and alerts.get("Retest")
+    alert("New Retest detected.")
+
+if enableBreakAlerts and alerts.get("Break")
+    alert("New Break detected.") 
