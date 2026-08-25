@@ -8,6 +8,7 @@ from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 from ai_trading.runtime_settings import get_runtime_settings
+from ai_trading.llm.predictions.p4_registry import registry as p4_registry
 
 logger = logging.getLogger("trading_api")
 
@@ -31,6 +32,33 @@ app = FastAPI(
     description="API pour l'agent de trading par renforcement",
     version="1.0.0",
 )
+
+
+@app.get("/api/v4/predictions/{asset}/{timeframe}", tags=["P4"], summary="Lecture seule d'une prédiction P4")
+async def get_p4_prediction(asset: str, timeframe: str):
+    prediction = p4_registry.prediction(asset, timeframe)
+    if prediction is None:
+        raise HTTPException(status_code=404, detail="Prédiction P4 introuvable")
+    return prediction
+
+
+@app.get("/api/v4/predictions/{asset}/{timeframe}/metrics", tags=["P4"], summary="Métriques et fraîcheur P4")
+async def get_p4_prediction_metrics(asset: str, timeframe: str):
+    prediction = p4_registry.prediction(asset, timeframe)
+    if prediction is None:
+        raise HTTPException(status_code=404, detail="Prédiction P4 introuvable")
+    return {key: prediction.get(key) for key in (
+        "asset", "timeframe", "as_of", "data_version", "confidence", "abstain",
+        "sentiment_freshness_seconds", "performance_metrics", "market_safety",
+    )} | {"trading_enabled": False}
+
+
+@app.get("/api/v4/explanations/{prediction_id}", tags=["P4"], summary="Lecture seule d'une explication P4")
+async def get_p4_explanation(prediction_id: str):
+    explanation = p4_registry.explanation(prediction_id)
+    if explanation is None:
+        raise HTTPException(status_code=404, detail="Explication P4 introuvable")
+    return explanation
 
 
 # Ajout d'une route de health check

@@ -27,9 +27,10 @@ class MultiHorizonPredictor:
     """
     
     # Définition des horizons temporels
-    SHORT_TERM = ["15m", "30m", "1h", "4h"]
-    MEDIUM_TERM = ["6h", "12h", "24h"]
-    LONG_TERM = ["3d", "7d", "14d", "30d"]
+    # Catégories P4 explicites : minutes, heures, jours.
+    SHORT_TERM = ["5m", "15m", "30m"]
+    MEDIUM_TERM = ["1h", "4h", "12h"]
+    LONG_TERM = ["1d", "3d", "7d"]
     
     def __init__(self, 
                 llm_model: str = "gpt-4", 
@@ -94,11 +95,13 @@ class MultiHorizonPredictor:
                     self.prediction_models[timeframe] = PredictionModel(
                         custom_config={
                             "model_dir": self.model_save_dir,
-                            "llm_weight": 0.4,  # Donner un peu plus de poids au LLM
-                            "ml_weight": 0.6,
+                            "prediction_mode": "ml_only",
+                            "llm_weight": 0.0,
+                            "ml_weight": 1.0,
                             "market_data_provider": self.market_predictor.market_data_provider,
                             "sentiment_provider": self.market_predictor.sentiment_provider,
                             "llm_client": self.market_predictor.client,
+                            "use_gpu": self.market_predictor.config.get("use_gpu", True),
                         }
                     )
                     logger.info(f"Nouveau modèle créé pour {timeframe}")
@@ -112,7 +115,8 @@ class MultiHorizonPredictor:
                             long_term: bool = True,
                             market_data: Optional[pd.DataFrame] = None,
                             sentiment_data: Optional[pd.DataFrame] = None,
-                            as_of: Optional[Any] = None) -> Dict[str, Dict]:
+                            as_of: Optional[Any] = None,
+                            timeframes: Optional[List[str]] = None) -> Dict[str, Dict]:
         """
         Génère des prédictions pour tous les horizons temporels spécifiés.
         
@@ -125,13 +129,14 @@ class MultiHorizonPredictor:
         Returns:
             Dict[str, Dict]: Dictionnaire des prédictions par horizon temporel
         """
-        horizons = []
-        if short_term:
-            horizons.extend(self.SHORT_TERM)
-        if medium_term:
-            horizons.extend(self.MEDIUM_TERM)
-        if long_term:
-            horizons.extend(self.LONG_TERM)
+        horizons = list(timeframes or [])
+        if not horizons:
+            if short_term:
+                horizons.extend(self.SHORT_TERM)
+            if medium_term:
+                horizons.extend(self.MEDIUM_TERM)
+            if long_term:
+                horizons.extend(self.LONG_TERM)
             
         if self.use_hybrid:
             self.initialize_prediction_models(horizons)
@@ -140,26 +145,19 @@ class MultiHorizonPredictor:
         
         for timeframe in horizons:
             logger.info(f"Génération de prédiction pour {asset} sur {timeframe}")
+            horizon_market = market_data.get(timeframe) if isinstance(market_data, dict) else market_data
+            horizon_sentiment = sentiment_data.get(timeframe) if isinstance(sentiment_data, dict) else sentiment_data
             
             if self.use_hybrid and timeframe in self.prediction_models:
-                # Utiliser le modèle hybride si disponible
-                try:
-                    prediction = self.prediction_models[timeframe].predict(
-                        asset, timeframe, market_data=market_data,
-                        sentiment_data=sentiment_data, as_of=as_of,
-                    )
-                    predictions[timeframe] = prediction
-                except Exception as e:
-                    logger.error(f"Erreur lors de la prédiction hybride pour {timeframe}: {str(e)}")
-                    # Fallback sur LLM si erreur
-                    prediction = self.market_predictor.predict_market_direction(
-                        asset, timeframe, market_data, sentiment_data, as_of
-                    )
-                    predictions[timeframe] = prediction
+                # Aucun fallback silencieux : un modèle non entraîné s'abstient.
+                predictions[timeframe] = self.prediction_models[timeframe].predict(
+                    asset, timeframe, market_data=horizon_market,
+                    sentiment_data=horizon_sentiment, as_of=as_of,
+                )
             else:
                 # Utiliser uniquement le LLM
                 prediction = self.market_predictor.predict_market_direction(
-                    asset, timeframe, market_data, sentiment_data, as_of
+                    asset, timeframe, horizon_market, horizon_sentiment, as_of
                 )
                 predictions[timeframe] = prediction
                 
@@ -176,7 +174,7 @@ class MultiHorizonPredictor:
         Returns:
             Dict: Données préparées pour la prédiction
         """
-        market_data = self.market_predictor._fetch_market_data(asset, timeframe, as_of)
+        market_data = self.market_predictor.market_data_provider.fetch(asset, timeframe, as_of)
         sentiment_data = (
             self.market_predictor.sentiment_provider(asset=asset, timeframe=timeframe, as_of=as_of)
             if self.market_predictor.sentiment_provider else None
@@ -213,13 +211,18 @@ class MultiHorizonPredictor:
             logger.info(f"Entraînement du modèle pour {asset} sur {timeframe}")
             try:
                 # Récupérer les données d'entraînement
-                data = ({"market_data": market_data, "sentiment_data": sentiment_data}
-                        if market_data is not None else self._get_training_data(asset, timeframe, historical_days, as_of))
+                if market_data is not None:
+                    horizon_market = market_data[timeframe] if isinstance(market_data, dict) else market_data
+                    horizon_sentiment = (sentiment_data.get(timeframe) if isinstance(sentiment_data, dict)
+                                         else sentiment_data)
+                    data = {"market_data": horizon_market, "sentiment_data": horizon_sentiment}
+                else:
+                    data = self._get_training_data(asset, timeframe, historical_days, as_of)
                 
                 # Entraîner le modèle
                 metrics = self.prediction_models[timeframe].train(
                     market_data=data["market_data"],
-                    sentiment_data=data["sentiment_data"]
+                    sentiment_data=data["sentiment_data"], as_of=as_of,
                 )
                 
                 # Sauvegarder le modèle

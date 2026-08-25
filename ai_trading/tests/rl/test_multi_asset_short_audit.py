@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pandas as pd
 from types import SimpleNamespace
@@ -10,6 +11,7 @@ from ai_trading.scripts.run_real_multi_asset_walk_forward import (
     _aggregate_validation,
     _assert_test_available,
     _eligible,
+    _environment,
     _metrics,
     _load_candidate_config,
     _parameter_fingerprint,
@@ -20,6 +22,7 @@ from ai_trading.scripts.run_real_multi_asset_walk_forward import (
     _slice_with_context,
     _write_trade_audit,
 )
+from ai_trading.rl.multi_asset_trading_environment import MultiAssetTradingEnvironment
 
 
 def test_candidate_protocol_does_not_override_the_cli_training_budget():
@@ -56,6 +59,17 @@ def test_candidate_config_requires_a_complete_matching_fingerprint(tmp_path):
     path.write_text(json.dumps(manifest), encoding="utf-8")
     with pytest.raises(ValueError, match="empreinte invalide"):
         _load_candidate_config(path)
+
+
+def test_research_candidates_are_versioned_and_can_override_short_risk_limits():
+    candidates = _load_candidate_config(
+        Path("/app/ai_trading/configs/p3_p4_research_candidates.json")
+    )
+    assert len(candidates) == 4
+    long_only = next(item["parameters"] for item in candidates if "long-only" in item["candidate_id"])
+    conservative = next(item["parameters"] for item in candidates if "low-blend" in item["candidate_id"])
+    assert long_only["allow_short"] is False
+    assert conservative["max_short_exposure"] == pytest.approx(0.10)
 
 
 def test_multi_seed_selection_rejects_a_candidate_with_one_losing_seed():

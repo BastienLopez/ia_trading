@@ -189,26 +189,26 @@ Ce module contient l'implémentation d'un système de trading de cryptomonnaies 
 
 #### P1 — Fonctionnalités P4 à intégrer après le socle
 
-- [ ] **4.7 Prédictions multi-horizons et adaptation dynamique**
+- [x] **4.7 Prédictions multi-horizons et adaptation dynamique**
   - Court terme : minutes ; moyen terme : heures ; long terme : jours.
   - Entraîner, persister et évaluer chaque horizon séparément sur des données
     causales ; ne pas retomber silencieusement sur des données fictives.
   - Produire une cohérence inter-horizons sans convertir une confiance numérique
     en catégorie incompatible.
 
-- [ ] **4.8 Temps réel et résilience des flux**
+- [x] **4.8 Temps réel et résilience des flux**
   - Brancher une source de flux P1, avec queue bornée, backpressure,
     reconnexion, timeout, reprise et état dégradé.
   - Mesurer latence de bout en bout, taille de queue, erreurs, cache hits et
     mémoire ; ne pas considérer un thread local comme une intégration temps réel.
 
-- [ ] **4.9 Changements de marché, volatilité et anomalies**
+- [x] **4.9 Changements de marché, volatilité et anomalies**
   - Tester sauts de prix, volumes anormaux, données invalides, flux en retard et
     divergences sentiment/prix.
   - Diminuer la confiance ou s'abstenir en régime instable ; ne pas produire de
     signal de trading exploitable sans garde P3.
 
-- [ ] **4.10 Interprétabilité et visualisations réelles**
+- [x] **4.10 Interprétabilité et visualisations réelles**
   - SHAP/LIME uniquement pour des modèles compatibles et réellement entraînés ;
     imports lazy, gestion d'erreur, budget temps/mémoire.
   - Générer et vérifier des fichiers HTML/PNG/PDF réels, pas des chemins ou
@@ -216,12 +216,19 @@ Ce module contient l'implémentation d'un système de trading de cryptomonnaies 
   - Ajouter dashboard/API de lecture seule pour prédiction, explication,
     incertitude, fraîcheur et métriques.
 
-- [ ] **4.11 API, dashboard et contrat avec P3**
+- [x] **4.11 API, dashboard et contrat avec P3**
   - Ajouter des endpoints P4 versionnés, documentés et testés dans Docker.
   - Intégrer P4 à P3 uniquement comme feature causale disponible avant la
     décision RL ; conserver le lock P3 inchangé.
   - Interdire tout ordre réel, toute allocation réelle et toute promesse de
     surperformance durant cette phase.
+
+> Exécution P3+P4 : ajouter `--enable-p4-features` et fournir un fichier P2
+> réel via `--p4-sentiment-observations`. Le fichier CSV/Parquet doit contenir
+> `timestamp`, `asset`, `timeframe`, `sentiment_score`, `quality` et `source`.
+> Sans ce contrat, le run refuse P4 : il ne crée aucun sentiment fictif. Pour
+> un essai multi-horizons, utiliser un timeframe P1 `1h` et des horizons
+> compatibles, par exemple `--p4-horizons 1h 4h 1d`.
 
 #### P2 — Optimisation seulement après preuves fonctionnelles
 

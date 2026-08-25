@@ -72,3 +72,11 @@ def test_market_sentiment_to_gpu_rl_environment_contract_has_no_lookahead():
     assert prediction["mode"] == "test_injected_client"
     assert prediction["abstain"] is False
     assert prediction["trading_enabled"] is False
+
+    p4_feature = pd.DataFrame({"as_of": [dates[5]], "direction": [prediction["direction"]],
+                               "confidence": [prediction["confidence"]], "abstain": [prediction["abstain"]],
+                               "trading_enabled": [False]})
+    rl_input = integrated.reset_index().rename(columns={"index": "timestamp"})
+    with_p4 = RLDataIntegrator().integrate_p4_prediction_feature(rl_input, p4_feature)
+    assert with_p4.loc[0, "p4_confidence"] == 0.0
+    assert with_p4.loc[5, "p4_direction_score"] == 1.0

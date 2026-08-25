@@ -227,7 +227,8 @@ class MultiAssetTradingEnvironment(gymnasium.Env):
             for symbol in self.symbols:
                 # ``get_all_indicators`` renvoie les indicateurs, pas OHLCV.
                 # La fusion/régime causal a besoin du close réellement observé.
-                features = self.data_dict[symbol][["close", "volume"]].join(
+                p4_columns = [column for column in self.data_dict[symbol].columns if column.startswith("p4_")]
+                features = self.data_dict[symbol][["close", "volume", *p4_columns]].join(
                     TechnicalIndicators(self.data_dict[symbol]).get_all_indicators()
                 )
                 features = add_causal_regime_features(features)

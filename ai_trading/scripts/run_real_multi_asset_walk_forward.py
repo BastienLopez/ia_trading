@@ -27,6 +27,7 @@ from ai_trading.rl.policy_validation import action_diversity_metrics
 from ai_trading.rl.trade_ledger import FifoTradeLedger
 from ai_trading.rl.trading_system import RLTradingSystem
 from ai_trading.rl.walk_forward import build_walk_forward_windows
+from ai_trading.llm.predictions.walk_forward_features import build_causal_p4_features, validate_p2_observations
 from ai_trading.scripts.run_real_market_walk_forward import _fetch_ohlcv, _seed
 
 
@@ -143,6 +144,48 @@ def _common_data(raw: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
     return {symbol: frame.loc[common].copy() for symbol, frame in raw.items()}
 
 
+def _snapshot_name(symbol: str) -> str:
+    return symbol.replace("/", "_").replace("\\", "_")
+
+
+def _frame_hash(frame: pd.DataFrame) -> str:
+    """Empreinte des bougies réellement utilisées, index inclus."""
+    return hashlib.sha256(pd.util.hash_pandas_object(frame, index=True).values.tobytes()).hexdigest()
+
+
+def _write_market_snapshot(path: str | os.PathLike[str], raw: dict[str, pd.DataFrame], args: argparse.Namespace) -> dict[str, Any]:
+    target = Path(path)
+    if target.exists():
+        raise ValueError(f"snapshot marché déjà existant, écrasement refusé: {target}")
+    target.mkdir(parents=True)
+    hashes = {}
+    for symbol, frame in raw.items():
+        frame.to_parquet(target / f"{_snapshot_name(symbol)}.parquet")
+        hashes[symbol] = _frame_hash(frame)
+    manifest = {"schema_version": 1, "assets": list(args.assets), "timeframe": args.timeframe, "hashes": hashes}
+    (target / "market_snapshot_manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    return {"mode": "exported", "path": str(target), "hashes": hashes}
+
+
+def _load_market_snapshot(path: str | os.PathLike[str], args: argparse.Namespace) -> tuple[dict[str, pd.DataFrame], dict[str, Any]]:
+    target, manifest_path = Path(path), Path(path) / "market_snapshot_manifest.json"
+    if not manifest_path.is_file():
+        raise ValueError(f"snapshot marché incomplet: {target}")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if manifest.get("schema_version") != 1 or manifest.get("assets") != list(args.assets) or manifest.get("timeframe") != args.timeframe:
+        raise ValueError("snapshot marché incompatible avec assets/timeframe demandés")
+    raw = {}
+    for symbol in args.assets:
+        data_path = target / f"{_snapshot_name(symbol)}.parquet"
+        if not data_path.is_file():
+            raise ValueError(f"snapshot marché incomplet pour {symbol}: {data_path}")
+        frame = pd.read_parquet(data_path)
+        if _frame_hash(frame) != manifest.get("hashes", {}).get(symbol):
+            raise ValueError(f"intégrité du snapshot marché invalide pour {symbol}")
+        raw[symbol] = frame
+    return _common_data(raw), {"mode": "loaded", "path": str(target), "hashes": manifest["hashes"]}
+
+
 def _slice(data: dict[str, pd.DataFrame], index: pd.Index) -> dict[str, pd.DataFrame]:
     return {symbol: frame.loc[index].copy() for symbol, frame in data.items()}
 
@@ -165,14 +208,18 @@ def _environment(data: dict[str, pd.DataFrame], args: argparse.Namespace, params
         min_trade_fraction=params["min_trade_fraction"],
         min_action_magnitude=params["min_action_magnitude"],
         max_asset_exposure=params["max_asset_exposure"],
-        allow_short=args.allow_short,
-        max_short_exposure=args.max_short_exposure,
-        max_total_short_exposure=args.max_total_short_exposure,
-        short_initial_margin=args.short_initial_margin,
-        short_maintenance_margin=args.short_maintenance_margin,
-        short_borrow_fee_rate=args.short_borrow_fee_rate,
-        max_short_loss_pct=args.max_short_loss_pct,
-        max_short_trailing_drawdown_pct=args.max_short_trailing_drawdown_pct,
+        # Les limites de short appartiennent au candidat évalué. Les valeurs
+        # CLI restent les défauts communs afin que la campagne compare les
+        # candidats avec les mêmes données/frais, sans rendre leurs garde-fous
+        # inactifs silencieusement.
+        allow_short=params.get("allow_short", args.allow_short),
+        max_short_exposure=params.get("max_short_exposure", args.max_short_exposure),
+        max_total_short_exposure=params.get("max_total_short_exposure", args.max_total_short_exposure),
+        short_initial_margin=params.get("short_initial_margin", args.short_initial_margin),
+        short_maintenance_margin=params.get("short_maintenance_margin", args.short_maintenance_margin),
+        short_borrow_fee_rate=params.get("short_borrow_fee_rate", args.short_borrow_fee_rate),
+        max_short_loss_pct=params.get("max_short_loss_pct", args.max_short_loss_pct),
+        max_short_trailing_drawdown_pct=params.get("max_short_trailing_drawdown_pct", args.max_short_trailing_drawdown_pct),
         strict_short_entry=params.get("strict_short_entry", True),
         short_entry_min_confidence=params.get("short_entry_min_confidence", 0.25),
         signal_action_blend=params.get("signal_action_blend", 0.0),
@@ -590,9 +637,99 @@ def _record_test_consumed(registry_path: Path, fingerprint: str, args: argparse.
     registry_path.write_text(json.dumps(registry, indent=2), encoding="utf-8")
 
 
+def _validate_run_inputs(args: argparse.Namespace) -> None:
+    """Échoue avant les téléchargements réseau lorsque la campagne est incompatible."""
+    if args.timeframe != "1d" and "XAU/USD" in args.assets:
+        raise ValueError(
+            "XAU/USD ne fournit que 1d via Yahoo Finance; pour 1h/4h, utilisez --assets BTC/USDT ETH/USDT."
+        )
+    if args.enable_p4_features:
+        if not args.p4_sentiment_observations:
+            raise ValueError("--enable-p4-features requiert --p4-sentiment-observations; aucune donnée P2 fictive n'est autorisée")
+        validate_p2_observations(args.p4_sentiment_observations, args.assets, args.timeframe)
+    if args.diagnostic_signal_action_blend is not None:
+        if args.evaluation_mode != "validation":
+            raise ValueError("--diagnostic-signal-action-blend est réservé à la validation, jamais au holdout")
+        if not 0.0 <= args.diagnostic_signal_action_blend <= 1.0:
+            raise ValueError("--diagnostic-signal-action-blend doit être dans [0, 1]")
+    if args.market_data_snapshot and args.export_market_data_snapshot:
+        raise ValueError("--market-data-snapshot et --export-market-data-snapshot sont exclusifs")
+    if args.market_data_snapshot and not Path(args.market_data_snapshot).is_dir():
+        raise ValueError(f"snapshot marché introuvable: {args.market_data_snapshot}")
+    if args.export_market_data_snapshot and Path(args.export_market_data_snapshot).exists():
+        raise ValueError(f"snapshot marché déjà existant, écrasement refusé: {args.export_market_data_snapshot}")
+
+
+def _write_run_manifest(
+    root: Path, args: argparse.Namespace, candidates: list[dict[str, Any]], windows: list[Any] | None = None,
+    p4_manifest: dict[str, Any] | None = None, market_snapshot: dict[str, Any] | None = None,
+) -> None:
+    """Persiste le protocole réellement exécuté avant toute comparaison d'arms."""
+    payload: dict[str, Any] = {
+        "schema_version": 1,
+        "assets": list(args.assets),
+        "timeframe": args.timeframe,
+        "evaluation_mode": args.evaluation_mode,
+        "window_start": args.window_start,
+        "max_windows": args.max_windows,
+        "candles": {
+            "train": args.train_candles, "validation": args.validation_candles,
+            "test": args.test_candles, "step": args.step_candles,
+        },
+        "validation_seeds": list(args.validation_seeds),
+        "initial_balance": args.initial_balance,
+        "transaction_fee": args.transaction_fee,
+        "allow_short_cli": args.allow_short,
+        "short_limits_cli": {
+            "max_short_exposure": args.max_short_exposure,
+            "max_total_short_exposure": args.max_total_short_exposure,
+            "max_short_loss_pct": args.max_short_loss_pct,
+            "max_short_trailing_drawdown_pct": args.max_short_trailing_drawdown_pct,
+        },
+        "candidate_config": args.candidate_config,
+        "candidate_ids": [entry["candidate_id"] for entry in candidates],
+        "candidate_fingerprints": [entry["parameter_fingerprint"] for entry in candidates],
+        "diagnostic_signal_action_blend": args.diagnostic_signal_action_blend,
+        "p4": {
+            "enabled": bool(args.enable_p4_features), "sentiment_observations": args.p4_sentiment_observations,
+            "horizons": list(args.p4_horizons or [args.timeframe]),
+            "min_train_candles": args.p4_min_train_candles,
+            "retrain_interval": args.p4_retrain_interval,
+        },
+    }
+    if windows is not None:
+        payload["resolved_windows"] = [
+            {
+                "index": window.index,
+                "train": [str(window.train.index[0]), str(window.train.index[-1])],
+                "validation": [str(window.validation.index[0]), str(window.validation.index[-1])],
+                "test": [str(window.test.index[0]), str(window.test.index[-1])],
+            }
+            for window in windows
+        ]
+    if p4_manifest is not None:
+        payload["p4"]["feature_manifest"] = p4_manifest
+    if market_snapshot is not None:
+        payload["market_data_snapshot"] = market_snapshot
+    (root / "run_manifest.json").write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
+
+
 def _run_unlocked(args: argparse.Namespace) -> Path:
     _seed(args.seed)
-    raw = _common_data({asset: _fetch_ohlcv(asset, args) for asset in args.assets})
+    _validate_run_inputs(args)
+    selected_entries = _selected_candidate_entries(args)
+    root = Path(args.output_dir) / datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    root.mkdir(parents=True, exist_ok=False)
+    _write_run_manifest(root, args, selected_entries)
+    if args.market_data_snapshot:
+        raw, market_snapshot = _load_market_snapshot(args.market_data_snapshot, args)
+    else:
+        raw = _common_data({asset: _fetch_ohlcv(asset, args) for asset in args.assets})
+        market_snapshot = (
+            _write_market_snapshot(args.export_market_data_snapshot, raw, args)
+            if args.export_market_data_snapshot else
+            {"mode": "fetched", "hashes": {symbol: _frame_hash(frame) for symbol, frame in raw.items()}}
+        )
     anchor = next(iter(raw.values()))
     all_windows = build_walk_forward_windows(
         anchor, args.train_candles, args.validation_candles, args.test_candles, args.step_candles
@@ -600,18 +737,45 @@ def _run_unlocked(args: argparse.Namespace) -> Path:
     windows = all_windows[args.window_start : args.window_start + args.max_windows]
     if not windows:
         raise ValueError("window-start est hors des fenêtres walk-forward disponibles")
-    root = Path(args.output_dir) / datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    _write_run_manifest(root, args, selected_entries, windows=windows, market_snapshot=market_snapshot)
+    p4_manifest: dict[str, Any] = {"enabled": False, "trading_enabled": False}
+    if args.enable_p4_features:
+        horizons = args.p4_horizons or [args.timeframe]
+        endpoint = max(
+            (window.test.index[-1] if args.evaluation_mode == "final-test" else window.validation.index[-1])
+            for window in windows
+        )
+        p4_input = {symbol: frame.loc[frame.index <= endpoint].copy() for symbol, frame in raw.items()}
+        p4_augmented, p4_manifest = build_causal_p4_features(
+            p4_input, timeframe=args.timeframe, observations_path=args.p4_sentiment_observations,
+            horizons=horizons, output_dir=root / "p4", min_train_candles=args.p4_min_train_candles,
+            retrain_interval=args.p4_retrain_interval,
+        )
+        for symbol, frame in p4_augmented.items():
+            raw[symbol].loc[frame.index, ["p4_confidence", "p4_direction_score", "p4_abstain", "p4_available"]] = frame[
+                ["p4_confidence", "p4_direction_score", "p4_abstain", "p4_available"]
+            ]
+        p4_manifest["enabled"] = True
+    _write_run_manifest(root, args, selected_entries, windows=windows, p4_manifest=p4_manifest,
+                        market_snapshot=market_snapshot)
     feature_context = max(args.window_size, 80)
     rows = []
     for window in windows:
         candidates = []
-        selected_entries = _selected_candidate_entries(args)
         for candidate_slot, candidate in enumerate(selected_entries):
-            params = candidate["parameters"]
+            params = dict(candidate["parameters"])
+            diagnostic = None
+            if args.diagnostic_signal_action_blend is not None:
+                diagnostic = {"signal_action_blend": args.diagnostic_signal_action_blend,
+                              "purpose": "ablation_only_not_p3_locked"}
+                params["signal_action_blend"] = args.diagnostic_signal_action_blend
             candidate_index = candidate["original_candidate_index"]
             candidate_metadata = {
-                key: candidate[key]
-                for key in ("candidate_id", "original_candidate_index", "parameter_fingerprint", "parameters")
+                "candidate_id": candidate["candidate_id"],
+                "original_candidate_index": candidate["original_candidate_index"],
+                "parameter_fingerprint": candidate["parameter_fingerprint"],
+                "parameters": params,
+                "diagnostic": diagnostic,
             }
             seed_metrics = []
             for seed in args.validation_seeds:
@@ -639,7 +803,7 @@ def _run_unlocked(args: argparse.Namespace) -> Path:
                 **candidate_metadata, "metrics": validation_metrics, "eligible": eligible, "reason": reason,
             })
         eligible = [candidate for candidate in candidates if candidate["eligible"]]
-        row: dict[str, Any] = {"window": window.index, "validation_candidates": candidates}
+        row: dict[str, Any] = {"window": window.index, "validation_candidates": candidates, "p4": p4_manifest}
         if eligible:
             selected = max(eligible, key=lambda item: item["metrics"]["strategy"]["total_return"])
             row["selected_parameters"] = selected["parameters"]
@@ -705,6 +869,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--candidate-id", dest="candidate_ids", nargs="+", default=None, help="Sous-ensemble explicite d'IDs issu de --candidate-config.")
     parser.add_argument("--evaluation-mode", choices=("validation", "final-test"), default="validation", help="Validation only par défaut; le holdout ne s'exécute qu'en final-test.")
     parser.add_argument("--oos-registry", default="ai_trading/info_retour/p3_oos_registry.json", help="Registre persistant des fenêtres hors-échantillon consommées.")
+    parser.add_argument("--enable-p4-features", action="store_true", help="Ajoute des features P4 causales aux observations RL; aucun trading réel n'est activé.")
+    parser.add_argument("--p4-sentiment-observations", default=None, help="CSV/Parquet P2 horodaté requis lorsque P4 est activé.")
+    parser.add_argument("--p4-horizons", nargs="+", default=None, help="Horizons P4 compatibles avec --timeframe, par ex. 1h 4h 1d.")
+    parser.add_argument("--p4-min-train-candles", type=int, default=120)
+    parser.add_argument("--p4-retrain-interval", type=int, default=100)
+    parser.add_argument("--diagnostic-signal-action-blend", type=float, default=None,
+                        help="Ablation validation-only ; ne modifie jamais le candidat P3 verrouillé.")
+    parser.add_argument("--market-data-snapshot", default=None,
+                        help="Snapshot P1 immuable à relire pour comparer deux arms sur les mêmes bougies.")
+    parser.add_argument("--export-market-data-snapshot", default=None,
+                        help="Dossier nouveau où persister le snapshot P1 téléchargé; écrasement interdit.")
     parser.add_argument("--seed", type=int, default=42); parser.add_argument("--output-dir", default="ai_trading/info_retour/p3_multi_asset_real")
     return parser.parse_args()
 

@@ -579,3 +579,37 @@ class RLDataIntegrator:
             f"Données intégrées avec succès. Colonnes: {combined_data.columns.tolist()}"
         )
         return combined_data
+
+    def integrate_p4_prediction_feature(self, market_data, predictions):
+        """Ajoute uniquement une feature P4 disponible avant chaque décision RL.
+
+        Cette méthode ne génère aucun ordre et refuse une prédiction présentée
+        comme tradable. L'alignement est causal (backward), jamais par index.
+        """
+        if predictions is None or len(predictions) == 0:
+            return market_data.copy()
+        market = market_data.copy()
+        p4 = predictions.copy()
+        market_time = "timestamp" if "timestamp" in market else "date" if "date" in market else None
+        p4_time = "as_of" if "as_of" in p4 else "timestamp" if "timestamp" in p4 else None
+        if market_time is None or p4_time is None:
+            raise ValueError("P4/RL: timestamps obligatoires pour l'alignement causal")
+        if "trading_enabled" in p4 and p4["trading_enabled"].fillna(False).astype(bool).any():
+            raise ValueError("P4/RL: une prédiction P4 ne peut pas activer le trading")
+        market[market_time] = pd.to_datetime(market[market_time], utc=True, errors="coerce")
+        p4[p4_time] = pd.to_datetime(p4[p4_time], utc=True, errors="coerce")
+        if market[market_time].isna().any() or p4[p4_time].isna().any():
+            raise ValueError("P4/RL: timestamps P4 invalides")
+        p4 = p4[p4[p4_time] <= market[market_time].max()].sort_values(p4_time)
+        confidence = p4["confidence"] if "confidence" in p4 else pd.Series(0.0, index=p4.index)
+        abstain = p4["abstain"] if "abstain" in p4 else pd.Series(True, index=p4.index)
+        direction = p4["direction"] if "direction" in p4 else pd.Series("neutral", index=p4.index)
+        source = pd.DataFrame({p4_time: p4[p4_time], "p4_confidence": pd.to_numeric(confidence, errors="coerce").fillna(0.0),
+                               "p4_abstain": abstain.fillna(True).astype(float),
+                               "p4_direction_score": direction.map({"bearish": -1.0, "neutral": 0.0, "bullish": 1.0}).fillna(0.0)})
+        result = pd.merge_asof(market.sort_values(market_time), source, left_on=market_time, right_on=p4_time,
+                               direction="backward", allow_exact_matches=True).drop(columns=[p4_time], errors="ignore")
+        result[["p4_confidence", "p4_abstain", "p4_direction_score"]] = result[
+            ["p4_confidence", "p4_abstain", "p4_direction_score"]
+        ].fillna({"p4_confidence": 0.0, "p4_abstain": 1.0, "p4_direction_score": 0.0})
+        return result

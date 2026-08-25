@@ -268,7 +268,8 @@ class UncertaintyCalibrator:
                                X: np.ndarray, 
                                y: np.ndarray,
                                n_splits: int = 5,
-                               random_state: int = 42) -> Dict[str, Any]:
+                               random_state: int = 42,
+                               min_valid_folds: int = 1) -> Dict[str, Any]:
         """
         Effectue une validation croisée pour évaluer la calibration du modèle.
         
@@ -291,13 +292,22 @@ class UncertaintyCalibrator:
         if len(X) != len(y) or len(X) <= n_splits:
             return {"error": "Données insuffisantes pour walk-forward"}
         splitter = TimeSeriesSplit(n_splits=n_splits)
-        oos_probabilities, oos_targets = [], []
+        oos_probabilities, oos_targets, valid_folds = [], [], 0
+        templates = getattr(self.prediction_model, "calibration_model_templates", None) or self.prediction_model.ml_model
         for train_index, test_index in splitter.split(X):
             fold_probabilities = []
             if len(np.unique(y[train_index])) < 2:
                 continue
-            for model in self.prediction_model.ml_model:
-                fitted = clone(model).fit(X[train_index], y[train_index])
+            for model in templates:
+                try:
+                    if getattr(self.prediction_model, "config", {}).get("require_temporal_calibration", False):
+                        fitted = self.prediction_model._temporal_prefit_calibration(
+                            clone(model), X[train_index], y[train_index]
+                        )
+                    else:
+                        fitted = clone(model).fit(X[train_index], y[train_index])
+                except (ValueError, TypeError):
+                    continue
                 raw = fitted.predict_proba(X[test_index])
                 expanded = np.zeros((len(test_index), 3), dtype=float)
                 for column, class_id in enumerate(fitted.classes_):
@@ -310,12 +320,14 @@ class UncertaintyCalibrator:
             probabilities /= probabilities.sum(axis=1, keepdims=True)
             oos_probabilities.append(probabilities)
             oos_targets.append(y[test_index])
-        if not oos_probabilities:
-            return {"error": "Aucun pli walk-forward exploitable"}
+            valid_folds += 1
+        if valid_folds < min_valid_folds:
+            return {"error": f"Plis walk-forward calibrés insuffisants: {valid_folds}/{min_valid_folds}"}
         probabilities = np.vstack(oos_probabilities)
         targets = np.concatenate(oos_targets)
         result = self.fit_calibration(probabilities, targets)
-        result.update({"n_splits": n_splits, "validation_type": "walk_forward", "timestamp": datetime.now().isoformat()})
+        result.update({"n_splits": n_splits, "valid_folds": valid_folds,
+                       "validation_type": "walk_forward", "timestamp": datetime.now().isoformat()})
         
         # Stocker le résultat
         self.calibration_results["cross_validation"] = result

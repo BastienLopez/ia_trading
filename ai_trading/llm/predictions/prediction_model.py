@@ -14,18 +14,64 @@ import torch.nn as nn
 from sklearn.base import clone
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
+from sklearn.isotonic import IsotonicRegression
+from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
 from sklearn.model_selection import TimeSeriesSplit
 from sklearn.preprocessing import StandardScaler
 
 import ai_trading.config as config
 from ai_trading.llm.predictions.market_predictor import MarketPredictor
+from ai_trading.llm.predictions.market_safety import MarketSafetyGuard
 from ai_trading.llm.predictions.model_ensemble import ModelEnsemble
 from ai_trading.llm.predictions.prediction_contract import PredictionInputError, align_market_and_sentiment
 from ai_trading.llm.predictions.rtx_optimizer import RTXOptimizer, detect_rtx_gpu
 from ai_trading.utils import setup_logger
 
 logger = setup_logger("prediction_model")
+
+
+class TemporalProbabilityCalibrator:
+    """Calibration post-fit sur un segment strictement ultérieur.
+
+    ``CalibratedClassifierCV(FrozenEstimator(...))`` applique encore une CV
+    stratifiée par défaut dans scikit-learn 1.7. Cette classe évite ce chemin :
+    le modèle est appris sur le passé, les transformateurs de probabilités sur
+    le segment suivant, et aucune permutation/stratification n'est effectuée.
+    """
+
+    def __init__(self, estimator: Any, method: str = "sigmoid"):
+        if method not in {"sigmoid", "isotonic"}:
+            raise ValueError("calibration_method doit être sigmoid ou isotonic")
+        self.estimator, self.method = estimator, method
+        self.classes_ = np.asarray(estimator.classes_)
+        self.calibrators: list[Any] = []
+
+    def fit(self, X: np.ndarray, y: np.ndarray) -> "TemporalProbabilityCalibrator":
+        probabilities, targets = self.estimator.predict_proba(X), np.asarray(y)
+        self.calibrators = []
+        for position, class_id in enumerate(self.classes_):
+            binary = (targets == class_id).astype(int)
+            if binary.min() == binary.max():
+                raise PredictionInputError("calibration temporelle: support insuffisant pour une classe")
+            if self.method == "sigmoid":
+                calibrator = LogisticRegression(C=1e6, solver="lbfgs", random_state=42)
+                calibrator.fit(probabilities[:, [position]], binary)
+            else:
+                calibrator = IsotonicRegression(out_of_bounds="clip")
+                calibrator.fit(probabilities[:, position], binary)
+            self.calibrators.append(calibrator)
+        return self
+
+    def predict_proba(self, X: np.ndarray) -> np.ndarray:
+        probabilities = self.estimator.predict_proba(X)
+        calibrated = np.column_stack([
+            calibrator.predict_proba(probabilities[:, [position]])[:, 1]
+            if self.method == "sigmoid" else calibrator.predict(probabilities[:, position])
+            for position, calibrator in enumerate(self.calibrators)
+        ])
+        calibrated = np.clip(calibrated, 1e-8, 1.0)
+        return calibrated / calibrated.sum(axis=1, keepdims=True)
 
 
 class PredictionNN(nn.Module):
@@ -65,7 +111,9 @@ class PredictionModel:
             if key in self.config:
                 predictor_config[key] = self.config[key]
         self.market_predictor = self.config.get("market_predictor") or MarketPredictor(predictor_config)
+        self.market_safety_guard = self.config.get("market_safety_guard") or MarketSafetyGuard()
         self.ml_model: List[Any] = []
+        self.calibration_model_templates: List[Any] = []
         self.scaler: Optional[StandardScaler] = None
         self.feature_columns: List[str] = []
         self.target_column = "direction"
@@ -107,11 +155,14 @@ class PredictionModel:
                     label_source.index = pd.to_datetime(label_source[timestamp_col], utc=True)
                 labels = label_source["direction"].reindex(aligned.index).map(self.direction_mapping)
             else:
-                future_return = aligned["close"].shift(-1) / aligned["close"] - 1
+                horizon_steps = int(self.config.get("prediction_horizon_steps", 1))
+                if horizon_steps < 1:
+                    raise PredictionInputError("prediction_horizon_steps doit être >= 1")
+                future_return = aligned["close"].shift(-horizon_steps) / aligned["close"] - 1
                 labels = pd.Series(1, index=aligned.index, dtype=float)
                 labels[future_return > float(self.config.get("bullish_threshold", 0.002))] = 2
                 labels[future_return < -float(self.config.get("bearish_threshold", 0.002))] = 0
-                labels.iloc[-1] = np.nan
+                labels.iloc[-horizon_steps:] = np.nan
         excluded = {"asset", "timeframe", "source", "sentiment_source", "as_of", "direction", "future_return", "direction_code"}
         features = aligned[[column for column in aligned.columns if column not in excluded and pd.api.types.is_numeric_dtype(aligned[column])]].copy()
         features = features.replace([np.inf, -np.inf], np.nan).ffill().fillna(0.0)
@@ -126,6 +177,8 @@ class PredictionModel:
         return features, labels
 
     def _calibrate(self, estimator: Any, X: np.ndarray, y: pd.Series) -> Any:
+        if self.config.get("require_temporal_calibration", False):
+            return self._temporal_prefit_calibration(estimator, X, y)
         splits = min(3, max(2, len(X) // 20))
         try:
             cv = TimeSeriesSplit(n_splits=splits)
@@ -135,8 +188,31 @@ class PredictionModel:
                 calibrated = CalibratedClassifierCV(base_estimator=clone(estimator), method=self.calibration_method, cv=cv)
             return calibrated.fit(X, y)
         except ValueError as error:
+            if self.config.get("require_temporal_calibration", False):
+                raise PredictionInputError(f"calibration temporelle invalide: {error}") from error
             logger.warning("Calibration indisponible, modèle brut conservé: %s", error)
             return estimator.fit(X, y)
+
+    def _temporal_prefit_calibration(self, estimator: Any, X: np.ndarray, y: pd.Series) -> Any:
+        """Calibre sur le segment chronologiquement postérieur au fit.
+
+        ``CalibratedClassifierCV(TimeSeriesSplit)`` échoue dès qu'un pli ancien
+        contient une classe rare. Cette partition explicite reste causale tout
+        en refusant les historiques qui ne contiennent pas deux classes dans
+        chacun des segments fit/calibration.
+        """
+        values = np.asarray(X)
+        targets = np.asarray(y, dtype=int)
+        calibration_size = max(20, int(np.ceil(len(values) * 0.20)))
+        fit_end = len(values) - calibration_size
+        if fit_end < 20 or len(np.unique(targets[:fit_end])) < 2 or len(np.unique(targets[fit_end:])) < 2:
+            raise PredictionInputError("calibration temporelle: classes insuffisantes dans les segments causaux")
+        fitted = clone(estimator).fit(values[:fit_end], targets[:fit_end])
+        calibrated = TemporalProbabilityCalibrator(fitted, method=self.calibration_method)
+        try:
+            return calibrated.fit(values[fit_end:], targets[fit_end:])
+        except ValueError as error:
+            raise PredictionInputError(f"calibration temporelle invalide: {error}") from error
 
     def train(self, market_data: pd.DataFrame, sentiment_data: Optional[pd.DataFrame], as_of: Optional[Any] = None) -> Dict[str, Any]:
         X, y = self._prepare_data(market_data, sentiment_data, True, as_of)
@@ -150,14 +226,26 @@ class PredictionModel:
             RandomForestClassifier(n_estimators=120, max_depth=8, min_samples_leaf=2, random_state=42, n_jobs=1),
             GradientBoostingClassifier(n_estimators=100, learning_rate=0.05, max_depth=3, random_state=42),
         ]
+        self.calibration_model_templates = candidates
         self.ml_model = [self._calibrate(model, train_scaled, y_train) for model in candidates]
         probabilities = self._predict_proba(test_scaled)
         predictions = probabilities.argmax(axis=1)
         # Calibration sur prédictions walk-forward du train, puis rapport séparé sur le test final.
         from ai_trading.llm.predictions.uncertainty_calibration import UncertaintyCalibrator
         calibrator = UncertaintyCalibrator(self)
-        validation = calibrator.perform_cross_validation(train_scaled, y_train.to_numpy(), n_splits=3)
+        try:
+            validation = calibrator.perform_cross_validation(
+                train_scaled, y_train.to_numpy(), n_splits=3,
+                min_valid_folds=int(self.config.get("min_calibrated_oos_folds", 2)),
+            )
+        except ValueError as error:
+            if self.config.get("require_temporal_calibration", False):
+                raise PredictionInputError(f"validation temporelle invalide: {error}") from error
+            logger.warning("Validation walk-forward indisponible: %s", error)
+            validation = {"error": str(error), "validation_type": "timeseries_walk_forward"}
         if validation.get("error"):
+            if self.config.get("require_temporal_calibration", False):
+                raise PredictionInputError(f"validation temporelle invalide: {validation['error']}")
             calibration_report = {"validation": validation, "test": {"error": "validation_oos_indisponible"}}
         else:
             validation_probabilities = np.asarray(validation["probabilities"], dtype=float)
@@ -248,13 +336,25 @@ class PredictionModel:
                 ml_prediction = self._get_ml_prediction(features)
                 confidence = float(ml_prediction["confidence"])
                 abstain = confidence < float(self.config.get("min_prediction_confidence", 0.45))
-                return {
+                result = {
                     **ml_prediction, "direction": "neutral" if abstain else ml_prediction["direction"],
                     "abstain": abstain, "asset": asset.upper(), "timeframe": timeframe,
                     "as_of": str(as_of) if as_of is not None else None, "hybrid_status": "ml_only_ready",
                     "mode": "ml_only", "trading_enabled": False,
                     "data_version": self.market_predictor._resolve_inputs(asset, timeframe, raw_market, raw_sentiment, as_of)[1].fingerprint,
                 }
+                safety_sentiment = raw_sentiment
+                if raw_sentiment is not None and as_of is not None:
+                    timestamp_column = next((column for column in ("timestamp", "date", "datetime") if column in raw_sentiment), None)
+                    if timestamp_column is not None:
+                        cutoff = pd.Timestamp(as_of)
+                        cutoff = cutoff.tz_localize("UTC") if cutoff.tzinfo is None else cutoff.tz_convert("UTC")
+                        safety_sentiment = raw_sentiment[
+                            pd.to_datetime(raw_sentiment[timestamp_column], utc=True, errors="coerce") <= cutoff
+                        ]
+                return self.market_safety_guard.apply(
+                    result, self.market_safety_guard.assess(raw_market, safety_sentiment, as_of)
+                )
             except Exception as error:
                 return {
                     "asset": asset.upper(), "timeframe": timeframe, "direction": "neutral", "confidence": 0.0,

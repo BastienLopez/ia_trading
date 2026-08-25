@@ -8,6 +8,9 @@ et les modèles hybrides, en utilisant des techniques comme SHAP et LIME.
 import json
 import logging
 import os
+import time
+from html import escape
+from pathlib import Path
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -15,9 +18,6 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-import shap
-import lime
-import lime.lime_tabular
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
@@ -37,7 +37,8 @@ class PredictionExplainer:
     les prédictions et générer des visualisations et des rapports explicatifs.
     """
     
-    def __init__(self, prediction_model=None, market_data: Optional[pd.DataFrame] = None):
+    def __init__(self, prediction_model=None, market_data: Optional[pd.DataFrame] = None,
+                 output_dir: Optional[str] = None, max_explanation_seconds: float = 10.0):
         """
         Initialise l'analyseur d'explicabilité des prédictions.
         
@@ -49,6 +50,8 @@ class PredictionExplainer:
         self.market_data = market_data
         self.explainers = {}
         self.explanations = {}
+        self.output_dir = Path(output_dir or "reports/p4")
+        self.max_explanation_seconds = float(max_explanation_seconds)
         
         # Vérifiez le type de modèle pour adapter l'explication
         if isinstance(prediction_model, PredictionModel):
@@ -94,9 +97,13 @@ class PredictionExplainer:
             
             # Initialiser l'explainer SHAP
             try:
-                # Créer un explainer approprié selon le type de modèle
+                # Import coûteux seulement si SHAP est explicitement demandé.
+                started = time.monotonic()
+                import shap
                 explainer = shap.Explainer(ml_model, X)
                 shap_values = explainer(X)
+                if time.monotonic() - started > self.max_explanation_seconds:
+                    return {"error": "shap_budget_exceeded", "message": "Budget temps SHAP dépassé"}
                 
                 # Préparer le résultat
                 shap_explanation = {
@@ -152,8 +159,10 @@ class PredictionExplainer:
             X = feature_data.select_dtypes(include=[np.number])
             
             try:
-                # Créer un explainer LIME
-                lime_explainer = lime.lime_tabular.LimeTabularExplainer(
+                # Import coûteux seulement si LIME est explicitement demandé.
+                started = time.monotonic()
+                from lime.lime_tabular import LimeTabularExplainer
+                lime_explainer = LimeTabularExplainer(
                     X.values,
                     feature_names=X.columns,
                     class_names=["bearish", "neutral", "bullish"],
@@ -170,6 +179,8 @@ class PredictionExplainer:
                     predict_fn, 
                     num_features=10
                 )
+                if time.monotonic() - started > self.max_explanation_seconds:
+                    return {"error": "lime_budget_exceeded", "message": "Budget temps LIME dépassé"}
                 
                 # Extraire les explications
                 explanation_tuples = exp.as_list()
@@ -353,8 +364,6 @@ class PredictionExplainer:
         Returns:
             Dictionnaire contenant le HTML et les métadonnées
         """
-        # Ici, on générerait un vrai rapport HTML
-        # Pour l'instant, on simule simplement
         html_content = f"""
         <html>
         <head>
@@ -386,8 +395,13 @@ class PredictionExplainer:
         </html>
         """
         
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        prediction_id = str(report["prediction"].get("id", "unknown"))
+        path = self.output_dir / f"prediction_{prediction_id}.html"
+        path.write_text(html_content, encoding="utf-8")
         report_result = report.copy()
         report_result["html_content"] = html_content
+        report_result["html_path"] = str(path)
         
         return report_result
     
@@ -401,11 +415,22 @@ class PredictionExplainer:
         Returns:
             Dictionnaire contenant le chemin du PDF et les métadonnées
         """
-        # Dans une implémentation réelle, on générerait un PDF
-        # Pour l'instant, simuler un chemin de fichier
-        
+        from matplotlib.backends.backend_pdf import PdfPages
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        path = self.output_dir / f"prediction_{report['prediction'].get('id', 'unknown')}.pdf"
+        with PdfPages(path) as pdf:
+            figure, axis = plt.subplots(figsize=(8.27, 11.69))
+            axis.axis("off")
+            factors = ", ".join(map(str, report["comparative_analysis"].get("common_factors", []))) or "Aucun"
+            axis.text(0.05, 0.95, "Rapport P4 d'explicabilité", va="top", fontsize=16, weight="bold")
+            axis.text(0.05, 0.86, f"Actif : {report['prediction'].get('asset', 'Unknown')}\n"
+                      f"Direction : {report['prediction'].get('direction', 'Unknown')}\n"
+                      f"Confiance : {report['prediction'].get('confidence', 'Unknown')}\n"
+                      f"Facteurs : {factors}", va="top", wrap=True)
+            pdf.savefig(figure, bbox_inches="tight")
+            plt.close(figure)
         report_result = report.copy()
-        report_result["pdf_path"] = f"reports/prediction_{report['prediction'].get('id', 'unknown')}.pdf"
+        report_result["pdf_path"] = str(path)
         
         return report_result
     
@@ -550,4 +575,4 @@ explainer = PredictionExplainer(prediction_model)
 explanation = explainer.explain_with_shap(prediction, feature_data)
 report = explainer.generate_report(prediction)
 explainer.plot_shap_summary()
-""" 
+"""

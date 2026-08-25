@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "comparison_id": "p3-p4-validation-windows-4-8-v1",
+  "evaluation_mode": "validation",
+  "windows": [4, 5, 6, 7, 8],
+  "validation_seeds": [73, 211, 997],
+  "transaction_fee": 0.001,
+  "candidate_id": "p3-research-baseline-bf72563778749e59",
+  "required_metrics": ["total_return", "profit_factor", "expectancy", "brier_score", "ece", "coverage"],
+  "promotion_rule": {
+    "minimum_p4_better_windows": 3,
+    "require_positive_median_delta": true,
+    "require_p4_above_buy_and_hold_median": true,
+    "require_positive_profit_factor_and_expectancy_each_window": true
+  }
+}

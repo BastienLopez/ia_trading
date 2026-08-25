@@ -1,0 +1,98 @@
+{
+  "schema_version": 1,
+  "candidates": [
+    {
+      "candidate_id": "p3-research-baseline-bf72563778749e59",
+      "original_candidate_index": 2,
+      "parameter_fingerprint": "bf72563778749e59",
+      "parameters": {
+        "agent_type": "ppo",
+        "hidden_size": 64,
+        "learning_rate": 0.0005,
+        "base_slippage": 0.001,
+        "max_active_positions": 3,
+        "rebalance_frequency": 7,
+        "min_trade_fraction": 0.03,
+        "min_action_magnitude": 0.03,
+        "max_asset_exposure": 0.35,
+        "signal_action_blend": 0.45,
+        "strict_short_entry": true,
+        "short_entry_min_confidence": 0.3,
+        "turnover_reward_penalty": 0.0005
+      },
+      "source_runs": ["p3-bf72563778749e59-baseline-preserved"],
+      "original_seeds": [73, 211, 997]
+    },
+    {
+      "candidate_id": "p3-research-rl-only-4af21c43891988d3",
+      "original_candidate_index": 2,
+      "parameter_fingerprint": "4af21c43891988d3",
+      "parameters": {
+        "agent_type": "ppo",
+        "hidden_size": 64,
+        "learning_rate": 0.0005,
+        "base_slippage": 0.001,
+        "max_active_positions": 3,
+        "rebalance_frequency": 7,
+        "min_trade_fraction": 0.03,
+        "min_action_magnitude": 0.03,
+        "max_asset_exposure": 0.35,
+        "signal_action_blend": 0.0,
+        "strict_short_entry": true,
+        "short_entry_min_confidence": 0.3,
+        "turnover_reward_penalty": 0.0005
+      },
+      "source_runs": ["p3-bf72563778749e59-ablation-preregistered"],
+      "original_seeds": [73, 211, 997]
+    },
+    {
+      "candidate_id": "p3-research-low-blend-46587c787cb0615f",
+      "original_candidate_index": 2,
+      "parameter_fingerprint": "46587c787cb0615f",
+      "parameters": {
+        "agent_type": "ppo",
+        "hidden_size": 64,
+        "learning_rate": 0.0005,
+        "base_slippage": 0.001,
+        "max_active_positions": 3,
+        "rebalance_frequency": 7,
+        "min_trade_fraction": 0.03,
+        "min_action_magnitude": 0.03,
+        "max_asset_exposure": 0.35,
+        "signal_action_blend": 0.15,
+        "strict_short_entry": true,
+        "short_entry_min_confidence": 0.45,
+        "max_short_exposure": 0.1,
+        "max_total_short_exposure": 0.15,
+        "max_short_loss_pct": 0.05,
+        "max_short_trailing_drawdown_pct": 0.06,
+        "turnover_reward_penalty": 0.0005
+      },
+      "source_runs": ["p3-bf72563778749e59-short-risk-review"],
+      "original_seeds": [73, 211, 997]
+    },
+    {
+      "candidate_id": "p3-research-long-only-44edc146d6504c67",
+      "original_candidate_index": 2,
+      "parameter_fingerprint": "44edc146d6504c67",
+      "parameters": {
+        "agent_type": "ppo",
+        "hidden_size": 64,
+        "learning_rate": 0.0005,
+        "base_slippage": 0.001,
+        "max_active_positions": 3,
+        "rebalance_frequency": 7,
+        "min_trade_fraction": 0.03,
+        "min_action_magnitude": 0.03,
+        "max_asset_exposure": 0.35,
+        "signal_action_blend": 0.15,
+        "allow_short": false,
+        "strict_short_entry": true,
+        "short_entry_min_confidence": 0.3,
+        "turnover_reward_penalty": 0.0005
+      },
+      "source_runs": ["p3-bf72563778749e59-short-risk-review"],
+      "original_seeds": [73, 211, 997]
+    }
+  ]
+}

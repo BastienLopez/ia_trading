@@ -28,7 +28,7 @@ def _as_utc_timestamp(value: Optional[Any]) -> pd.Timestamp:
     return timestamp.tz_convert("UTC")
 
 
-def _timestamp_index(frame: pd.DataFrame, label: str) -> pd.DataFrame:
+def _timestamp_index(frame: pd.DataFrame, label: str, allow_duplicates: bool = False) -> pd.DataFrame:
     if frame is None or frame.empty:
         raise PredictionInputError(f"{label}: aucune donnée disponible")
     result = frame.copy()
@@ -45,7 +45,7 @@ def _timestamp_index(frame: pd.DataFrame, label: str) -> pd.DataFrame:
     if timestamps.isna().any():
         raise PredictionInputError(f"{label}: horodatage invalide")
     result.index = pd.DatetimeIndex(timestamps, name="timestamp")
-    if result.index.has_duplicates:
+    if result.index.has_duplicates and not allow_duplicates:
         raise PredictionInputError(f"{label}: horodatages dupliqués")
     return result.sort_index()
 
@@ -113,7 +113,9 @@ def aggregate_sentiment_data(
 ) -> pd.DataFrame:
     """Normalise P2 en score continu, provenance et qualité, sans valeur future."""
     cutoff = _as_utc_timestamp(as_of)
-    sentiment = _validate_identity(_timestamp_index(sentiment_data, "sentiment"), "sentiment", asset, timeframe)
+    sentiment = _validate_identity(
+        _timestamp_index(sentiment_data, "sentiment", allow_duplicates=True), "sentiment", asset, timeframe
+    )
     if (sentiment.index > cutoff).any():
         raise PredictionInputError("sentiment: données futures par rapport à as_of")
     score_columns = [
@@ -131,6 +133,21 @@ def aggregate_sentiment_data(
     sentiment["source"] = sentiment["source"].astype(str)
     quality = sentiment["quality"] if "quality" in sentiment.columns else pd.Series(1.0, index=sentiment.index)
     sentiment["quality"] = pd.to_numeric(quality, errors="coerce").fillna(0.0).clip(0.0, 1.0)
+    if sentiment.index.has_duplicates:
+        aggregated = []
+        for timestamp, group in sentiment.groupby(level=0, sort=True):
+            weights = group["quality"].to_numpy(dtype=float)
+            scores = group["sentiment_score"].to_numpy(dtype=float)
+            score = float(np.average(scores, weights=weights)) if weights.sum() > 0 else float(scores.mean())
+            aggregated.append({
+                "timestamp": timestamp,
+                "asset": group["asset"].iloc[0],
+                "timeframe": group["timeframe"].iloc[0],
+                "sentiment_score": score,
+                "source": "|".join(sorted(group["source"].astype(str).unique())),
+                "quality": float(group["quality"].mean()),
+            })
+        sentiment = pd.DataFrame(aggregated).set_index("timestamp")
     sentiment["as_of"] = cutoff
     latest_timestamp = sentiment.index.max()
     freshness = cutoff - latest_timestamp

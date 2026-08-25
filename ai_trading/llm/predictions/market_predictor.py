@@ -22,6 +22,7 @@ import torch
 
 import ai_trading.config as config
 from ai_trading.llm.predictions.cache_manager import CacheManager
+from ai_trading.llm.predictions.market_safety import MarketSafetyGuard
 from ai_trading.llm.predictions.prediction_contract import (
     PredictionContext,
     PredictionInputError,
@@ -108,6 +109,7 @@ class MarketPredictor:
         self.max_tokens = int(self.config.get("max_tokens", 1000))
         self.client = self.config.get("llm_client")
         self.require_sentiment = bool(self.config.get("require_sentiment", True))
+        self.market_safety_guard = self.config.get("market_safety_guard") or MarketSafetyGuard()
         self.llm_timeout_seconds = float(self.config.get("llm_timeout_seconds", 10.0))
         self.market_data_provider = self.config.get("market_data_provider") or P1MarketDataProvider(
             collector=self.config.get("data_collector"), days=int(self.config.get("market_history_days", 30))
@@ -256,6 +258,9 @@ class MarketPredictor:
                     prediction["confidence"] = self.get_confidence_score(prediction)
                     prediction["confidence_label"] = self._confidence_label(prediction["confidence"])
                     prediction["abstain"] = False
+                    prediction = self.market_safety_guard.apply(
+                        prediction, self.market_safety_guard.assess(data, as_of=context.as_of)
+                    )
                     if self.rtx_optimizer:
                         prediction["gpu_info"] = self.rtx_optimizer.get_optimization_info()
                     self.predictions_history[prediction["id"]] = prediction
